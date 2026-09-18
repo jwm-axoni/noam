@@ -15,7 +15,7 @@
     "build": "turbo run build",
     "build:desktop": "pnpm --filter desktop tauri build",
     "check:publication": "node ../scripts/check-publication.mjs --scope tree",
-    "test:publication": "node ../scripts/check-publication.test.mjs && node ../scripts/check-push.test.mjs",
+    "test:publication": "node ../scripts/check-publication.test.mjs && node ../scripts/check-push.test.mjs && node ../scripts/install-git-guards.test.mjs",
     "test": "pnpm run test:publication && node ../scripts/check-publication.mjs --scope tree && turbo run test"
   },
   "devDependencies": {

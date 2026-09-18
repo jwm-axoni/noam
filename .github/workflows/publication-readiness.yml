@@ -34,6 +34,7 @@ jobs:
         run: |
           node scripts/check-publication.test.mjs
           node scripts/check-push.test.mjs
+          node scripts/install-git-guards.test.mjs
 
       - name: Scan current repository contents
         run: node scripts/check-publication.mjs --scope tree --fail-on-review

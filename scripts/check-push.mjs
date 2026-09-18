@@ -82,9 +82,11 @@ for (const fields of updates) {
   const [, localObject, , remoteObject] = fields;
   if (localObject === zeroObject) continue;
 
-  const ancestry = run("git", ["merge-base", "--is-ancestor", policy.cleanRootCommit, localObject], options.root);
-  if (ancestry.status !== 0) {
-    fail("outgoing history does not descend from the approved clean root commit.");
+  // Every root commit reachable from the tip must be the clean root: an ancestry check alone lets a
+  // merge with --allow-unrelated-histories graft old history in beside it.
+  const roots = run("git", ["rev-list", "--max-parents=0", localObject], options.root);
+  if (roots.status !== 0 || roots.stdout.trim() !== policy.cleanRootCommit) {
+    fail("outgoing history does not descend solely from the approved clean root commit.");
     continue;
   }
   ranges.add(remoteObject === zeroObject ? localObject : `${remoteObject}..${localObject}`);

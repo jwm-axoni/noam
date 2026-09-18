@@ -115,7 +115,17 @@ test("rejects unrelated history even when the destination is approved", () => {
   const unrelated = git(fixture.root, ["commit-tree", tree, "-m", "Unrelated root"]);
   const result = runGuard(fixture, { localObject: unrelated });
   assert.equal(result.status, 1, result.stderr || result.stdout);
-  assert.match(result.stderr, /does not descend from the approved clean root/);
+  assert.match(result.stderr, /does not descend solely from the approved clean root/);
+});
+
+test("rejects old history grafted in by an unrelated-history merge", () => {
+  const fixture = createFixture();
+  const tree = git(fixture.root, ["write-tree"]);
+  const oldRoot = git(fixture.root, ["commit-tree", tree, "-m", "Old repository root"]);
+  const merge = git(fixture.root, ["commit-tree", tree, "-p", fixture.cleanRoot, "-p", oldRoot, "-m", "Graft old history"]);
+  const result = runGuard(fixture, { localObject: merge, remoteObject: fixture.cleanRoot });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /does not descend solely from the approved clean root/);
 });
 
 test("rejects private content that was committed and later removed", () => {

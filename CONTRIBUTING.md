@@ -65,9 +65,12 @@ Run the relevant suites before opening a PR:
 Run `pnpm run setup:guards` from `app/` after cloning. `pnpm install` also runs
 this setup automatically. The local hooks then check the exact staged snapshot
 before every commit and the complete outgoing commit range before every push.
+Setup copies the hooks from `.githooks/` into the Git directory, so they keep
+running on a checkout that lacks that folder; rerun it after changing a hook.
 
 The push guard only permits this repository's approved GitHub destination and
-requires every outgoing branch to descend from the clean public root commit.
+requires every outgoing branch to descend from the clean public root commit and
+from no other root, so a merge that grafts in unrelated old history is refused.
 It also runs both the publication policy and gitleaks over history, so adding a
 private value and deleting it in a later commit still blocks the push. The
 commit and push hooks refuse to run without gitleaks installed.
