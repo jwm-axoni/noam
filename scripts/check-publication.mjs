@@ -118,9 +118,8 @@ function candidatesForLine(line) {
   return candidates;
 }
 
-function redact(line, match) {
-  if (!match) return "[redacted]";
-  return line.replace(match, "[redacted]").slice(0, 240);
+function redact(line, rules) {
+  return rules.reduce((text, rule) => text.replace(rule.redactor, "[redacted]"), line).slice(0, 240);
 }
 
 function createScanner(policy) {
@@ -129,11 +128,14 @@ function createScanner(policy) {
   const regexRules = (policy.regexRules ?? []).map((rule) => ({
     ...rule,
     regex: new RegExp(rule.pattern, rule.flags),
+    redactor: new RegExp(rule.pattern, `${(rule.flags ?? "").replace("g", "")}g`),
   }));
 
   return (text, path, scope = "tree", policyPath = path) => {
     const findings = [];
     const lines = text.split(/\r?\n/);
+    const activeRules = regexRules.filter((rule) =>
+      (!rule.scopes || rule.scopes.includes(scope)) && !rule.allowedPaths?.includes(policyPath));
 
     lines.forEach((line, index) => {
       for (const candidate of candidatesForLine(line)) {
@@ -149,13 +151,11 @@ function createScanner(policy) {
         }
       }
 
-      for (const rule of regexRules) {
-        if (rule.scopes && !rule.scopes.includes(scope)) continue;
-        if (rule.allowedPaths?.includes(policyPath)) continue;
+      for (const rule of activeRules) {
         rule.regex.lastIndex = 0;
         const match = rule.regex.exec(line);
         if (!match) continue;
-        findings.push({ severity: rule.severity, rule: rule.id, path, line: index + 1, evidence: redact(line, match[0]) });
+        findings.push({ severity: rule.severity, rule: rule.id, path, line: index + 1, evidence: redact(line, activeRules) });
       }
     });
 

@@ -33,7 +33,10 @@ Key invariants you must not break (details in `CLAUDE.md`):
 
 ## Development setup
 
-Prerequisites: Node ≥ 22, Rust/Cargo, Docker. From `app/`, run `pnpm install` once.
+Prerequisites: Node ≥ 22, Rust/Cargo, Docker, and
+[gitleaks](https://github.com/gitleaks/gitleaks#installing) on your `PATH`
+(for example, `brew install gitleaks` on macOS). From `app/`, run
+`pnpm install` once.
 
 **Server** (from `app/apps/server/`):
 
@@ -66,7 +69,16 @@ before every commit and the complete outgoing commit range before every push.
 The push guard only permits this repository's approved GitHub destination and
 requires every outgoing branch to descend from the clean public root commit.
 It also runs both the publication policy and gitleaks over history, so adding a
-private value and deleting it in a later commit still blocks the push.
+private value and deleting it in a later commit still blocks the push. The
+commit and push hooks refuse to run without gitleaks installed.
+
+The one other push target the guard accepts is the local no-mistakes validation
+gate: a remote named `no-mistakes` whose URL is an absolute path of the form
+`…/.no-mistakes/repos/<12 hex>.git`. It is a bare repository on your own disk
+that the required validation pipeline pushes through, not a publication
+destination. The remote name alone grants nothing: any other URL under that
+name is rejected, and pushes to the gate still pass the lineage, history and
+gitleaks checks.
 
 Git hooks can be skipped locally, so GitHub repeats the full checks in the
 required `publication-readiness` workflow. Do not merge while that check is

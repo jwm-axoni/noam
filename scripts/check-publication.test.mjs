@@ -107,3 +107,14 @@ test("can fail closed when a rule requires human review", () => {
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.equal(JSON.parse(result.stdout).reviewItems, 1);
 });
+
+test("redacts every sensitive value on a reported line", () => {
+  const root = mkdtempSync(join(tmpdir(), "noam-publication-redact-"));
+  const first = ["private.person", "gmail.com"].join("@");
+  const second = ["other.person", "icloud.com"].join("@");
+  writeFileSync(join(root, "config.txt"), `cc ${first} ${first} ${second}\n`);
+  const result = run(root, fixturePolicy(root));
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const evidence = JSON.parse(result.stdout).findings[0]?.evidence ?? "";
+  assert.equal(evidence, "cc [redacted] [redacted] [redacted]");
+});

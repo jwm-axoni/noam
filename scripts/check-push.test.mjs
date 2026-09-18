@@ -87,6 +87,28 @@ test("does not let a validation remote name bypass the destination check", () =>
   assert.match(result.stderr, /not an approved publication repository/);
 });
 
+test("allows the local validation gate under the validation remote name", () => {
+  const fixture = createFixture();
+  const result = runGuard(fixture, { remoteName: "no-mistakes", remoteUrl: "/tmp/gate/.no-mistakes/repos/0123456789ab.git" });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+});
+
+test("rejects a validation-gate path under any other remote name", () => {
+  const fixture = createFixture();
+  const result = runGuard(fixture, { remoteName: "origin", remoteUrl: "/tmp/gate/.no-mistakes/repos/0123456789ab.git" });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stderr, /not an approved publication repository/);
+});
+
+test("rejects a validation remote whose path is not the gate shape", () => {
+  const fixture = createFixture();
+  for (const remoteUrl of ["/tmp/.no-mistakes/repos/0123456789ab.git/../other.git", "relative/.no-mistakes/repos/0123456789ab.git", "/tmp/.no-mistakes/repos/0123.git"]) {
+    const result = runGuard(fixture, { remoteName: "no-mistakes", remoteUrl });
+    assert.equal(result.status, 1, `${remoteUrl}: ${result.stderr || result.stdout}`);
+    assert.match(result.stderr, /not an approved publication repository/);
+  }
+});
+
 test("rejects unrelated history even when the destination is approved", () => {
   const fixture = createFixture();
   const tree = git(fixture.root, ["write-tree"]);
