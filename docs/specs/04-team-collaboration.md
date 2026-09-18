@@ -1,0 +1,301 @@
+---
+type: spec
+spec: 04-team-collaboration
+product: Noam
+status: draft-v1
+date: 2026-07-13
+tags: [thread, spec, auth, teams, permissions, presence]
+---
+
+# 04 · Team Collaboration
+
+Accounts, teams, folder sharing, permissions, and presence — the layer that turns a single-user vault
+into a shared team brain. The through-line: **auth owns identity + membership; a small ACL owns
+content access; both resolve into short-lived per-doc tokens that gate the sync engine.** Overview:
+[[00-architecture-overview]]. Sync: [[03-sync-engine]]. Index: [[Noam]].
+
+---
+
+## 1. Decisions
+
+| Concern | Choice | Reasoning |
+|---|---|---|
+| Auth library | **Better Auth** | TypeScript, framework-agnostic, runs in *our* Node process against *our* Postgres. No separate service, no per-MAU pricing, self-hostable. Ships an **organization plugin** = teams/members/invitations for free. (Lucia is deprecated; Kratos is a heavy separate service; Clerk/Auth0 aren't self-hostable; Supabase Auth tilts toward platform lock-in — the strong second choice if we ever buy the platform.) |
+| Password hashing | **argon2id** | Current OWASP default (memory-hard). Configure Better Auth to use it (its built-in default is scrypt). |
+| Sessions | **Server-side sessions** (opaque token in Better Auth's `session` table) | We need **instant revocation** — remove someone from a team or unshare a folder and their access must die now. A long-lived stateless JWT can't be revoked. |
+| Sync tokens | short-lived **per-doc JWTs** minted from the session (5–15 min TTL) | Fine to be stateless *here* because they're short and scoped; this is what the sync socket consumes. |
+| Teams model | Better Auth **organization plugin** (`organization` = **vault**, the user-facing entity) | owner / admin / member roles out of the box. |
+| Sharing model | **folder-based per-resource ACL**, view/edit, additive, highest-wins | The pattern every reference (Relay, Outline, Docmost, Notion) converged on. |
+| Desktop login (MVP) | in-app email+password form → session token in **OS keychain** | Simplest; no browser round-trip. OAuth via Tauri PKCE deep-link is Phase 4. |
+
+## 2. Team data model (Better Auth generates most of this)
+
+Terminology: a Better Auth **organization** = our **vault** — the user-facing unified entity (Local /
+Synced / Remote states), formerly called a "workspace". (Storage-layer note: the separate Postgres
+`vaults` table is a *child* of the organization — the "note collection" that keeps the `vault*` column/
+wire names; in practice it is 1:1 with the org, so the user perceives one vault. See
+[[02-database-architecture]] and [[05-vault-sync-engine]].)
+
+```
+user         (id, email UNIQUE, name, email_verified, image, created_at)
+account      (id, user_id, provider_id, password /*argon2id*/, ...)   -- credentials / OAuth links
+session      (id, user_id, token UNIQUE, expires_at,
+              active_organization_id, ip_address, user_agent)
+organization (id, name, slug UNIQUE, logo, created_at)                -- = vault (user-facing; the team)
+member       (id, organization_id, user_id, role, created_at,         -- role: owner|admin|member
+              UNIQUE(organization_id, user_id))
+invitation   (id, organization_id, email, role, inviter_id,
+              status /*pending|accepted|canceled|expired*/, expires_at /*now()+48h*/)
+-- deferred past MVP: team, team_member (sub-groups within an organization)
+```
+
+Roles for MVP — keep exactly three (matches Notion/Outline/Docmost): **owner** (billing, delete/
+transfer the vault, and transfer the subscription between vaults they own), **admin** (manage
+members, invitations, settings), **member** (basic access).
+
+## 3. Sharing & permissions
+
+### The industry pattern (what the references do)
+
+- **Obsidian Relay** — sharing is **folder-based** ("Shared Folders"); never reads outside a shared
+  folder. Access today is coarse (owner + members via a share key) — we improve on it with a real ACL.
+- **Outline** — permissions on **Collections** (folders) + later per-document overrides; **additive,
+  highest wins**.
+- **Docmost** — **Spaces** (folders) with Full / Edit / View, assignable to users or groups; highest
+  across paths wins.
+
+Consistent takeaway: **folder is the primary unit of sharing; permissions are additive; highest
+wins; file-level override is a later add-on.**
+
+### Our model: RBAC for membership + per-resource ACL for content
+
+Use **RBAC** for vault membership (§2) and a **per-resource ACL** for content sharing — the hybrid
+everyone converged on. Pure RBAC can't say "share *this folder* with Bob as viewer"; pure ACL is
+tedious for org-wide roles. Do both.
+
+```sql
+-- folders/notes/files key off vault_id → the vaults (note-collection) row, which belongs to one org.
+folder (id, vault_id, path, parent_id NULL)          -- shareable folders in the vault
+file   (id PK == doc_id, vault_id, folder_id, path)  -- vault file ↔ Yjs doc mapping
+
+shares (
+  id             TEXT PK,
+  org_id         TEXT,   -- FK → organization.id (the vault the share lives in)
+  resource_type  TEXT,   -- 'folder' | 'file' | 'vault' (vault-wide grant; migrations 008 + 013)
+  resource_id    TEXT,   -- folder id or file/doc id (org id for the 'vault' grant)
+  principal_type TEXT,   -- 'user' (MVP) | 'team' (later)
+  principal_id   TEXT,
+  permission     TEXT,   -- 'view' | 'edit' | 'locked' (cap) | 'denied' (block)
+  created_by     TEXT,
+  created_at     TIMESTAMPTZ,
+  UNIQUE(resource_type, resource_id, principal_type, principal_id)
+)
+```
+
+> The org-wide "share with team" grant is stored as a `shares` row with `resource_type = 'vault'`
+> (added as `'workspace'` in migration 008, renamed in migration 013). Its `resource_id` — like the
+> `org_id` column — is the vault (organization) id, never the `vaults` note-collection row.
+
+**Effective permission** for a user on a file:
+0. A **`denied`** row for this *user* on the file or any containing folder → `none`, full stop.
+1. The **shortcuts** in 2–3 are skipped entirely when either of these holds, and step 4 decides
+   alone:
+   - a `denied` row for the *org* on the file or a containing folder (the item set to **Private**);
+   - the vault's org-wide grant is `view` (the vault set to **Read-only**).
+2. Vault `owner`/`admin` → `edit` on everything in the vault.
+3. A note's **creator** → `edit` on their own note.
+4. Else take the **max** of: any `share` on the file itself, any `share` on a containing folder
+   (walk `parent_id` up), and any vault-wide grant — each either **per-user** or an org-wide
+   **"share with team"** grant. Under item-Private the org-scoped half drops out, leaving only
+   per-user grants.
+5. `edit > view > none`. No matching grant → **no sync access**.
+6. A **`locked`** row matching the file or an ancestor caps the result at `view`.
+
+**Nothing in the Access panel exempts the person setting it.** Steps 2 and 3 are conveniences, not
+entitlements, and step 1 is what stops them swallowing a restriction: an owner who marks a folder
+Private loses it too — including notes they wrote, since in a vault you set up yourself you wrote
+nearly everything and sparing the author makes Private unobservable exactly where it is used. A
+Read-only vault is likewise read-only for its owner. Naming yourself in the per-member list is the
+way back in. A setting its author can't
+observe is one they have to take on trust, which is not a thing to ship in an access panel. The
+safety net is that *management* is gated separately — `canManage` (`http/routes/shares.ts`) asks
+for owner/admin and never for effective permission — so an owner can always lift what they set.
+The desktop's Access list is built from the local folder, so the row to lift it from never
+disappears either.
+
+> **A restriction reaches the disk.** Losing access moves the local `.md` into the vault's trash
+> on every device that had it — a revocation that leaves a full, readable copy behind is cosmetic,
+> since the ex-reader can open it in any editor forever. The server keeps the content, so this is
+> a de-sync, not a delete.
+>
+> Restoring access brings the file back: the note reappears in the registry listing, the
+> reconciler re-materialises it and the content hydrates on open. A permission toggle is never a
+> one-way door. And because a Private item leaves the disk, the Access panel reads the vault's
+> structure from `GET /api/vaults/:id/access-tree` (owner/admin, ids and paths only, deliberately
+> unfiltered) rather than from the local folder — otherwise making something Private would remove
+> the only row you could un-Private it from.
+>
+> Three rails, all in `lib/sync/inbound.ts`: it only fires when the server actually **answered**
+> about deletions (`tombstones !== null` — absence proves nothing otherwise); the file goes to a
+> recoverable **trash** folder rather than being destroyed; and the executor **refuses** any doc
+> whose content this device never confirmed upstream, so a permission change can't take work that
+> exists nowhere else. Revocations are capped separately from deletions, more loosely, because a
+> whole shared folder leaving at once is ordinary while a mass delete rarely is.
+
+**Two overlays, deliberately different.** `locked` is a *cap* — it takes edit down to view and
+never removes read. `denied` is a *block*: the only row in the model that subtracts. It comes in
+two flavours, distinguished by `principal_type`, and never applies to the `vault` resource (a
+vault-level deny is what the Private posture already is, and would be a way to lock an owner out
+of their own vault).
+
+| | `denied` + `principal_type='user'` | `denied` + `principal_type='org'` |
+|---|---|---|
+| UI | per-member **Private** | the item set to **Private** |
+| Means | "this person is blocked" | "this item is not shared with the team" |
+| Beats | everything: role, vault grant, explicit share, authorship | every org-scoped grant, plus the owner/admin **and creator** shortcuts |
+| Spares | nobody | only an explicit per-user grant |
+
+The user deny has to beat authorship, or "keep this away from Sam" would silently do nothing on
+exactly the notes Sam wrote. The org deny exists because **clearing an item's own grants could
+never express item-Private**: in a Shared vault the vault-wide grant still reached the item, so the
+segment snapped straight back to Shared.
+
+The readable-set dual (`permissions/vault-docs.ts`) subtracts both sets under the same rules, so a
+denied doc leaves the tree and stops syncing rather than merely failing to resolve.
+
+**Shared with the team by default:** `POST /api/vaults` creates an org-wide `edit` grant on the
+vault alongside the org's *first* collection, so a new vault is Shared and an invited teammate
+lands on a vault with something in it. (The private-by-default posture of 2026-07-21 was reversed
+on 2026-08-07: it left an invited teammate on an empty sidebar with no way to ask for access. The
+grant is written only alongside that first collection, so re-running the call cannot resurrect a
+grant an owner revoked.) **Vaults created before the reversal are untouched** — no grant means
+private, and the owner flips it in the Access panel whenever they choose.
+
+### The Access panel
+
+Two controls, one model.
+
+- **Entire vault** — Shared / Read-only / Private, applied to *every* folder and note. Choosing a
+  mode calls `PUT /api/orgs/:orgId/team-access`, which in one transaction deletes every
+  org-principal row on every folder and file in the vault's collections and then writes the new
+  vault row (none, for Private). It **enforces**, it does not default: a vault-wide setting that
+  stopped at the first folder someone had overridden could not answer "who can reach this vault",
+  and the panel had no way to say which folders were disagreeing with it. Per-**user** rows are
+  untouched, so people shared with by name keep their access. Owner/admin only.
+  `GET /api/orgs/:orgId/team-access` returns the mode plus every per-item org row, which is what
+  lets the desktop name the count it is about to replace *before* the confirm.
+- **One folder or note** — the same three modes on a single item, as an org row on that resource.
+  Folder settings inherit downwards.
+
+The displayed mode for an item resolves the same way on both surfaces (the row badges and the
+item's own tri-state), through one shared function mirroring §3 at the org level: a `denied` on
+the item or any ancestor is Private; else a `locked` on either is Read-only, *provided something
+grants access for it to cap* — a lock never grants, so a bare `locked` under a Private vault is
+Private, exactly as `effectivePermission` resolves it; else the vault being Shared, or an `edit` on
+the item/an ancestor, is Shared; else the vault being Read-only, or a `view` on either, is
+Read-only; else Private. A lock naming only particular people is not a mode at all — it shows as
+**Restricted**, a per-user overlay on whatever the item's mode is.
+
+Under a **Read-only** vault the sidebar padlocks *every* folder and note, not only the ones
+carrying a lock of their own — to the person reading it, an item they may not edit and an item
+someone locked are the same state. `GET /api/vaults/:id/locks` says so directly: one synthetic
+`vault` row, plus the **lifts**, the `edit` rows the posture does not cap (org-wide ones and the
+caller's own per-user ones, never anybody else's). The client subtracts each lifted subtree from
+the padlock, so a folder or note you were granted edit on carries none, and that scope is never
+inherited downwards — otherwise a note freed by a personal grant would take the padlock straight
+back from its folder. A row padlocked only by the posture offers no Unlock: it holds no row to
+clear, and the Entire vault control is the one place that state lives.
+
+Folder grants are **inherited by descendants**; a file-level `share` can only *raise* permission
+(Outline's "read-only collection + writable document" pattern).
+
+## 4. How permissions gate the sync engine (the important part)
+
+The ACL controls **which Yjs documents a socket may open, and read-only vs read-write**. Flow:
+
+1. Desktop client holds a Better Auth **session token** (from OS keychain).
+2. Before syncing a file, client calls our API: `POST /sync-token { doc_id }`.
+3. Server validates the session, computes effective permission (§3), and:
+   - `edit` → mint a per-doc JWT `{doc_id, readOnly:false, exp:+10m}`
+   - `view` → mint `{doc_id, readOnly:true, exp:+10m}`
+   - `none` → **403**
+4. Client connects the Yjs provider to Hocuspocus with that token.
+5. Hocuspocus `onAuthenticate` verifies it → sets `connection.readOnly` for view grants (rejects
+   updates) or throws for invalid tokens. **A user physically cannot open a socket to a doc they
+   weren't granted.**
+6. Short TTLs → revocation is minutes; on unshare we also **disconnect live sockets** for an instant
+   kill.
+
+Authorize at the **document (file)** level even though sharing is expressed at the **folder** level —
+resolve folder→files when minting tokens. One Yjs doc per markdown file makes this mapping clean.
+
+## 5. Presence & awareness
+
+Use the **Yjs awareness protocol** (exposed by the Hocuspocus provider) — a separate ephemeral CRDT
+of small JSON per client that auto-clears on disconnect. It is *not* persisted.
+
+**MVP:**
+- **Live cursors + selections** in an open note — `awareness.setLocalStateField('user', {name, color,
+  cursor})`; the CM6 binding (`y-codemirror.next`) renders remote cursors automatically.
+- **"Who's in this note" avatars** — derived from awareness states on that doc.
+- **Basic online status** — a user is "online" if they have awareness state on any doc.
+
+**Defer:** vault-wide "who's online" dashboard, last-seen/viewing history, typing indicators,
+follow-mode, cursor chat.
+
+## 6. Invitations / onboarding a teammate into a shared folder
+
+Two steps (Better Auth invitation flow + our `shares`):
+
+**A. Into the vault:** admin invites by email → `invitation` row (`pending`, `+48h`) → email
+with a link to `/invite/<id>` (a server-rendered page that bounces into the app's
+`noam://invite/<id>?server=` deep link) → invitee signs up / logs in with the invited address /
+accepts → `member` row with the invited role. Email is opt-in per server (`EMAIL_FROM` + a transport);
+without it the admin copies the same link from Members. Redeeming the vault's **join code** while an
+invitation is pending consumes it (same role, marked accepted) so both doors lead to one state.
+
+**B. Into a specific folder:** on "Share folder → add person," create a `shares` row
+(`resource_type='folder'`, `permission='view'|'edit'`). If the invitee isn't a member yet, create the
+vault `invitation` *and* stage the pending folder share keyed by email; materialize it on accept.
+On accept, the client's next `/sync-token` call succeeds and the folder's files begin syncing.
+
+MVP shortcut (from Relay, hardened): a **folder share link** that grants `edit` on join — but scope it
+to *existing vault members* to avoid Relay's "anyone with the key" gap.
+
+## 7. Desktop auth flow
+
+- **MVP (email+password):** render the login form *in* the app, POST to the Better Auth server, store
+  the returned session token in the **OS keychain** (Tauri Stronghold / `keyring` crate — never
+  plaintext localStorage). No browser round-trip.
+- **Phase 4 (OAuth/social):** open the system browser, use **PKCE** + a **loopback callback**
+  (`tauri-plugin-oauth`, a localhost server) or a custom-scheme deep link (`tauri-plugin-deep-link`).
+  Never pass tokens through the deep link — pass a short-lived code and exchange it in-app.
+
+## 8. OSS references
+
+- **Better Auth** (`github.com/better-auth/better-auth`, MIT) — use directly; the org plugin *is* our
+  teams/members/invitations schema and flows.
+- **Obsidian Relay** (MIT) — folder-based sharing + local-first server-relay + self-host-with-central-
+  auth split; the closest analog. Improve on its coarse "anyone with key" access with our ACL.
+- **Docmost** (AGPL — read for ideas) — Space permission trio (Full/Edit/View), additive highest-wins,
+  Hocuspocus as a separate scalable collab process.
+- **Outline** (BSL — read for ideas) — collection-primary + document-override permissions; minimal
+  viewer-role semantics.
+- **Hocuspocus** (MIT) — `onAuthenticate` + `connection.readOnly` is the exact per-doc gating hook.
+- **Notty** (study only) — auth + per-user data isolation; scope every query by the owning vault (org) id.
+
+## 9. MVP build order (team collaboration — Phase 3)
+
+1. **Accounts** — Better Auth email+password (argon2id), server sessions, email verification +
+   password reset; desktop stores the token in the OS keychain; in-app login form.
+2. **One vault + invite teammates** — organization plugin; owner/admin/member; email invitations
+   (48h, accept flow).
+3. **Sync wired to auth** — `/sync-token` mints short-lived per-doc tokens from the session; Hocuspocus
+   enforces (§4).
+4. **Share a folder with view/edit** — `folder`/`file`/`shares`; additive, highest-wins, inherited;
+   tokens honor the read-only flag. **This is the core feature.**
+5. **Presence** — live cursors + "who's viewing" avatars via awareness.
+
+**Defer:** OAuth/social login, teams/subgroups, custom/granular roles, file-level overrides,
+external/public sharing, comments/mentions, activity feed, audit logs, SSO/SAML, MFA, multiple
+vaults per user (Better Auth supports these — add when asked).

@@ -1,0 +1,208 @@
+/**
+ * TODO(noam): STRIP — SaaS billing has no place in the enterprise fork.
+ *
+ * Polar was the upstream SaaS billing provider. The whole billing feature is
+ * already inert without `POLAR_ACCESS_TOKEN` set (every billing route 404s,
+ * caps unenforced — see `billingEnabled()` in config.ts), so nothing runs
+ * today. Full removal is deferred because `orgs.ts` imports entitlements
+ * (`canAddMember`) from this directory; deleting it means refactoring org
+ * member caps first. When that refactor lands, delete this directory, the
+ * billing routes, and the desktop billing UI together.
+ */
+import type pg from "pg";
+import { pool as defaultPool } from "../db/pool.js";
+import { config, billingEnabled } from "../config.js";
+import type { BillingInterval } from "./provider.js";
+
+/**
+ * Entitlement checks. These read ONLY our own tables (`subscriptions`, `member`,
+ * `invitation`) — never the payment provider — so they're cheap and correct on
+ * the request path. The `subscriptions` table is the single source of truth,
+ * written only through `billing/store.ts`.
+ *
+ * Every gate returns "allowed" when billing is disabled (self-host = unlimited).
+ */
+
+type Queryable = Pick<pg.Pool, "query">;
+
+/** A vault counts as paid (unlimited) while active or in the past_due grace. */
+const ACTIVE_STATUSES = ["active", "past_due"] as const;
+
+export interface Entitlement {
+  plan: "free" | "pro";
+  status: "none" | "active" | "past_due" | "canceled";
+  currentPeriodEnd: string | null;
+  cancelAtPeriodEnd: boolean;
+  /** Provider customer id, when a subscription row exists (for the portal). */
+  providerCustomerId: string | null;
+  providerSubscriptionId: string | null;
+  /** True when the org has an active (or past_due grace) subscription. */
+  active: boolean;
+  /**
+   * Price the provider is actually charging, persisted from its snapshots so
+   * "Subscriptions" can render a real figure without a provider round trip on
+   * the request path. Null on rows written before migration 024, and on any
+   * row the provider never reported a price for.
+   */
+  interval: BillingInterval | null;
+  /** Minor units (cents). */
+  amount: number | null;
+  currency: string | null;
+}
+
+interface SubRow {
+  plan: string;
+  status: string;
+  current_period_end: Date | null;
+  cancel_at_period_end: boolean;
+  provider_customer_id: string | null;
+  provider_subscription_id: string | null;
+  interval: string | null;
+  amount: number | null;
+  currency: string | null;
+}
+
+/**
+ * Read the current entitlement for an org from OUR subscriptions table.
+ *
+ * A tombstone row (`deleted_at` set, the vault deleted) resolves exactly like a
+ * live one on purpose: the subscription is still real and still being charged,
+ * which is the whole point of keeping the row (#109). Callers that care about
+ * the difference read `deleted_at` through `billing/store.ts` instead.
+ */
+export async function getEntitlement(
+  orgId: string,
+  db: Queryable = defaultPool,
+): Promise<Entitlement> {
+  const { rows } = await db.query<SubRow>(
+    `SELECT plan, status, current_period_end, cancel_at_period_end,
+            provider_customer_id, provider_subscription_id,
+            interval, amount, currency
+       FROM subscriptions WHERE organization_id = $1`,
+    [orgId],
+  );
+  const row = rows[0];
+  if (!row) {
+    return {
+      plan: "free",
+      status: "none",
+      currentPeriodEnd: null,
+      cancelAtPeriodEnd: false,
+      providerCustomerId: null,
+      providerSubscriptionId: null,
+      active: false,
+      interval: null,
+      amount: null,
+      currency: null,
+    };
+  }
+  const active = (ACTIVE_STATUSES as readonly string[]).includes(row.status);
+  return {
+    plan: active ? "pro" : "free",
+    status: normalizeStatusForApi(row.status),
+    currentPeriodEnd: row.current_period_end
+      ? new Date(row.current_period_end).toISOString()
+      : null,
+    cancelAtPeriodEnd: row.cancel_at_period_end,
+    providerCustomerId: row.provider_customer_id,
+    providerSubscriptionId: row.provider_subscription_id,
+    active,
+    interval: normalizeIntervalForApi(row.interval),
+    amount: row.amount === null ? null : Number(row.amount),
+    currency: row.currency,
+  };
+}
+
+function normalizeStatusForApi(status: string): Entitlement["status"] {
+  if (status === "active" || status === "past_due" || status === "canceled") {
+    return status;
+  }
+  return "none";
+}
+
+/** Only the two intervals we sell survive to the wire; anything else is null. */
+export function normalizeIntervalForApi(interval: string | null): BillingInterval | null {
+  return interval === "month" || interval === "year" ? interval : null;
+}
+
+/** Does the org have an active (unlimited-members) subscription right now? */
+export async function orgHasActiveSubscription(
+  orgId: string,
+  db: Queryable = defaultPool,
+): Promise<boolean> {
+  const { rows } = await db.query<{ status: string }>(
+    `SELECT status FROM subscriptions WHERE organization_id = $1`,
+    [orgId],
+  );
+  return rows[0] ? (ACTIVE_STATUSES as readonly string[]).includes(rows[0].status) : false;
+}
+
+/**
+ * Number of vaults this user OWNS that do NOT have an active subscription.
+ * Paid vaults never count toward the free-tier vault cap.
+ */
+export async function countOwnedUnsubscribedOrgs(
+  userId: string,
+  db: Queryable = defaultPool,
+): Promise<number> {
+  const { rows } = await db.query<{ count: string }>(
+    `SELECT count(*)::int AS count
+       FROM member m
+       LEFT JOIN subscriptions s ON s.organization_id = m."organizationId"
+      WHERE m."userId" = $1
+        AND m.role = 'owner'
+        AND (s.status IS NULL OR s.status <> ALL($2::text[]))`,
+    [userId, ACTIVE_STATUSES as unknown as string[]],
+  );
+  return Number(rows[0]?.count ?? 0);
+}
+
+/** Members + pending (non-expired) invitations for an org. */
+export async function seatCount(
+  orgId: string,
+  db: Queryable = defaultPool,
+): Promise<{ members: number; pendingInvitations: number }> {
+  const { rows: memberRows } = await db.query<{ count: string }>(
+    `SELECT count(*)::int AS count FROM member WHERE "organizationId" = $1`,
+    [orgId],
+  );
+  const { rows: inviteRows } = await db.query<{ count: string }>(
+    `SELECT count(*)::int AS count FROM invitation
+      WHERE "organizationId" = $1 AND status = 'pending' AND "expiresAt" > now()`,
+    [orgId],
+  );
+  return {
+    members: Number(memberRows[0]?.count ?? 0),
+    pendingInvitations: Number(inviteRows[0]?.count ?? 0),
+  };
+}
+
+/**
+ * Can this user create another vault? Allowed when billing is off, or when
+ * they own fewer than the cap in UNSUBSCRIBED vaults.
+ */
+export async function canCreateOrganization(
+  userId: string,
+  db: Queryable = defaultPool,
+): Promise<{ allowed: boolean; limit: number }> {
+  const limit = config.freeMaxVaults;
+  if (!billingEnabled()) return { allowed: true, limit };
+  const owned = await countOwnedUnsubscribedOrgs(userId, db);
+  return { allowed: owned < limit, limit };
+}
+
+/**
+ * Can a seat be added to this org (invitation or join-code redemption)? Allowed
+ * when billing is off, when the org has an active subscription (unlimited), or
+ * when members + pending invitations are below the cap.
+ */
+export async function canAddMember(
+  orgId: string,
+  db: Queryable = defaultPool,
+): Promise<{ allowed: boolean; limit: number }> {
+  const limit = config.freeMaxMembers;
+  if (!billingEnabled()) return { allowed: true, limit };
+  if (await orgHasActiveSubscription(orgId, db)) return { allowed: true, limit };
+  const { members, pendingInvitations } = await seatCount(orgId, db);
+  return { allowed: members + pendingInvitations < limit, limit };
+}

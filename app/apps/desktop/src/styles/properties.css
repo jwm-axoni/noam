@@ -1,0 +1,195 @@
+/* The note-header extension owns placement and measured block geometry in
+   lib/editor/theme.ts. This file owns only the controls React mounts inside
+   that widget. Every selector stays under .prop-panel so ordinary inputs and
+   chips elsewhere in the app cannot inherit editor-specific sizing. */
+
+.prop-panel {
+  container-type: inline-size;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+  font-size: var(--type-chrome-size);
+  line-height: var(--type-leading-chrome);
+}
+
+.prop-panel .prop-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  min-height: 28px;
+}
+
+.prop-panel .prop-type-trigger {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  flex: 0 0 auto;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.prop-panel .prop-icon {
+  display: block;
+  width: var(--icon-sm-size);
+  height: var(--icon-sm-size);
+}
+
+.prop-panel .prop-type-trigger:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+}
+
+.prop-panel .prop-type-trigger:focus-visible,
+.prop-panel .prop-remove:focus-visible,
+.prop-panel .prop-add:focus-visible,
+.prop-panel .prop-chip button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.prop-panel .prop-name {
+  flex: 0 1 9rem;
+  width: 9rem;
+  min-width: 6rem;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: var(--sp-1);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: var(--text-secondary);
+}
+
+.prop-panel .prop-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.prop-panel .prop-input,
+.prop-panel .prop-chip-input {
+  width: 100%;
+  min-width: 0;
+  border: 0;
+  outline: none;
+  background: transparent;
+  padding: var(--sp-1);
+  border-radius: var(--radius-sm);
+  font: inherit;
+  color: var(--text-primary);
+}
+
+.prop-panel .prop-name:hover:not(:read-only),
+.prop-panel .prop-input:hover:not(:read-only),
+.prop-panel .prop-name:focus,
+.prop-panel .prop-input:focus,
+.prop-panel .prop-chip-input:focus {
+  background: var(--bg-subtle);
+}
+
+.prop-panel .prop-chips {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+  min-width: 0;
+}
+
+.prop-panel .prop-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  max-width: 100%;
+  min-width: 0;
+  padding: 1px var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.prop-panel .prop-chip button {
+  flex: 0 0 auto;
+  border: 0;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  line-height: 1;
+}
+
+.prop-panel .prop-chip-input {
+  width: 6rem;
+  flex: 1 1 6rem;
+}
+
+.prop-panel .prop-checkbox {
+  accent-color: var(--accent);
+}
+
+.prop-panel .prop-remove {
+  flex: 0 0 auto;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  cursor: pointer;
+  color: var(--text-tertiary);
+  opacity: 0;
+  padding: 0 var(--sp-1);
+}
+
+.prop-panel .prop-row:hover .prop-remove,
+.prop-panel .prop-remove:focus-visible {
+  opacity: 1;
+}
+
+.prop-panel .prop-note {
+  margin: 0;
+  font-size: var(--type-chrome-size);
+  color: var(--text-tertiary);
+}
+
+.prop-panel .prop-add {
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  padding: var(--sp-1);
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-tertiary);
+}
+
+.prop-panel .prop-add:hover {
+  color: var(--text-secondary);
+}
+
+/* A dock can make the document column narrower than the normal reading
+   measure. Stack the value under its label before any control can overflow. */
+@container (max-width: 420px) {
+  .prop-panel .prop-row {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) 24px;
+    align-items: center;
+    padding-block: var(--sp-1);
+  }
+
+  .prop-panel .prop-name {
+    width: 100%;
+    min-width: 0;
+  }
+
+  .prop-panel .prop-value {
+    grid-column: 2 / -1;
+  }
+
+  .prop-panel .prop-remove {
+    grid-column: 3;
+    grid-row: 1;
+  }
+}

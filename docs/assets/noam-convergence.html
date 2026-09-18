@@ -1,0 +1,183 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noam convergence model</title>
+<style>
+:root {
+  --board: #101014;
+  --panel: rgba(29, 29, 36, .84);
+  --ink: #f2ecdf;
+  --ink-72: rgba(242, 236, 223, .74);
+  --ink-56: rgba(242, 236, 223, .58);
+  --hair: rgba(242, 236, 223, .17);
+  --chalk: rgba(235, 228, 214, .84);
+  --violet: #9a8fff;
+  --pencil: #a09585;
+  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; }
+body { margin: 0; overflow: hidden; color: var(--ink); background: var(--board); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+.noise { position: fixed; inset: 0; pointer-events: none; opacity: .58; mix-blend-mode: screen; background-size: 100px 100px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncG type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncB type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncA type='discrete' tableValues='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"); }
+.canvas { position: relative; width: 1600px; height: 760px; padding: 42px 56px 34px; }
+.topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; }
+.brand { display: flex; align-items: center; gap: 20px; }
+.brand img { width: 82px; display: block; }
+.eyebrow { margin: 0 0 7px; color: var(--pencil); font-size: 12px; font-weight: 780; letter-spacing: .16em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 39px; line-height: 1.05; letter-spacing: -.04em; font-weight: 690; }
+.thesis { width: 495px; margin: 4px 0 0; color: var(--ink-72); font-size: 17px; line-height: 1.46; }
+.map { position: relative; width: 1488px; height: 520px; margin-top: 31px; }
+.lane { position: absolute; top: 0; color: var(--ink-56); font-size: 11px; font-weight: 780; letter-spacing: .16em; text-transform: uppercase; }
+.lane.entry { left: 28px; }
+.lane.merge { left: 584px; color: var(--violet); }
+.lane.truth { right: 64px; color: var(--pencil); }
+.rbox { position: absolute; }
+.rbox > svg.rlayer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.rbox > *:not(svg.rlayer):not(svg.pxlayer):not(.rbox):not(.truth):not(.acl) { position: relative; z-index: 1; }
+svg.rlayer path, svg.pxlayer path { fill: none; stroke: var(--rb, var(--chalk)); stroke-width: var(--rw, 1.2); stroke-linecap: round; stroke-linejoin: round; }
+svg.pxlayer { position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 2; }
+[data-px] { position: relative; }
+.doodle { fill: none; stroke: var(--chalk); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.doodle.violet { stroke: var(--violet); }
+.doodle.pencil { stroke: var(--pencil); }
+.doodle.quiet { stroke: rgba(242, 236, 223, .34); }
+.card { padding: 19px 21px; background: linear-gradient(145deg, var(--panel), rgba(16,16,20,.34)); --rb: var(--hair); }
+.card h2 { margin: 0; font-size: 21px; line-height: 1.15; letter-spacing: -.025em; }
+.card p { margin: 7px 0 0; color: var(--ink-72); font-size: 13px; line-height: 1.42; }
+.tag { display: inline-block; margin-bottom: 10px; color: var(--ink-56); font-size: 10px; font-weight: 820; letter-spacing: .14em; text-transform: uppercase; }
+.tag.violet { color: var(--violet); }
+.tag.pencil { color: var(--pencil); }
+.person { left: 28px; top: 43px; width: 330px; height: 124px; }
+.teammate { left: 28px; top: 200px; width: 330px; height: 124px; }
+.agent { left: 28px; top: 357px; width: 330px; height: 124px; }
+.core { left: 546px; top: 76px; width: 410px; height: 365px; padding: 22px 27px; --rb: rgba(154,143,255,.82); --rw: 1.9; background: radial-gradient(circle at 50% 45%, rgba(127,115,255,.13), transparent 66%); }
+.core-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; }
+.core-head h2 { margin: 0; font-size: 25px; letter-spacing: -.03em; }
+.core-head span { color: var(--ink-56); font-size: 10px; font-weight: 760; letter-spacing: .12em; text-transform: uppercase; }
+.core > .core-node { position: absolute; left: 48px; width: 314px; padding: 15px 18px; text-align: center; background: rgba(16,16,20,.70); }
+.core-node h3 { margin: 0; font-size: 18px; letter-spacing: -.02em; }
+.core-node p { margin: 4px 0 0; color: var(--ink-72); font-size: 12px; }
+.yjs { top: 82px; height: 91px; --rb: var(--pencil); --rw: 1.6; }
+.bridge { top: 211px; height: 91px; --rb: var(--violet); --rw: 1.6; }
+.core > .acl { position: absolute; left: 82px; bottom: 19px; width: 246px; color: var(--ink-56); text-align: center; font-size: 11px; letter-spacing: .04em; }
+.file { left: 1125px; top: 116px; width: 326px; height: 219px; padding: 27px 27px; --rb: var(--violet); --rw: 1.9; }
+.file h2 { font-family: var(--mono); font-size: 31px; }
+.rbox.file > .truth { position: absolute; top: 27px; right: 23px; color: var(--violet); font-size: 9px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+.file ul { margin: 17px 0 0; padding: 0; list-style: none; display: grid; gap: 8px; color: var(--ink-72); font-size: 13px; }
+.file li::before { content: "✓"; margin-right: 9px; color: var(--pencil); }
+.caption { position: absolute; left: 1095px; top: 376px; width: 356px; color: var(--ink-72); font-size: 14px; line-height: 1.48; }
+.flow-label { position: absolute; z-index: 5; padding: 3px 7px; color: var(--ink-56); background: var(--board); font-size: 10px; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.ops-a { left: 392px; top: 91px; transform: rotate(5deg); }
+.ops-b { left: 389px; top: 240px; transform: rotate(-4deg); }
+.file-edit { left: 394px; top: 402px; transform: rotate(4deg); }
+.same-note { left: 982px; top: 235px; transform: rotate(-4deg); color: var(--violet); }
+.footer { position: absolute; left: 28px; right: 28px; bottom: 0; padding-top: 15px; border-top: 1px solid rgba(242,236,223,.10); display: flex; justify-content: space-between; color: var(--ink-56); font-size: 11px; }
+.footer strong { color: var(--ink-72); font-weight: 680; }
+</style>
+<script src="noam-architecture-engine.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  Chalk.registerRenderer('convergence-core', function (svg, el) {
+    var yjs = el.querySelector('.yjs');
+    var bridge = el.querySelector('.bridge');
+    var seed = Chalk.stableSeed(el);
+    Chalk.connect(svg, Chalk.rectIn(yjs, el), Chalk.rectIn(bridge, el), seed + '|down', 10, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(bridge, el), Chalk.rectIn(yjs, el), seed + '|up', 10, 'doodle violet sketch');
+  });
+  Chalk.registerRenderer('convergence', function (svg, el) {
+    var person = el.querySelector('.person');
+    var teammate = el.querySelector('.teammate');
+    var agent = el.querySelector('.agent');
+    var core = el.querySelector('.core');
+    var file = el.querySelector('.file');
+    var seed = Chalk.stableSeed(el);
+    Chalk.connect(svg, Chalk.rectIn(person, el), Chalk.rectIn(core, el), seed + '|person', -15, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(teammate, el), Chalk.rectIn(core, el), seed + '|team', 2, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(agent, el), Chalk.rectIn(core, el), seed + '|agent', 18, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(core, el), Chalk.rectIn(file, el), seed + '|core-file-a', -14, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(file, el), Chalk.rectIn(core, el), seed + '|core-file-b', -14, 'doodle pencil sketch');
+  });
+  Chalk.registerPx(document.querySelector('.core'));
+  Chalk.registerPx(document.querySelector('.map'));
+  Chalk.redraw();
+});
+</script>
+</head>
+<body>
+<div class="noise" aria-hidden="true"></div>
+<main class="canvas">
+  <header class="topline">
+    <div class="brand">
+      <img src="../../app/apps/desktop/src/assets/noam-app-icon.svg" alt="Noam Paper and Ink Fan mark">
+      <div>
+        <p class="eyebrow">The Noam model</p>
+        <h1>Three ways in. One note out.</h1>
+      </div>
+    </div>
+    <p class="thesis">A person, a teammate, and an AI can use the interface that suits them. Noam translates every change into one shared note instead of maintaining parallel copies.</p>
+  </header>
+
+  <section class="map" data-px="convergence" aria-label="A person in Noam, a remote teammate, and a local AI or text editor all change one note. Noam merges live Yjs operations, translates file changes through a two-way Rust bridge, applies access rules, and keeps an ordinary Markdown file as durable truth.">
+    <span class="lane entry">Who is editing</span>
+    <span class="lane merge">Where changes meet</span>
+    <span class="lane truth">What you keep</span>
+
+    <article class="rbox card person">
+      <span class="tag violet">In Noam</span>
+      <h2>You write in the editor</h2>
+      <p>CodeMirror applies each keystroke to the live document.</p>
+    </article>
+    <article class="rbox card teammate">
+      <span class="tag pencil">On another device</span>
+      <h2>A teammate writes with you</h2>
+      <p>Authorized updates and cursor presence travel over sync.</p>
+    </article>
+    <article class="rbox card agent">
+      <span class="tag">On your machine</span>
+      <h2>An AI or editor changes the file</h2>
+      <p>No Noam-specific plugin is required for local tools.</p>
+    </article>
+
+    <section class="rbox core" data-px="convergence-core">
+      <div class="core-head"><h2>Noam</h2><span>One merge path</span></div>
+      <article class="rbox core-node yjs">
+        <h3>Yjs live document</h3>
+        <p>Concurrent changes merge as operations.</p>
+      </article>
+      <article class="rbox core-node bridge">
+        <h3>Rust file bridge</h3>
+        <p>File diffs in. Atomic Markdown writes out.</p>
+      </article>
+      <div class="acl">Identity and access are checked before remote data moves.</div>
+    </section>
+
+    <article class="rbox card file">
+      <span class="truth">Durable truth</span>
+      <span class="tag violet">Portable by default</span>
+      <h2>.md file</h2>
+      <ul>
+        <li>Readable without Noam</li>
+        <li>Diffable with Git</li>
+        <li>Editable by local tools</li>
+      </ul>
+    </article>
+    <p class="caption">The live state and the file are two views of the same note. No export step. No shadow document. No lock-in.</p>
+
+    <span class="flow-label ops-a">keystrokes → Yjs ops</span>
+    <span class="flow-label ops-b">authorized sync</span>
+    <span class="flow-label file-edit">file edit → bridge</span>
+    <span class="flow-label same-note">continuous two-way convergence</span>
+
+    <div class="footer">
+      <span><strong>Humans:</strong> live editor and presence</span>
+      <span><strong>Local AI:</strong> direct file access</span>
+      <span><strong>Remote AI:</strong> permissioned MCP</span>
+      <span><strong>Result:</strong> one portable note</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

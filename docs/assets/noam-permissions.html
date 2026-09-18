@@ -1,0 +1,163 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noam permission model</title>
+<style>
+:root {
+  --board: #101014;
+  --panel: rgba(29, 29, 36, .84);
+  --ink: #f2ecdf;
+  --ink-72: rgba(242, 236, 223, .74);
+  --ink-56: rgba(242, 236, 223, .58);
+  --hair: rgba(242, 236, 223, .17);
+  --chalk: rgba(235, 228, 214, .84);
+  --violet: #9a8fff;
+  --pencil: #a09585;
+  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --mono: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+}
+* { box-sizing: border-box; }
+html, body { width: 100%; height: 100%; }
+body { margin: 0; overflow: hidden; color: var(--ink); background: var(--board); font-family: var(--sans); -webkit-font-smoothing: antialiased; }
+.noise { position: fixed; inset: 0; pointer-events: none; opacity: .58; mix-blend-mode: screen; background-size: 100px 100px; background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncG type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncB type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncA type='discrete' tableValues='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E"); }
+.canvas { position: relative; width: 1600px; height: 760px; padding: 42px 56px 34px; }
+.topline { display: flex; align-items: flex-start; justify-content: space-between; gap: 48px; }
+.brand { display: flex; align-items: center; gap: 20px; }
+.brand img { width: 82px; display: block; }
+.eyebrow { margin: 0 0 7px; color: var(--pencil); font-size: 12px; font-weight: 780; letter-spacing: .16em; text-transform: uppercase; }
+h1 { margin: 0; font-size: 39px; line-height: 1.05; letter-spacing: -.04em; font-weight: 690; }
+.thesis { width: 495px; margin: 4px 0 0; color: var(--ink-72); font-size: 17px; line-height: 1.46; }
+.map { position: relative; width: 1488px; height: 520px; margin-top: 31px; }
+.lane { position: absolute; top: 0; color: var(--ink-56); font-size: 11px; font-weight: 780; letter-spacing: .16em; text-transform: uppercase; }
+.lane.ask { left: 30px; }
+.lane.decide { left: 590px; color: var(--violet); }
+.lane.release { right: 80px; color: var(--pencil); }
+.rbox { position: absolute; }
+.rbox > svg.rlayer { position: absolute; inset: 0; width: 100%; height: 100%; overflow: visible; pointer-events: none; z-index: 0; }
+.rbox > *:not(svg.rlayer) { position: relative; z-index: 1; }
+svg.rlayer path, svg.pxlayer path { fill: none; stroke: var(--rb, var(--chalk)); stroke-width: var(--rw, 1.2); stroke-linecap: round; stroke-linejoin: round; }
+svg.pxlayer { position: absolute; inset: 0; overflow: visible; pointer-events: none; z-index: 2; }
+[data-px] { position: relative; }
+.doodle { fill: none; stroke: var(--chalk); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.doodle.violet { stroke: var(--violet); }
+.doodle.pencil { stroke: var(--pencil); }
+.doodle.quiet { stroke: rgba(242,236,223,.34); }
+.card { padding: 21px 23px; background: linear-gradient(145deg, var(--panel), rgba(16,16,20,.34)); --rb: var(--hair); }
+.card h2 { margin: 0; font-size: 21px; line-height: 1.15; letter-spacing: -.025em; }
+.card p { margin: 7px 0 0; color: var(--ink-72); font-size: 13px; line-height: 1.42; }
+.tag { display: inline-block; margin-bottom: 10px; color: var(--ink-56); font-size: 10px; font-weight: 820; letter-spacing: .14em; text-transform: uppercase; }
+.tag.violet { color: var(--violet); }
+.tag.pencil { color: var(--pencil); }
+.human { left: 30px; top: 59px; width: 330px; height: 149px; }
+.agent { left: 30px; top: 276px; width: 330px; height: 149px; }
+.agent code { color: var(--violet); font-family: var(--mono); font-size: 12px; }
+.gate { left: 545px; top: 43px; width: 438px; height: 404px; padding: 23px 28px; --rb: rgba(154,143,255,.82); --rw: 1.9; background: radial-gradient(circle at 50% 48%, rgba(127,115,255,.13), transparent 66%); }
+.gate-head { display: flex; align-items: baseline; justify-content: space-between; gap: 14px; }
+.gate h2 { margin: 0; font-size: 26px; letter-spacing: -.03em; }
+.gate-head span { color: var(--ink-56); font-size: 10px; font-weight: 780; letter-spacing: .12em; text-transform: uppercase; }
+.rules { margin-top: 18px; display: grid; gap: 7px; }
+.rule { display: grid; grid-template-columns: 28px minmax(0,1fr) auto; align-items: center; gap: 11px; padding: 8px 13px; background: rgba(16,16,20,.68); }
+.rule b { display: grid; place-items: center; width: 25px; height: 25px; border: 1px solid rgba(242,236,223,.18); color: var(--pencil); font-size: 11px; border-radius: 50%; }
+.rule strong { font-size: 13px; font-weight: 690; }
+.rule span { color: var(--ink-56); font-size: 11px; }
+.rule.deny { border-left: 2px solid var(--violet); }
+.gate-note { margin: 14px 1px 0; color: var(--ink-72); font-size: 12px; line-height: 1.4; }
+.outcomes { left: 1135px; top: 65px; width: 319px; height: 354px; padding: 23px; --rb: rgba(160,149,133,.82); --rw: 1.7; }
+.outcomes h2 { margin-bottom: 18px; }
+.outcome { display: grid; grid-template-columns: 58px minmax(0,1fr); align-items: start; gap: 12px; padding: 13px 0; border-top: 1px solid rgba(242,236,223,.10); }
+.outcome:first-of-type { border-top: 0; }
+.badge { display: inline-grid; place-items: center; min-height: 27px; padding: 4px 8px; color: var(--ink); border: 1px solid rgba(154,143,255,.44); font-size: 10px; font-weight: 820; letter-spacing: .08em; text-transform: uppercase; }
+.outcome strong { display: block; font-size: 14px; }
+.outcome p { margin: 4px 0 0; color: var(--ink-56); font-size: 11px; line-height: 1.35; }
+.shared { color: var(--violet); }
+.flow-label { position: absolute; z-index: 5; padding: 3px 7px; color: var(--ink-56); background: var(--board); font-size: 10px; font-weight: 760; letter-spacing: .08em; text-transform: uppercase; }
+.human-check { left: 393px; top: 106px; transform: rotate(4deg); }
+.agent-check { left: 394px; top: 335px; transform: rotate(-5deg); }
+.decision { left: 1006px; top: 230px; transform: rotate(-5deg); color: var(--violet); }
+.footer { position: absolute; left: 30px; right: 30px; bottom: 0; padding-top: 15px; border-top: 1px solid rgba(242,236,223,.10); display: flex; justify-content: space-between; color: var(--ink-56); font-size: 11px; }
+.footer strong { color: var(--ink-72); font-weight: 680; }
+</style>
+<script src="noam-architecture-engine.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  Chalk.registerRenderer('permissions', function (svg, el) {
+    var human = el.querySelector('.human');
+    var agent = el.querySelector('.agent');
+    var gate = el.querySelector('.gate');
+    var outcomes = el.querySelector('.outcomes');
+    var seed = Chalk.stableSeed(el);
+    Chalk.connect(svg, Chalk.rectIn(human, el), Chalk.rectIn(gate, el), seed + '|human', -13, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(agent, el), Chalk.rectIn(gate, el), seed + '|agent', 13, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(gate, el), Chalk.rectIn(outcomes, el), seed + '|outcome', -5, 'doodle violet sketch');
+  });
+  Chalk.registerPx(document.querySelector('.map'));
+  Chalk.redraw();
+});
+</script>
+</head>
+<body>
+<div class="noise" aria-hidden="true"></div>
+<main class="canvas">
+  <header class="topline">
+    <div class="brand">
+      <img src="../../app/apps/desktop/src/assets/noam-app-icon.svg" alt="Noam Paper and Ink Fan mark">
+      <div>
+        <p class="eyebrow">Shared access</p>
+        <h1>One policy for people and AI.</h1>
+      </div>
+    </div>
+    <p class="thesis">Live collaboration and remote AI do not bypass one another. Both ask the same resolver whether this identity may view or edit this note.</p>
+  </header>
+
+  <section class="map" data-px="permissions" aria-label="A teammate opening a note and a remote AI calling an MCP tool both pass through the same Noam access resolver. Folder grants, file overrides, roles, and explicit person denies resolve to view, edit, or denied before any note data is returned.">
+    <span class="lane ask">Requests</span>
+    <span class="lane decide">One decision point</span>
+    <span class="lane release">Allowed result</span>
+
+    <article class="rbox card human">
+      <span class="tag violet">Live collaboration</span>
+      <h2>A teammate opens a note</h2>
+      <p>Identity, vault, note path, and requested action travel with the sync connection.</p>
+    </article>
+    <article class="rbox card agent">
+      <span class="tag pencil">Remote AI</span>
+      <h2>An MCP client calls a tool</h2>
+      <p><code>read_note</code> and <code>edit_note</code> carry the token owner's identity and scope.</p>
+    </article>
+
+    <section class="rbox gate">
+      <div class="gate-head"><h2>Access resolver</h2><span>same rules · same answer</span></div>
+      <div class="rules">
+        <div class="rule deny"><b>1</b><strong>Explicit person deny</strong><span>none, full stop</span></div>
+        <div class="rule"><b>2</b><strong>Vault and item posture</strong><span>sets restrictions</span></div>
+        <div class="rule"><b>3</b><strong>Owner, admin, or creator</strong><span>edit shortcut</span></div>
+        <div class="rule"><b>4</b><strong>Highest applicable grant</strong><span>file · folder · vault</span></div>
+        <div class="rule"><b>5</b><strong>Lock overlay</strong><span>caps edit at view</span></div>
+      </div>
+      <p class="gate-note">The resolver runs before a Yjs connection opens and before an MCP response leaves the server.</p>
+    </section>
+
+    <article class="rbox card outcomes">
+      <span class="tag pencil">Least privilege</span>
+      <h2>Only the allowed data moves</h2>
+      <div class="outcome"><span class="badge">View</span><div><strong>Read the note</strong><p>Content may be returned, but writes fail.</p></div></div>
+      <div class="outcome"><span class="badge shared">Edit</span><div><strong>Join and change it</strong><p>Updates merge into the shared Yjs document.</p></div></div>
+      <div class="outcome"><span class="badge">Deny</span><div><strong>Return nothing</strong><p>No document stream and no MCP payload.</p></div></div>
+    </article>
+
+    <span class="flow-label human-check">sync permission check</span>
+    <span class="flow-label agent-check">MCP permission check</span>
+    <span class="flow-label decision">view · edit · deny</span>
+
+    <div class="footer">
+      <span><strong>Scope:</strong> vault, folder, file</span>
+      <span><strong>Subject:</strong> role or person</span>
+      <span><strong>Channels:</strong> live sync and MCP</span>
+      <span><strong>Default:</strong> no matching rule means no access</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

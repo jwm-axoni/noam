@@ -1,0 +1,459 @@
+import type pg from "pg";
+import { pool as defaultPool } from "../db/pool.js";
+import { vaultBaseline } from "./resolver.js";
+
+type Queryable = Pick<pg.Pool, "query">;
+
+/**
+ * The set of doc_ids in a vault a user may **read** (spec 05 §3.1). This is the
+ * set-based dual of `effectivePermission` ([[resolver]]) for one whole vault, so
+ * the vault channel can compute a subscriber's readable set in a couple of
+ * queries instead of one resolve per doc.
+ *
+ * Mirrors the resolver exactly (here "vault" is the note collection; the
+ * owner/admin/member role belongs to its owning organization, the user-facing
+ * vault):
+ *   - a vault-scoped view/edit grant (org-wide "Open"/"Read-only" for
+ *     members, or per-user) -> every (non-deleted) note + file in the vault.
+ *     Owner and admin reach this through the org-wide grant like anyone else,
+ *     so a Private vault (no grant) leaves them scoped too;
+ *   - otherwise             -> docs reachable via a share (view/edit) on the doc
+ *     itself or any ancestor folder (folder grants inherit down), plus the docs
+ *     the caller created — except in a SEALED vault (the Access panel's
+ *     Private), which drops authorship for everyone and leaves only the shares.
+ *
+ * `locked` is a cap overlay that only takes edit->view; it never grants read, so
+ * it's absent here. `denied` (per-member "No access") IS here: it removes read,
+ * so every set below subtracts it last — see `deniedDocsInVault`.
+ *
+ * Read = view OR edit, so the channel streams content to view-only grantees too.
+ */
+/**
+ * Resolve a user's vault-level posture: their org, role, and whether they have
+ * vault-wide read (a vault-scoped Open/Read-only grant, org-wide or per-user).
+ *
+ * Owner and admin used to answer `vaultWide: true` outright, before any grant
+ * was read. That made a Private vault mean "private from the team" to a member
+ * and nothing at all to the person who set it, and it was the single widest
+ * bypass in the system: this one boolean feeds the readable set, the folder
+ * tree, blob reads, the graph, MCP search, the registry pull and the live
+ * channel's `ready.revoked`. The role now buys exactly what it buys everywhere
+ * else — the org-wide grant, which Shared and Read-only write and Private does
+ * not — so all eight surfaces follow the posture without a line of their own.
+ * See [[resolver]] `vaultBaseline`.
+ */
+export async function vaultAccess(
+  db: Queryable,
+  userId: string,
+  vaultId: string,
+): Promise<{ organizationId: string; role: string | null; vaultWide: boolean } | null> {
+  const org = await db.query<{ organization_id: string; role: string | null }>(
+    `SELECT v.organization_id, m.role
+       FROM vaults v
+       LEFT JOIN member m
+         ON m."organizationId" = v.organization_id AND m."userId" = $2
+      WHERE v.id = $1`,
+    [vaultId, userId],
+  );
+  const row = org.rows[0];
+  if (!row) return null;
+  const base = { organizationId: row.organization_id, role: row.role };
+  const orgClause = row.role !== null ? "principal_type = 'org' OR" : "";
+  const grant = await db.query(
+    `SELECT 1 FROM shares
+      WHERE resource_type = 'vault' AND resource_id = $1
+        AND permission IN ('view', 'edit')
+        AND (${orgClause} (principal_type = 'user' AND principal_id = $2))
+      LIMIT 1`,
+    [row.organization_id, userId],
+  );
+  return { ...base, vaultWide: (grant.rowCount ?? 0) > 0 };
+}
+
+/**
+ * doc_ids in this vault covered by a `denied` row for `principalId`, folded
+ * down through folder inheritance.
+ *
+ * Two callers, matching the resolver's two kinds of deny ([[resolver]]):
+ *   - `'user'` — the per-member Private. Subtracted from EVERY set below,
+ *     because it has to beat the owner/admin branch, the vault-wide grant
+ *     branch and the created_by branch, which are three different queries.
+ *     One subtraction at the end can't be forgotten in one of them.
+ *   - `'org'`  — the item set to Private. Subtracted only from what the TEAM
+ *     could otherwise reach, so the creator and explicit grantees keep it.
+ */
+async function deniedDocsInVault(
+  db: Queryable,
+  principalType: "user" | "org",
+  principalId: string,
+  vaultId: string,
+): Promise<Set<string>> {
+  const { rows } = await db.query<{ id: string }>(
+    `WITH RECURSIVE denied_seed AS (
+        SELECT resource_id AS id FROM shares
+         WHERE resource_type = 'folder' AND permission = 'denied'
+           AND principal_type = $3 AND principal_id = $1
+     ),
+     denied_subtree AS (
+        SELECT id, parent_id FROM folders WHERE id IN (SELECT id FROM denied_seed)
+        UNION ALL
+        SELECT f.id, f.parent_id FROM folders f JOIN denied_subtree d ON f.parent_id = d.id
+     ),
+     denied_files AS (
+        SELECT resource_id AS id FROM shares
+         WHERE resource_type = 'file' AND permission = 'denied'
+           AND principal_type = $3 AND principal_id = $1
+     )
+     SELECT n.id FROM notes n
+       WHERE n.vault_id = $2
+         AND (n.folder_id IN (SELECT id FROM denied_subtree) OR n.id IN (SELECT id FROM denied_files))
+     UNION
+     SELECT fi.id FROM files fi
+       WHERE fi.vault_id = $2
+         AND (fi.folder_id IN (SELECT id FROM denied_subtree) OR fi.id IN (SELECT id FROM denied_files))`,
+    [principalId, vaultId, principalType],
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+/** Folder ids denied to `principalId`, including everything below them. */
+async function deniedFolderIds(
+  db: Queryable,
+  principalType: "user" | "org",
+  principalId: string,
+): Promise<Set<string>> {
+  const { rows } = await db.query<{ id: string }>(
+    `WITH RECURSIVE denied_seed AS (
+        SELECT resource_id AS id FROM shares
+         WHERE resource_type = 'folder' AND permission = 'denied'
+           AND principal_type = $2 AND principal_id = $1
+     ),
+     denied_subtree AS (
+        SELECT id, parent_id FROM folders WHERE id IN (SELECT id FROM denied_seed)
+        UNION ALL
+        SELECT f.id, f.parent_id FROM folders f JOIN denied_subtree d ON f.parent_id = d.id
+     )
+     SELECT DISTINCT id FROM denied_subtree`,
+    [principalId, principalType],
+  );
+  return new Set(rows.map((r) => r.id));
+}
+
+/**
+ * One implementation, two questions. `deleted: false` answers "what may this user
+ * read?"; `deleted: true` answers "which of this vault's docs that they'd be
+ * allowed to read are now **gone**?" — the tombstone set the desktop reconciler
+ * needs to tell a delete from a revoke.
+ *
+ * They MUST share one body. The client applies the difference between them by
+ * removing files from disk, so if the two permission algebras ever drifted, the
+ * drift would show up as a note being deleted off someone's disk. A single
+ * predicate swap can't drift.
+ */
+async function listDocsInVault(
+  userId: string,
+  vaultId: string,
+  db: Queryable,
+  opts: { deleted: boolean },
+): Promise<Set<string>> {
+  const access = await vaultAccess(db, userId, vaultId);
+  if (!access) return new Set(); // unknown vault
+  const { organizationId, role, vaultWide } = access;
+
+  // The ONLY difference between the two sets. `files` has no `deleted_at`
+  // column, so a tombstone can never be a file — the UNIONs below drop out.
+  const livePredicate = opts.deleted ? "deleted_at IS NOT NULL" : "deleted_at IS NULL";
+
+  // Non-privileged (private-by-default): readable docs are the union of
+  //   - notes the user created (created_by) — ONLY while still a member;
+  //   - docs under a folder shared to the user OR the team (org grant), walking
+  //     the subtree since folder grants inherit down;
+  //   - files/notes shared directly to the user or the team.
+  // Both the creator branch and the org ($3) branches are gated by membership
+  // ($4) so a REMOVED member (session outlives removal) loses read on notes
+  // they authored — matching resolver.effectivePermission's creator rule.
+  //
+  // `orgGrants` ($5) is run BOTH ways when an item is set to Private: once
+  // normally, and once with the team's grants switched off, which yields
+  // exactly the docs this user reaches personally (created, or shared to them
+  // by name). Subtracting `orgDenied` minus that personal set is what makes
+  // Private mean "not the team" rather than "not anyone".
+  //
+  // A soft-deleted note keeps `created_by`, `folder_id` and its `shares` rows, so
+  // this resolves a tombstone's permission exactly as it did while the note lived.
+  const isMember = role !== null;
+  const filesUnion = opts.deleted
+    ? ""
+    : `UNION
+     SELECT fi.id FROM files fi
+       WHERE fi.vault_id = $2
+         AND (fi.folder_id IN (SELECT id FROM subtree) OR fi.id IN (SELECT id FROM shared_files))`;
+  // Deleting a folder HARD-deletes its rows (`tree-ops.ts deleteFolder`) after
+  // soft-deleting the notes inside, and `notes.folder_id` is `ON DELETE SET
+  // NULL`. So for a tombstone the walk above finds nothing: the folder that
+  // carried the member's share no longer exists, the note's `folder_id` is null,
+  // and a member whose access ran through a folder share was told nothing at all.
+  //
+  // That is not a cosmetic gap. "Absent from BOTH lists" is how the desktop
+  // spells REVOKED, and a revocation is removed outright with no recoverable
+  // copy, under a cap an authoritative pass lifts. An owner deleting a shared
+  // folder while the member's app was closed therefore erased those files on the
+  // next launch, with the deletion cap and the trash copy — the two things built
+  // for exactly this — never consulted.
+  //
+  // `folder_tombstones` still holds the deleted subtree's ids AND paths, so the
+  // ancestry is recoverable from the path even though the rows are gone. Only
+  // the tombstone question asks for this: a LIVE note's `folder_id` is
+  // authoritative and must stay the only thing that decides it.
+  const deadFolderCte = opts.deleted
+    ? `,
+       dead_folder_paths AS (
+          SELECT ft.path, ft.deleted_at FROM folder_tombstones ft
+           WHERE ft.vault_id = $2
+             AND (
+               -- the shared folder itself was deleted …
+               ft.id IN (SELECT id FROM shared_folders)
+               -- … or it sits under a shared folder that is still alive.
+               OR EXISTS (
+                 SELECT 1 FROM folders f2
+                  WHERE f2.id IN (SELECT id FROM subtree)
+                    AND starts_with(lower(ft.path), lower(f2.path) || '/')
+               )
+             )
+       )`
+    : "";
+  const deadFolderPredicate = opts.deleted
+    ? `OR EXISTS (
+                 SELECT 1 FROM dead_folder_paths d
+                  WHERE starts_with(lower(n.rel_path), lower(d.path) || '/')
+                    -- A tombstone may only claim notes that already EXISTED
+                    -- when it was written. Without this it matches purely by
+                    -- path: create a new, unshared folder at the same path
+                    -- later, and its deleted notes resolve through the old
+                    -- folder's long-dead share. Bounded harm — tombstones carry
+                    -- ids only, and the client holds no file for a note it never
+                    -- had — but it is an id disclosure, and it contradicts the
+                    -- doc-id-not-path invariant this system is built on.
+                    --
+                    -- Compared against created_at, not deleted_at:
+                    -- deleteFolderCascade soft-deletes the notes BEFORE it
+                    -- writes the folder tombstone, so the tombstone is always
+                    -- marginally the later of the two even in the ordinary case.
+                    AND d.deleted_at >= n.created_at
+               )`
+    : "";
+  // `creatorCounts` exists for the rescue call below: under item-Private,
+  // authorship no longer keeps a doc, so the "reaches it personally" set is
+  // per-user shares ONLY. The normal call keeps it — a member still reads the
+  // notes they wrote.
+  const scopedDocs = async (orgGrants: boolean, creatorCounts = true): Promise<Set<string>> => {
+    const { rows } = await db.query<{ id: string }>(
+      `WITH RECURSIVE shared_folders AS (
+          SELECT resource_id AS id FROM shares
+           WHERE resource_type = 'folder' AND permission IN ('view', 'edit')
+             AND (
+               (principal_type = 'user' AND principal_id = $1)
+               OR ($4 AND $5 AND principal_type = 'org' AND principal_id = $3)
+             )
+       ),
+       subtree AS (
+          SELECT id FROM folders WHERE id IN (SELECT id FROM shared_folders)
+          UNION ALL
+          SELECT f.id FROM folders f JOIN subtree s ON f.parent_id = s.id
+       ),
+       shared_files AS (
+          SELECT resource_id AS id FROM shares
+           WHERE resource_type = 'file' AND permission IN ('view', 'edit')
+             AND (
+               (principal_type = 'user' AND principal_id = $1)
+               OR ($4 AND $5 AND principal_type = 'org' AND principal_id = $3)
+             )
+       )${deadFolderCte}
+       SELECT n.id FROM notes n
+         WHERE n.vault_id = $2 AND n.${livePredicate}
+           AND (
+             ($4 AND $6 AND n.created_by = $1)
+             OR n.folder_id IN (SELECT id FROM subtree)
+             OR n.id IN (SELECT id FROM shared_files)
+             ${deadFolderPredicate}
+           )
+       ${filesUnion}`,
+      [userId, vaultId, organizationId, isMember, orgGrants, creatorCounts],
+    );
+    return new Set(rows.map((r) => r.id));
+  };
+
+  // Both denies apply to everyone, owners and admins included — see
+  // [[resolver]] for why a restriction its author is exempt from is not one.
+  // The org deny is rescued only by an explicit per-user share (`personal`
+  // below, which deliberately does NOT count authorship): Private means
+  // "nobody until you name them", and in a vault you set up yourself you wrote
+  // nearly everything.
+  const userDenied = await deniedDocsInVault(db, "user", userId, vaultId);
+  const orgDenied = await deniedDocsInVault(db, "org", organizationId, vaultId);
+
+  // A SEALED vault (the Access panel's Private) stops authorship keeping a doc,
+  // exactly as an item set Private does — the resolver's posture branch skips
+  // both the role and the creator rule, so `creatorCounts` has to go with it or
+  // the set and the resolver disagree about every note its author wrote. Org and
+  // per-user grants still lift, which is what makes "sealed vault, one folder
+  // shared with the team" work. A vault that was merely never shared is NOT
+  // this: there, people keep what they wrote.
+  const sealed = (await vaultBaseline(db, organizationId)) === "sealed";
+
+  let reachable: Set<string>;
+  if (vaultWide) {
+    const { rows } = await db.query<{ id: string }>(
+      opts.deleted
+        ? `SELECT id FROM notes WHERE vault_id = $1 AND ${livePredicate}`
+        : `SELECT id FROM notes WHERE vault_id = $1 AND ${livePredicate}
+           UNION
+           SELECT id FROM files WHERE vault_id = $1`,
+      [vaultId],
+    );
+    reachable = new Set(rows.map((r) => r.id));
+  } else {
+    reachable = await scopedDocs(true, !sealed);
+  }
+
+  if (orgDenied.size > 0) {
+    const personal = await scopedDocs(false, false);
+    for (const id of orgDenied) if (!personal.has(id)) reachable.delete(id);
+  }
+  return subtract(reachable, userDenied);
+}
+
+/** `a` minus `b`, in place on `a`. */
+function subtract(a: Set<string>, b: Set<string>): Set<string> {
+  for (const id of b) a.delete(id);
+  return a;
+}
+
+export async function listReadableDocsInVault(
+  userId: string,
+  vaultId: string,
+  db: Queryable = defaultPool,
+): Promise<Set<string>> {
+  return listDocsInVault(userId, vaultId, db, { deleted: false });
+}
+
+/**
+ * doc_ids in this vault the caller could read but that are now **soft-deleted**.
+ *
+ * Why this exists: "absent from `GET /api/notes`" is ambiguous — it means either
+ * *deleted* or *you lost read access*, because that route is ACL-filtered.
+ * Absence alone can't distinguish them, and neither can `effectivePermission`:
+ * `locateDoc` filters `deleted_at IS NULL`, so a deleted doc resolves to "none",
+ * exactly like no access. So deletion has to be *stated*, never inferred.
+ *
+ * Both outcomes now remove the local file (a revocation that leaves a readable
+ * `.md` on the ex-reader's disk is cosmetic), but they remain distinct: the
+ * client caps them against separate budgets and reports them differently, and
+ * an unanswered tombstone question still means "change nothing" — see
+ * `lib/sync/inbound.ts`.
+ *
+ * Permission-filtered rather than "every deleted id in the vault". If a teammate
+ * lost the share AND the note was deleted, the id is withheld and the client
+ * falls into its "absent from both" branch — where the file is removed as a
+ * REVOCATION rather than as a delete.
+ *
+ * That fallback is the harsher route, not the gentler one, and it is worth being
+ * plain about: a revocation is removed outright with no `.context/trash` copy,
+ * and on an authoritative pass its cap is lifted. So every case where a doc the
+ * caller could once read is *deleted* must be answered here rather than left to
+ * fall through — which is why the `deleted` branch resolves a share through
+ * `folder_tombstones` when the folder that carried it has been hard-deleted.
+ * An endpoint that cannot answer at all still means "change nothing".
+ */
+export async function listDeletedReadableDocsInVault(
+  userId: string,
+  vaultId: string,
+  db: Queryable = defaultPool,
+): Promise<Set<string>> {
+  return listDocsInVault(userId, vaultId, db, { deleted: true });
+}
+
+export interface VaultFolderRow {
+  id: string;
+  vault_id: string;
+  parent_id: string | null;
+  name: string;
+  path: string;
+  sort: number;
+  created_by: string | null;
+  /** Palette id from the client's `lib/appearance`, or null. Vault-wide, so a
+   *  folder tinted on one machine is tinted for the whole team. */
+  color: string | null;
+}
+
+/**
+ * Folders a user may SEE in the tree (private-by-default). An Open/Read-only
+ * vault shows every folder to everyone who holds its grant, owners and admins
+ * included — and a Private vault shows them no more than anyone else;
+ * otherwise a member sees folders
+ * they created, folders shared to them or the team (+ their subtrees, since
+ * grants inherit down), and the ANCESTORS of anything visible so the path to a
+ * shared note/folder is never missing a link.
+ */
+export async function listVisibleFolders(
+  userId: string,
+  vaultId: string,
+  db: Queryable = defaultPool,
+): Promise<VaultFolderRow[]> {
+  const access = await vaultAccess(db, userId, vaultId);
+  if (!access) return [];
+  const all = await db.query<VaultFolderRow>(
+    "SELECT id, vault_id, parent_id, name, path, sort, created_by, color FROM folders WHERE vault_id = $1 ORDER BY sort, path",
+    [vaultId],
+  );
+  // A per-member deny hides the folder from that person outright. An org deny
+  // (item Private) hides it from the TEAM — so it does not apply to an
+  // owner/admin or to someone with a personal vault grant, and a folder the
+  // user created themselves stays visible either way (that's "only you").
+  const userDenied = await deniedFolderIds(db, "user", userId);
+  const orgDenied = await deniedFolderIds(db, "org", access.organizationId);
+  // Neither deny is undone by authorship — see `listDocsInVault`.
+  const hidden = (id: string) => userDenied.has(id) || orgDenied.has(id);
+  if (access.vaultWide) return all.rows.filter((f) => !hidden(f.id));
+
+  const readable = await listReadableDocsInVault(userId, vaultId, db);
+  const isMember = access.role !== null;
+  // Authorship seeds the tree everywhere EXCEPT in a SEALED vault, which drops
+  // it for everyone (see `listDocsInVault`). Leaving it in would show a folder
+  // whose every note has gone — the tree and the notes in it disagreeing about
+  // the same setting.
+  const authorSeeds = (await vaultBaseline(db, access.organizationId)) !== "sealed";
+  const { rows: visibleIds } = await db.query<{ id: string }>(
+    `WITH RECURSIVE seed AS (
+        SELECT id FROM folders WHERE vault_id = $2 AND $6 AND created_by = $1
+        UNION
+        SELECT resource_id AS id FROM shares
+         WHERE resource_type = 'folder' AND permission IN ('view', 'edit')
+           AND (
+             (principal_type = 'user' AND principal_id = $1)
+             OR ($4 AND principal_type = 'org' AND principal_id = $3)
+           )
+     ),
+     down AS (
+        SELECT id, parent_id FROM folders WHERE vault_id = $2 AND id IN (SELECT id FROM seed)
+        UNION ALL
+        SELECT f.id, f.parent_id FROM folders f JOIN down d ON f.parent_id = d.id
+     ),
+     note_folders AS (
+        SELECT DISTINCT folder_id AS id FROM notes
+         WHERE vault_id = $2 AND deleted_at IS NULL AND folder_id IS NOT NULL
+           AND id = ANY($5::text[])
+     ),
+     up AS (
+        SELECT id, parent_id FROM folders
+         WHERE vault_id = $2
+           AND id IN (SELECT id FROM down UNION SELECT id FROM note_folders)
+        UNION ALL
+        SELECT f.id, f.parent_id FROM folders f JOIN up u ON f.id = u.parent_id
+     )
+     SELECT DISTINCT id FROM up`,
+    [userId, vaultId, access.organizationId, isMember, [...readable], authorSeeds],
+  );
+  const visible = new Set(visibleIds.map((r) => r.id));
+  return all.rows.filter((f) => visible.has(f.id) && !hidden(f.id));
+}

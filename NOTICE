@@ -1,0 +1,19 @@
+Third-party notices
+
+Portions of this software are derived from the Baalda project.
+
+Baalda
+Copyright 2026 Baalda and the Baalda contributors
+
+This product includes software developed by the Baalda project
+and its contributors.
+
+Licensed under the Apache License, Version 2.0. See
+LICENSES/Apache-2.0.txt for the full license text.
+
+"Baalda" and "Context" as used to identify that project are trademarks
+of the Baalda project. The Apache License does not grant permission to use
+those marks except as required to describe origin and reproduce notices.
+
+Other dependencies remain under their respective licenses. Package manifests
+and lockfiles contain the authoritative dependency inventory.

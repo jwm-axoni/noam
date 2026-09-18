@@ -1,0 +1,422 @@
+/* FileTree row visuals live with the virtualized row component. Container,
+   toolbar, menu, and drop-target geometry remains in App.css until those
+   shared shells have their own component stylesheets. */
+
+/* Per-row checkbox shown only in select mode (leads the row, before the glyph). */
+.tree-rowwrap { width: 100% !important; }
+
+.tree-check {
+  flex: 0 0 auto;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-on-accent);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.tree-check:hover {
+  border-color: var(--accent);
+}
+.tree-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.tree-check svg {
+  width: 11px;
+  height: 11px;
+}
+.tree-row.checked {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+.tree-row.checked:hover {
+  background: var(--accent-soft-hover);
+}
+.tree-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding-right: var(--sp-3);
+  font-size: var(--type-chrome-size);
+  line-height: var(--type-leading-chrome);
+  color: var(--text-secondary);
+  cursor: pointer;
+  user-select: none;
+  -webkit-user-select: none;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.tree-row:active { cursor: grabbing; }
+/* Flat, edge-to-edge fills — no pills, no shadows, no rounding. The glyph is
+   the first thing in every row, so all rows on a level share one left edge. */
+.tree-row:hover {
+  background: var(--bg-active);
+  color: var(--text-primary);
+}
+/* A one-shot "here it is" pulse on a row the app just revealed (store
+   `revealedPath`). Subtle by design: the row's own `.selected` highlight is the
+   lasting signal, this only catches the eye once.
+
+   The keyframes END on the selection fill, not on transparent. An animation's
+   held end state (`both`) outranks `.selected`'s normal declaration whatever
+   the source order, so a pulse that faded to transparent left the row bare
+   until the class dropped and then snapped it back to accent — the "blink" on
+   every click. Landing on `--accent-soft` makes the class drop invisible. A
+   revealed row that is NOT the selection (a folder) gets the variant below. */
+@keyframes tree-reveal {
+  0% {
+    background: var(--accent-soft);
+  }
+  30% {
+    background: var(--accent-soft-hover);
+  }
+  100% {
+    background: var(--accent-soft);
+  }
+}
+@keyframes tree-reveal-unselected {
+  0% {
+    background: var(--accent-soft);
+  }
+  30% {
+    background: var(--accent-soft-hover);
+  }
+  100% {
+    background: transparent;
+  }
+}
+/* Length is mirrored by the clear timer in `FileTree`'s reveal effect
+   (`REVEAL_PULSE_MS`); keep them together. */
+.tree-row.revealed {
+  animation: tree-reveal 900ms var(--ease) both;
+}
+.tree-row.revealed:not(.selected) {
+  animation-name: tree-reveal-unselected;
+}
+@media (prefers-reduced-motion: reduce) {
+  .tree-row.revealed {
+    animation: none;
+  }
+}
+.tree-row.selected {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: var(--type-weight-medium);
+}
+.tree-row.selected:hover {
+  background: var(--accent-soft-hover);
+}
+/* Folder about to receive a dragged note */
+/* "Release here and it goes inside this folder." Faded in rather than snapped
+   on, so brushing past a folder on the way somewhere else doesn't strobe. */
+.tree-row.drop-target {
+  background: var(--accent-soft);
+  box-shadow: inset 0 0 0 1px var(--accent);
+  transition:
+    background 120ms var(--ease),
+    box-shadow 120ms var(--ease);
+}
+
+/* The row wrapper is absolutely positioned by react-window via `top`; since
+   arborist keys rows by node id, the same element is reused when the order
+   changes, so animating `top` glides rows to their new home on a reorder (and
+   settles siblings when a folder expands/collapses). */
+.tree-rowwrap {
+  transition: top var(--t-med) var(--ease);
+  will-change: top;
+}
+
+/* The row you've picked up — lift and dim it so the drag reads as tactile. */
+/* The row you picked up: it stays in place and recedes, so the line is the
+   thing your eye follows. Eased out slowly and in quickly — a gentle lift, a
+   clean settle. */
+.tree-row.dragging {
+  opacity: 0.4;
+  transform: scale(0.985);
+  transition:
+    opacity 160ms cubic-bezier(0.22, 1, 0.36, 1),
+    transform 160ms cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+/* Honor reduced-motion: keep the reorder instant, drop the lift animation. */
+@media (prefers-reduced-motion: reduce) {
+  .filetree-scroll {
+    scroll-behavior: auto;
+  }
+  .tree-rowwrap {
+    transition: none;
+  }
+  .tree-row.dragging {
+    transition: none;
+  }
+  /* A pulsing dot on every syncing row is a lot of motion; the colour alone
+     still distinguishes the state. */
+  .tree-sync.syncing .sync-dot {
+    animation: none;
+  }
+}
+
+/* Type glyph — folder (closed/open) or document */
+.tree-glyph {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  transition:
+    color var(--t-fast) var(--ease),
+    transform var(--t-med) var(--ease-spring);
+}
+.tree-glyph svg {
+  width: 15px;
+  height: 15px;
+}
+.tree-row:hover .tree-glyph {
+  color: var(--text-secondary);
+  transform: scale(1.08);
+}
+.tree-row.is-dir:hover .tree-glyph,
+.tree-row.selected .tree-glyph {
+  color: var(--accent);
+}
+.tree-glyph.is-empty {
+  opacity: 0.5;
+}
+/* Colored items are filled, not just outlined — folders read like Finder
+   tags (near-solid), notes get a soft wash so their detail lines stay legible. */
+.tree-glyph.colored svg {
+  fill: currentColor;
+  fill-opacity: 0.22;
+}
+.tree-row.is-dir .tree-glyph.colored svg {
+  fill-opacity: 0.85;
+}
+
+.tree-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  transition: transform var(--t-fast) var(--ease);
+}
+.tree-row:hover .tree-label {
+  transform: translateX(1px);
+}
+
+/* Lock badge — always visible on locked folders/notes; tooltip explains. */
+.tree-lock {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+.tree-lock svg {
+  width: 12px;
+  height: 12px;
+}
+/* A lock that actually restricts YOU reads as a warning tone. `.member` stays
+   tertiary: it is someone else's restriction, shown for awareness only.
+   `.vault` is the whole-vault Read-only posture — it restricts you too. */
+.tree-lock.all,
+.tree-lock.vault,
+.tree-lock.you {
+  color: var(--warning);
+}
+
+/* Per-row sync mark — "is this on the server?" — sized like .tree-lock so the
+   two status glyphs share one column rhythm, and built from the same .sync-dot
+   element + semantic tone tokens as the vault-level .sync-badge, so "synced"
+   reads identically everywhere. Absent entirely when sync is off. */
+.tree-sync {
+  flex-shrink: 0;
+  min-width: 14px;
+  height: 14px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+}
+.tree-sync .sync-dot {
+  width: 5px;
+  height: 5px;
+}
+/* Synced is the normal state, so it whispers: present enough to scan a column
+   of them, quiet enough not to decorate every row. */
+.tree-sync.synced {
+  color: var(--success);
+}
+.tree-sync.synced .sync-dot {
+  opacity: 0.6;
+}
+.tree-sync.syncing {
+  color: var(--warning);
+}
+.tree-sync.syncing .sync-dot {
+  animation: sync-pulse 1.3s var(--ease) infinite;
+}
+.tree-sync.queued .sync-dot {
+  opacity: 0.7;
+}
+/* Not on the server: a hollow ring — the "absence" reading of the same dot. */
+.tree-sync.unsynced .sync-dot {
+  width: 7px;
+  height: 7px;
+  background: none;
+  border: 1.5px solid currentColor;
+  box-sizing: border-box;
+  opacity: 0.55;
+}
+.tree-sync.error {
+  color: var(--danger);
+}
+/* A folder mid-sync shows its real progress instead of a dot; tabular figures
+   keep the width steady as the number climbs. */
+.tree-sync-pct {
+  font-size: var(--type-micro-size);
+  font-weight: var(--type-weight-bold);
+  line-height: 1;
+  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums;
+}
+
+/* Live presence — a small stack of teammate faces on the right of a row showing
+   who is currently viewing that note (or, on a collapsed folder, the notes
+   inside it). Mirrors the editor's PresenceAvatar ring treatment, shrunk to fit
+   a 32px row. Each face's colour arrives inline as --user-color. */
+.tree-presence {
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--sp-1);
+  /* Sits between the label and the ⋯ button; never pushed off by a long name
+     (the label ellipsizes first). */
+}
+.tree-presence-avatar {
+  position: relative;
+  width: 18px;
+  height: 18px;
+  flex: 0 0 auto;
+  border-radius: 50%;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border: 1.5px solid var(--user-color, var(--border-strong));
+  padding: 1px;
+  box-sizing: border-box;
+  margin-left: -6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.tree-presence-avatar:first-child {
+  margin-left: 0;
+}
+.tree-presence-avatar svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+  border-radius: 50%;
+}
+.tree-presence-avatar.offline {
+  opacity: 0.7;
+}
+/* Overflow chip (+N) when more teammates are here than fit in the stack. */
+.tree-presence-overflow {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong);
+  color: var(--text-secondary);
+  font-size: var(--type-micro-size);
+  font-weight: var(--type-weight-bold);
+  line-height: 1;
+}
+
+/* ⋯ actions — whispers in on row hover; its own hover stays small and faint */
+.tree-more {
+  flex-shrink: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  opacity: 0;
+  transition:
+    opacity var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.tree-more svg {
+  width: 17px;
+  height: 17px;
+}
+.tree-row:hover .tree-more,
+.tree-more:focus-visible {
+  opacity: 0.7;
+}
+.tree-more:hover {
+  opacity: 0.9;
+  background: color-mix(in srgb, var(--bg-surface) 55%, transparent);
+  color: var(--text-secondary);
+}
+.tree-more:active { transform: scale(0.9); }
+
+/* Whispered "empty" tag — only appears while hovering an empty folder */
+.tree-hint {
+  flex-shrink: 0;
+  font-size: var(--type-label-size);
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--sp-2);
+  opacity: 0;
+  transform: translateX(2px);
+  transition:
+    opacity var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.tree-row:hover .tree-hint {
+  opacity: 1;
+  transform: translateX(0);
+}
+.tree-rename-input {
+  flex: 1;
+  min-width: 0;
+  user-select: text;
+  background: var(--bg-surface);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--type-chrome-size);
+  padding: 1px var(--sp-2);
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.tree-row.opening {
+  background: var(--accent-soft);
+}
+.tree-row.opening .tree-label {
+  color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .tree-more:active { transform: none; }
+}

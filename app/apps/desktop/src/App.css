@@ -1,0 +1,5845 @@
+/* ============================================================
+   Noam — App shell styles
+   Atomize PLUS: light-first layered surfaces, pill actions,
+   violet accent, soft diffuse shadows, 4pt grid.
+   Every value consumes a token from styles/tokens.css.
+   ============================================================ */
+
+/* color-scheme is set per theme in styles/tokens.css (light on :root,
+   dark on [data-theme="dark"]) so native controls + scrollbars follow the
+   in-app theme toggle rather than only the OS. */
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family: var(--font-body);
+  font-size: var(--type-ui-size);
+  line-height: var(--type-leading-chrome);
+  background: var(--bg-app);
+  color: var(--text-primary);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+  overflow: hidden;
+}
+
+button {
+  font: inherit;
+  cursor: pointer;
+}
+
+/* Subtle, thin scrollbars that match the surfaces */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-strong) transparent;
+}
+*::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border-strong);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+  border-radius: var(--radius-pill);
+}
+*::-webkit-scrollbar-thumb:hover {
+  background: var(--text-tertiary);
+  border: 3px solid transparent;
+  background-clip: padding-box;
+}
+
+.booting {
+  display: grid;
+  place-items: center;
+  height: 100%;
+  color: var(--text-tertiary);
+  font-size: var(--fs-md);
+  letter-spacing: 0.01em;
+}
+
+/* ============================================================
+   Buttons — pills
+   ============================================================ */
+button.primary {
+  background: var(--accent);
+  color: var(--text-on-accent);
+  border: none;
+  border-radius: var(--radius-pill);
+  padding: var(--sp-2) var(--sp-4);
+  font-weight: 600;
+  font-size: var(--fs-md);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+button.primary:hover:not(:disabled) {
+  background: var(--accent-hover);
+}
+button.primary:active:not(:disabled) {
+  transform: translateY(1px);
+}
+button.primary:disabled {
+  opacity: 0.55;
+  cursor: default;
+  box-shadow: none;
+}
+button.primary.sm {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* The single hero CTA (vault picker) — gradient fill */
+button.primary.hero {
+  background: var(--accent-gradient);
+  padding: var(--sp-3) var(--sp-6);
+  font-size: var(--fs-lg);
+  box-shadow: var(--shadow-md);
+}
+button.primary.hero:hover:not(:disabled) {
+  background: var(--accent-gradient);
+  filter: brightness(1.05);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Secondary / ghost text button */
+.link-btn {
+  background: none;
+  border: none;
+  color: var(--accent);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.link-btn:hover {
+  color: var(--accent-hover);
+  background: var(--accent-soft);
+}
+.link-btn.danger:hover {
+  background: var(--danger-soft);
+}
+.link-btn.danger {
+  color: var(--danger);
+}
+
+.icon-btn {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  width: 28px;
+  height: 28px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  transition: color var(--t-fast) var(--ease);
+}
+.icon-btn:hover {
+  color: var(--text-primary);
+}
+.icon-btn svg {
+  width: 18px;
+  height: 18px;
+}
+/* Copy-link button. Goes green on success rather than only toasting: the toast
+   is at the other end of the window, and the confirmation belongs where the
+   click happened. */
+/* ---- Share popover: the header share button's private/public choice.
+   Reuses the account-popover shell + dense menu scale; only the anchoring
+   differs — it hangs down-right from a fixed header button instead of rising
+   from the sidebar's identity bar. ---- */
+.share-menu {
+  position: relative;
+  display: inline-flex;
+}
+.account-popover.share-popover {
+  top: calc(100% + var(--sp-1));
+  bottom: auto;
+  right: 0;
+  left: auto;
+  width: 340px;
+}
+/* The minted url as a click-to-copy row (shown only when the automatic
+   clipboard write failed). The label carries the FULL url — the click copies
+   that, never the ellipsized text. */
+.share-fallback-url .menu-item-label {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.share-btn.copied {
+  color: var(--success);
+}
+.share-btn .checkmark {
+  width: 18px;
+  height: 18px;
+}
+
+/* Graph view toggle in the main header — nudge toward accent so it reads as a
+   navigable affordance rather than a passive status glyph. */
+.graph-btn {
+  color: var(--text-secondary);
+}
+.graph-btn:hover {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+
+/* Markdown presentation modes live with the note tools. Compact enough to
+   leave the tab strip its useful width, while keeping all three choices
+   explicit instead of hiding them in a menu. */
+.segmented.view-mode-selector {
+  padding: 2px;
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+}
+.segmented.view-mode-selector button {
+  flex: none;
+  padding: 3px var(--sp-2);
+  font-size: var(--fs-xs);
+}
+.segmented.view-mode-selector button.active {
+  background: var(--accent-soft);
+  color: var(--accent);
+  box-shadow: none;
+}
+
+/* ============================================================
+   Inputs — filled wells
+   ============================================================ */
+.modal input,
+.modal select,
+.account-popover input,
+.account-popover select {
+  background: var(--bg-subtle);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-md);
+  width: 100%;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.modal input::placeholder,
+.account-popover input::placeholder {
+  color: var(--text-tertiary);
+}
+.modal input:hover,
+.modal select:hover,
+.account-popover input:hover,
+.account-popover select:hover {
+  border-color: var(--border-strong);
+}
+.modal input:focus,
+.modal select:focus,
+.account-popover input:focus,
+.account-popover select:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  background: var(--bg-surface);
+}
+
+/* ============================================================
+   Vault picker — welcome screen
+   ============================================================ */
+.vault-picker {
+  position: relative;
+  display: grid;
+  place-items: center;
+  height: 100%;
+  overflow: hidden;
+  background:
+    radial-gradient(900px 460px at 50% -8%, var(--accent-soft) 0%, transparent 62%),
+    var(--bg-app);
+}
+/* Quiet dot grid — texture behind the aurora so the canvas isn't flat. */
+.vault-picker::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image: radial-gradient(var(--border-strong) 1px, transparent 1.5px);
+  background-size: 26px 26px;
+  opacity: 0.35;
+  pointer-events: none;
+  -webkit-mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 30%, transparent 75%);
+  mask-image: radial-gradient(ellipse 70% 60% at 50% 45%, black 30%, transparent 75%);
+}
+/* Ambient aurora — Motion drifts these blurred fields very slowly. */
+.aurora {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+}
+.aurora-blob {
+  position: absolute;
+  display: block;
+  border-radius: 50%;
+  filter: blur(90px);
+  will-change: transform;
+}
+.aurora-blob.a1 {
+  width: 520px;
+  height: 520px;
+  top: -180px;
+  right: -140px;
+  background: var(--decor-gradient);
+  opacity: 0.5;
+}
+.aurora-blob.a2 {
+  width: 420px;
+  height: 420px;
+  bottom: -200px;
+  left: -120px;
+  background: radial-gradient(circle, var(--accent) 0%, transparent 70%);
+  opacity: 0.3;
+}
+.aurora-blob.a3 {
+  width: 380px;
+  height: 380px;
+  top: 30%;
+  left: -180px;
+  background: radial-gradient(circle, #4aa3ff 0%, transparent 70%);
+  opacity: 0.18;
+}
+/* ---- Welcome-screen sign-in line ----
+   Sits with the hint text under the primary actions, in the same quiet register
+   — an account is optional in a local-first app, so this informs rather than
+   competes with "New vault" / "Open existing". */
+.picker-signin {
+  margin-top: var(--sp-2);
+}
+/* A button that reads as a link: keyboard- and screen-reader-correct (it
+   performs an action, so it must not be an anchor) while looking inline. */
+.linkish {
+  background: none;
+  border: none;
+  padding: 0;
+  font: inherit;
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  transition: color var(--t-fast) var(--ease);
+}
+.linkish:hover:not(:disabled) {
+  color: var(--accent-hover);
+}
+.linkish:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.vault-picker-card {
+  position: relative;
+  z-index: 1;
+  text-align: center;
+  padding: var(--sp-10) 0;
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+}
+/* Splash hero: the wordmark IS the screen — edge-to-edge width, a small
+   gutter left and right. */
+.vault-picker-card .product-name {
+  margin: 0 0 clamp(48px, 8vh, 96px);
+  line-height: 1;
+  cursor: default;
+  user-select: none;
+}
+/* Noam wordmark: the selected Fan mark with a live-text name. */
+.wordmark {
+  --wordmark-size: clamp(64px, 10vw, 144px);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 0.1em;
+  color: var(--brand-ink);
+}
+.wordmark-mark {
+  position: relative;
+  display: block;
+  flex: 0 0 auto;
+  width: calc(var(--wordmark-size) * 0.78);
+  height: calc(var(--wordmark-size) * 0.78);
+}
+.wordmark-layer {
+  position: absolute;
+  inset: 0;
+  mask-image: url("./assets/noam-mark.svg");
+  mask-repeat: no-repeat;
+  mask-size: 300% 100%;
+  -webkit-mask-image: url("./assets/noam-mark.svg");
+  -webkit-mask-repeat: no-repeat;
+  -webkit-mask-size: 300% 100%;
+}
+.wordmark-back {
+  background: var(--brand-pencil);
+  mask-position: left center;
+  -webkit-mask-position: left center;
+}
+.wordmark-gap {
+  background: var(--bg-app);
+  mask-position: center;
+  -webkit-mask-position: center;
+}
+.wordmark-front {
+  background: currentColor;
+  mask-position: right center;
+  -webkit-mask-position: right center;
+}
+.wordmark-name {
+  font-family: var(--font-display);
+  font-size: var(--wordmark-size);
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  line-height: 0.8;
+  white-space: nowrap;
+}
+.vault-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+}
+.vault-picker-card .error {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  margin-top: var(--sp-4);
+  background: var(--danger-soft);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+}
+.vault-picker-card .hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  margin-top: var(--sp-3);
+}
+.vault-picker-card .hint code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--bg-hover);
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+}
+/* Two side-by-side primary actions: New vault / Open existing. */
+.vault-primary-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* Bordered "ghost" pill — the quieter sibling of button.primary. */
+.ghost-pill {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: var(--sp-2) var(--sp-4);
+  font-weight: 600;
+  font-size: var(--fs-md);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.ghost-pill:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+.ghost-pill:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* Match the hero CTA's larger footprint when paired beside it. */
+.ghost-pill.lg {
+  padding: var(--sp-3) var(--sp-6);
+  font-size: var(--fs-lg);
+}
+/* Compact variant for secondary chrome — sits in a corner without competing
+   with whatever the primary action on the screen is. */
+.ghost-pill.sm {
+  padding: var(--sp-1) var(--sp-3);
+  font-size: var(--fs-sm);
+}
+
+/* ---- New-vault naming step ---- */
+.new-vault-form {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-2);
+  width: min(360px, 80vw);
+  text-align: left;
+}
+.new-vault-label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-secondary);
+}
+.new-vault-input {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  transition: border-color var(--t-fast) var(--ease);
+}
+.new-vault-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+/* "Open by path" modal — rides the shared .modal; only the form layout is ours. */
+.open-by-path {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  text-align: left;
+}
+.open-by-path-hint {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: var(--lh-body);
+}
+.open-by-path-hint code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--bg-hover);
+  padding: 1px var(--sp-1);
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+}
+.open-by-path .auth-error {
+  margin: 0;
+}
+.open-by-path-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+.new-vault-loc {
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+  margin: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.new-vault-loc code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.new-vault-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+/* ---- Join-with-code step (same slot/shell as the naming step) ----
+   A join code is an opaque 8-character string read off someone else's screen,
+   so it gets the mono face and loose tracking that make O/0 and I/1 tellable
+   apart while typing. */
+.join-code-input {
+  font-family: var(--font-mono);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+.join-code-input::placeholder {
+  letter-spacing: 0.12em;
+  opacity: 0.45;
+}
+/* The step owns its own error line (a bad code is expected, not exceptional),
+   so it sits inside the form rather than in the card-level error slot. */
+.vault-picker-card .error.join-error {
+  margin-top: 0;
+  text-align: left;
+}
+
+/* Post-sign-in landing: shown in place of the two primary actions while the
+   vault is being resolved (and, for a new account, created + seeded). Occupies
+   the same slot so the centered card doesn't jump. */
+.picker-landing {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  min-height: 44px;
+}
+.picker-landing-label {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+/* ---- Recent vaults list ---- */
+.recent-list {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  width: min(420px, 84vw);
+  margin: var(--sp-6) auto 0;
+  text-align: left;
+}
+.recent-heading {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin: 0 0 var(--sp-1) var(--sp-1);
+}
+/* Holds the 3 collapsed recent cards; the full list lives in the "Show all"
+   modal (.vault-list-modal), so this box never changes size and the centered
+   card never reflows. */
+.recent-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+/* "Show all" modal: every vault in one scrollable list. Reuses the standard
+   modal shell, widened — vault paths are long and the 420px default truncated
+   them into ambiguity. */
+.vault-list-modal {
+  width: 620px;
+}
+.vault-list-modal .vault-list-scroll {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  max-height: min(440px, 60vh);
+  overflow-y: auto;
+  padding-right: 2px; /* breathing room beside the scrollbar */
+  scrollbar-width: thin;
+}
+/* Group heading inside the "All vaults" modal: synced vaults vs folders that
+   exist only on this device. Same quiet register as .recent-heading. */
+.vault-list-section {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-tertiary);
+  margin: var(--sp-2) 0 var(--sp-1) var(--sp-1);
+}
+.vault-list-section:first-child {
+  margin-top: 0;
+}
+/* "Load more (N)" — a quiet full-width reveal under the collapsed list. */
+.recent-more {
+  margin-top: var(--sp-1);
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.recent-more:hover:not(:disabled) {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.recent-more:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.recent-card {
+  position: relative; /* anchors the overlaid remove × */
+  display: flex;
+  align-items: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.recent-card:hover {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.recent-open {
+  flex: 1;
+  min-width: 0;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "name time"
+    "path path";
+  align-items: baseline;
+  gap: 0 var(--sp-2);
+  background: none;
+  border: none;
+  padding: var(--sp-2) var(--sp-3);
+  text-align: left;
+  cursor: pointer;
+}
+.recent-open:disabled {
+  cursor: default;
+}
+.recent-name {
+  grid-area: name;
+  font-weight: 600;
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-path {
+  grid-area: path;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.recent-time {
+  grid-area: time;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+}
+/* The Local/Remote tag on a vault row, tucked into the top-right slot. */
+.recent-badge {
+  grid-area: time;
+  justify-self: end;
+  align-self: center;
+}
+/* Top-right slot content: "3h ago" + the state tag side by side. Local rows
+   show both; synced rows only the tag. */
+.recent-meta {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* The remove × overlays the row's top-right corner and only shows on hover
+   (the tag fades out while it's up — see .removable below). In flow it
+   reserved a column on local rows only, so their tags sat left of the synced
+   rows'. Absolute needs a positioned parent: .recent-card. */
+.recent-remove {
+  position: absolute;
+  top: 0;
+  right: 0;
+  bottom: 0;
+  width: 34px;
+  display: grid;
+  place-items: center;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  padding: 0;
+  cursor: pointer;
+  opacity: 0;
+  border-radius: 0 var(--radius-md) var(--radius-md) 0;
+  transition:
+    opacity var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+/* Trade the tag for the × while it's showing — they share the same corner,
+   and showing both would stack them. (:has covers the keyboard path; on a
+   WebKit too old for it the × merely overlaps the tag while focused.) */
+.recent-card.removable:hover .recent-meta,
+.recent-card.removable:has(.recent-remove:focus-visible) .recent-meta {
+  opacity: 0;
+}
+.recent-meta {
+  transition: opacity var(--t-fast) var(--ease);
+}
+.recent-card:hover .recent-remove {
+  opacity: 1;
+}
+.recent-remove:hover:not(:disabled) {
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.recent-remove:focus-visible {
+  opacity: 1;
+}
+
+/* ============================================================
+   App shell — canvas + floating editor sheet
+   ============================================================ */
+/* Column wrapper so the window-global update banner can slide in ABOVE the
+   sidebar+main grid (and above the vault picker) and push it down, instead of
+   living inside one pane. */
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.app-shell > .app,
+.app-shell > .vault-picker {
+  height: auto;
+  flex: 1;
+  min-height: 0;
+}
+
+.app {
+  display: block;
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  background: var(--bg-app);
+  position: relative;
+}
+
+/* ---- Window drag regions ----
+   The window runs without a system title bar (`titleBarStyle: "Overlay"` in
+   tauri.conf.json) so the webview owns the full height. The trade Tauri makes
+   for that is that nothing is draggable by default, so the rows that sit along
+   the top edge opt in with `data-tauri-drag-region`. Text inside them must not
+   select, or a drag reads as a botched selection instead of moving the window. */
+[data-tauri-drag-region] {
+  cursor: default;
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* Bare strip for screens with no header row of their own (the vault picker). */
+.titlebar-drag {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  /* Fixed rather than `--titlebar-inset`, which is 0 off macOS and would leave
+     nothing to grab. The picker is vertically centred, so this strip only ever
+     covers empty margin. */
+  height: 28px;
+  z-index: 2;
+}
+
+/* ---- Sidebar rail (sits on the canvas) ---- */
+.sidebar {
+  background: transparent;
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  /* A grid item's default `min-width: auto` refuses to shrink past its content,
+     which would let a long note title override the width the user dragged. */
+  min-width: 0;
+  padding: 0 var(--sp-1) 0 var(--sp-2);
+}
+/* The window has no system title bar of its own (`titleBarStyle: "Overlay"`),
+   so this row starts at y=0 and the macOS traffic lights float over it — hence
+   the inset on top of the normal padding. It doubles as the window's drag
+   handle on this side; see `data-tauri-drag-region` in SidebarHeader.tsx. */
+.sidebar-header {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: calc(var(--sp-4) + var(--titlebar-inset)) var(--sp-3) var(--sp-3);
+}
+.sidebar-header-main {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  min-width: 0;
+}
+.vault-name {
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: var(--fs-lg);
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* No active vault (signed out / folder-only): a quiet placeholder, not a
+   vault title — muted and lighter so it never reads as a real vault. */
+.vault-name.none {
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+/* "Open in file manager" — sits at the end of the path row, always visible
+   but quiet: tertiary until hovered, so it reads as part of the path line
+   rather than a second focal point next to the title. */
+.vault-reveal {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  margin-left: auto;
+  color: var(--text-tertiary);
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+/* Scoped past the generic `.vault-line svg` (12px) rule below. */
+.vault-line .vault-reveal svg {
+  width: 14px;
+  height: 14px;
+}
+.vault-reveal:hover,
+.vault-reveal:focus-visible {
+  color: var(--text-primary);
+  background: var(--bg-hover);
+}
+/* Where the vault lives on disk, minus the home prefix. A storage detail, so
+   it sits a size below the rest of the line. A plain end-ellipsis is right
+   here even though it eats the tail: the tail is the vault folder, whose name
+   is already the title directly above. The tooltip has it all. */
+.vault-path {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The local folder backing the vault — a quiet storage detail. */
+.vault-line {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+}
+.vault-line .vault-path {
+  flex: 1;
+  min-width: 0;
+}
+.vault-line svg {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+}
+.vault-line-name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.vault-line .link-btn {
+  flex-shrink: 0;
+  margin-left: auto;
+}
+
+/* Small uppercase section labels shared across sidebar sections */
+.section-label,
+.panel-title,
+.panel-header {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+}
+
+/* ---- Search ----
+   A centered overlay (see SearchPanel): the field is the whole chrome, and
+   results grow beneath it only once you've typed, so an empty search is just
+   one box on a dimmed window rather than a large hollow card. */
+.search-backdrop {
+  /* A little above centre: centred vertically, then lifted by reserving space
+     at the bottom. The list grows downward, so starting dead centre would push
+     the field below the middle as results arrive. */
+  align-items: center;
+  padding-bottom: 12vh;
+}
+.search-modal {
+  width: 560px;
+  max-width: min(92vw, 560px);
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  padding: var(--sp-2);
+  animation: rise-in var(--t-med) var(--ease) both;
+}
+.search-field {
+  position: relative;
+  display: flex;
+  align-items: center;
+}
+.search-field .search-icon {
+  position: absolute;
+  left: var(--sp-3);
+  color: var(--text-tertiary);
+  pointer-events: none;
+  display: inline-flex;
+}
+.search-field .search-icon svg {
+  width: 17px;
+  height: 17px;
+}
+/* Inside the modal the input IS the header — no border or fill of its own, so
+   the panel reads as one surface instead of a box within a box. */
+.search-box {
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-lg);
+  padding: var(--sp-3) var(--sp-8) var(--sp-3) calc(var(--sp-8) + var(--sp-1));
+  color: var(--text-primary);
+  font: inherit;
+  font-size: var(--fs-lg);
+  outline: none;
+}
+.search-box::placeholder {
+  color: var(--text-tertiary);
+}
+/* The field is auto-focused on open, so a focus ring here would only ever be
+   decoration — the caret already says where you are. */
+.search-esc {
+  position: absolute;
+  right: var(--sp-3);
+  font: inherit;
+  font-size: var(--type-micro-size);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-tertiary);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-sm);
+  padding: 2px 6px;
+  pointer-events: none;
+}
+.search-results {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-2) 0 0;
+  border-top: 1px solid var(--border);
+  max-height: min(52vh, 420px);
+  overflow: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.search-result {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+/* One highlight, driven by the keyboard cursor — hover moves that cursor
+   rather than painting a second, competing one. */
+.search-result.active {
+  background: var(--accent-soft);
+}
+.search-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.search-snippet {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: var(--lh-body);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+.search-snippet mark {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  border-radius: var(--radius-sm);
+  padding: 0 2px;
+  font-weight: 600;
+}
+.search-none,
+.filetree-empty {
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  padding: var(--sp-3);
+}
+
+/* ============================================================
+   File tree
+   ============================================================ */
+/* The tree bleeds to the sidebar's edges so row hovers read full-width. */
+.filetree {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--sp-2) 0 0;
+  margin-left: calc(-1 * var(--sp-2));
+  margin-right: calc(-1 * var(--sp-1));
+  /* A file tree is never selectable text. Covers react-arborist's own row
+     wrapper divs (our rows set this too) so a double-click to rename can't
+     leave stray blue text-selection bands between rows — and so a drag that
+     the OS refuses can't fall back to smearing a selection across the rows.
+     Prefixed too: this runs in WKWebView, where the unprefixed property is
+     only honoured on recent versions. */
+  user-select: none;
+  -webkit-user-select: none;
+}
+/* react-arborist otherwise widens its scroll area to the longest row so long
+   names scroll horizontally. Clip that and pin the inner list + rows to the
+   visible width so each row's `.tree-label` truncates with an ellipsis instead
+   of forcing a horizontal scrollbar. */
+.filetree-scroll {
+  overflow-x: hidden !important;
+  /* A reveal (`tree.scrollTo`) lands on react-window assigning `scrollTop`,
+     which honours `scroll-behavior`, so the list glides to the revealed row
+     instead of jumping while the freshly expanded rows are still settling
+     into place. Wheel/trackpad scrolling is unaffected by this property. */
+  scroll-behavior: smooth;
+}
+.filetree-scroll > div {
+  width: 100% !important;
+  min-width: 0 !important;
+}
+/* OS files dragged over the tree: a dashed accent frame + soft wash invite the
+   drop. Purely a hint — the actual routing happens on the Tauri drop event.
+   Only a drag from OUTSIDE the app gets here; dragging a row around inside the
+   sidebar is suppressed in FileTree, or this frame would cover the insertion
+   line the user is aiming with. */
+.filetree.drop-active {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+}
+/* Rows are draggable, so press-and-hold reads as picking one up — the closed
+   hand is the whole feedback that a row is now "in your grip", before it has
+   moved far enough to show a drop cursor. Held for the length of the drag by
+   the container class, since the pointer leaves the source row immediately. */
+.filetree.row-dragging,
+.filetree.row-dragging * {
+  cursor: grabbing !important;
+}
+/* Transient outcome pill after an import (menu or drop). Sits at the bottom of
+   the sidebar, out of the way, and fades itself out. */
+/* The sidebar's private status pill used to live here. It is now the shared
+   toast (see "Toasts" below), so an import result and a failed export speak the
+   same language instead of the sidebar owning its own notification surface. */
+/* Section header: "Notes" label on the left, the tree's action icons on the
+   right (create note/folder · fold/unfold). One tidy row, nothing stretches. */
+.filetree-head {
+  display: flex;
+  align-items: center;
+  /* Left-anchored, NOT space-between: the buttons sit just after the label so
+     widening the sidebar doesn't drag them across the screen. Their position is
+     fixed relative to the sidebar's left edge, which is the edge that never
+     moves. */
+  justify-content: flex-start;
+  gap: var(--sp-2);
+  /* Left pad lines the label roughly under the row glyphs (the tree is nudged
+     left by sp-2); right pad matches the row's own right inset. */
+  padding: 0 var(--sp-2) var(--sp-1) calc(var(--sp-3) + var(--sp-2));
+  min-height: 24px;
+}
+.filetree-head .section-label {
+  white-space: nowrap;
+  /* The label yields first if the row ever runs short, so the buttons stay
+     inside the sidebar instead of the last one being pushed out past its edge. */
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.filetree-actions {
+  display: flex;
+  align-items: center;
+  gap: 2px;
+  flex-shrink: 0;
+}
+.filetree-actions .tree-tool {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+/* Frozen-root: reads as unavailable but still takes the click, so the toast
+   in `rootBlocked` can say WHY instead of the button silently doing nothing. */
+.filetree-actions .tree-tool.blocked {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.filetree-actions .tree-tool:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.filetree-actions .tree-tool:active {
+  background: var(--bg-active);
+}
+.filetree-actions .tree-tool:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.filetree-actions .tree-tool svg {
+  width: 16px;
+  height: 16px;
+}
+/* The fold toggle holds both icons stacked; the inactive one fades + spins
+   away so a click reads as the button flipping into its opposite. */
+.filetree-actions .tree-fold-toggle {
+  position: relative;
+}
+.tree-fold-toggle .fold-icon {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  transition:
+    opacity var(--t-med) var(--ease),
+    transform var(--t-med) var(--ease);
+}
+.tree-fold-toggle .fold-expand {
+  opacity: 0;
+  transform: scale(0.5) rotate(90deg);
+}
+.tree-fold-toggle.collapsed .fold-collapse {
+  opacity: 0;
+  transform: scale(0.5) rotate(-90deg);
+}
+.tree-fold-toggle.collapsed .fold-expand {
+  opacity: 1;
+  transform: none;
+}
+/* Hairline splitting the "create" pair from the "fold/unfold" pair. */
+.filetree-actions .tool-divider {
+  width: 1px;
+  height: 15px;
+  margin: 0 var(--sp-1);
+  background: var(--border);
+  flex: 0 0 auto;
+}
+/* The active Select toggle reads as "on" (accent-tinted) while selecting. */
+.filetree-actions .tree-tool.on {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.filetree-actions .tree-tool.on:hover {
+  background: var(--accent-soft-hover);
+}
+
+/* Bulk-action bar — only mounted while selecting, so it never crowds browsing. */
+.filetree-selectbar {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2) var(--sp-1) calc(var(--sp-3) + var(--sp-2));
+  min-height: 30px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: var(--sp-1);
+}
+.selbar-check {
+  flex: 0 0 auto;
+  width: 18px;
+  height: 18px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border: 1.5px solid var(--border-strong, var(--border));
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: #fff;
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.selbar-check:hover {
+  border-color: var(--accent);
+}
+.selbar-check.on {
+  background: var(--accent);
+  border-color: var(--accent);
+}
+.selbar-check svg {
+  width: 12px;
+  height: 12px;
+}
+.selbar-count {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.selbar-actions {
+  flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 2px;
+}
+/* Compact icon actions — same glyph language as the header tools, so three of
+   them fit a narrow sidebar without the text buttons colliding with the count. */
+.selbar-icon {
+  flex: 0 0 auto;
+  width: 26px;
+  height: 26px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.selbar-icon svg {
+  width: 16px;
+  height: 16px;
+}
+.selbar-icon:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.selbar-icon:active {
+  background: var(--bg-active);
+}
+.selbar-icon:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.selbar-icon.danger:hover {
+  background: color-mix(in srgb, var(--danger, #e5484d) 14%, transparent);
+  color: var(--danger, #e5484d);
+}
+/* Armed = one more click deletes; make the trash unmistakably hot. */
+.selbar-icon.danger.armed {
+  background: var(--danger, #e5484d);
+  color: #fff;
+}
+.selbar-icon.danger.armed:hover {
+  background: var(--danger, #e5484d);
+  color: #fff;
+}
+
+/* Bulk-delete progress — the count text plus a determinate fill bar so a big
+   delete reads as "working through N", not frozen. */
+.filetree-selectbar.deleting .selbar-count {
+  flex: 0 0 auto;
+  color: var(--text-secondary);
+}
+.selbar-progress {
+  flex: 1;
+  min-width: 40px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, var(--danger, #e5484d) 20%, transparent);
+  overflow: hidden;
+}
+.selbar-progress-fill {
+  display: block;
+  height: 100%;
+  border-radius: var(--radius-pill);
+  background: var(--danger, #e5484d);
+  transition: width var(--t-med) var(--ease);
+}
+
+/* Drag-and-drop insertion line (replaces react-arborist's default blue).
+   Fades/grows in so the drop target reads clearly as you drag over it, with a
+   soft glow and a leading dot to anchor the eye. */
+/* The insertion line. It lives for the whole drag and is moved by transform
+   from the pointer handler, so it GLIDES from slot to slot on the compositor —
+   the difference between a marker that tracks your hand and one that blinks
+   from place to place. `top: 0` because the transform carries the whole offset;
+   `left` is set inline to match the destination's indent. */
+.drop-cursor {
+  position: absolute;
+  top: 0;
+  right: var(--sp-2);
+  height: 2px;
+  border-radius: var(--radius-pill);
+  background: var(--accent);
+  box-shadow: 0 0 6px color-mix(in srgb, var(--accent) 60%, transparent);
+  pointer-events: none;
+  opacity: 0;
+  will-change: transform;
+  /* ONLY the transform is animated, and only vertically. `left` is snapped,
+     never transitioned: it runs on the main thread while the transform runs on
+     the compositor, and the two desync under any load — the line then bows out
+     sideways and curves back instead of stepping straight up the list. `left`
+     also changes the line's WIDTH (it is anchored right), so animating it
+     morphs the line's shape mid-move on top of that.
+
+     Short and near-linear on purpose. This marks a slot, and a slot is a
+     discrete thing: it should step from row to row a beat behind your hand,
+     not glide or ease. */
+  transition:
+    transform 90ms cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 90ms linear;
+}
+.drop-cursor::before {
+  content: "";
+  position: absolute;
+  left: -3px;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  transform: translateY(-50%);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Snap rather than glide — but keep the fade, which carries no motion. */
+  .drop-cursor {
+    transition: opacity 110ms var(--ease);
+  }
+}
+
+/* ---- Context menu — floating card ---- */
+.context-menu {
+  position: fixed;
+  z-index: 100;
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-1);
+  min-width: 176px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  animation: rise-in var(--t-fast) var(--ease) both;
+  /* `placeMenu` flips the menu above its anchor when it won't fit below; this is
+     the last resort for a menu taller than the whole window, which would
+     otherwise run off both edges at once. */
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+.context-menu li {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.context-menu li:hover {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+}
+/* Unavailable action (e.g. create at a frozen root). Still clickable so the
+   refusal toast can explain why, but visibly not a live option. */
+.context-menu li.disabled {
+  opacity: 0.45;
+}
+.context-menu li.disabled:hover {
+  background: none;
+  color: inherit;
+}
+/* A thin rule above an item groups it apart from the ones above (Import/Export
+   sit below the create actions). */
+.context-menu li.menu-sep-item {
+  margin-top: var(--sp-1);
+  padding-top: calc(var(--sp-2) + 1px);
+  border-top: 1px solid var(--border);
+}
+.context-menu li.danger {
+  color: var(--danger);
+}
+.context-menu li.danger:hover {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+
+/* ---- Sort menu (toolbar popover + the ⋯ menu's sort group) ----
+   A non-clickable group label. Not a heading element: this is a menu, and the
+   label names the radio group below it rather than starting a document section. */
+.context-menu li.menu-heading {
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) calc(var(--sp-3) + 18px);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+  cursor: default;
+}
+.context-menu li.menu-heading:hover {
+  background: none;
+}
+/* As a group start inside the ⋯ menu it keeps the rule but not the sep's own
+   padding, which would double up with the heading's tighter one. */
+.context-menu li.menu-heading.menu-sep-item {
+  margin-top: var(--sp-1);
+  padding-top: var(--sp-2);
+  border-top: 1px solid var(--border);
+}
+/* Fixed-width tick gutter, so the two options' labels line up whether or not
+   they carry the check — and so the heading above can align to the same text. */
+.menu-tick {
+  display: inline-block;
+  width: 18px;
+  flex-shrink: 0;
+  color: var(--accent);
+  font-weight: 700;
+}
+.context-menu li.is-on {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+/* Trailing explanatory line — the one place the two-layer arrangement rule is
+   stated in the UI, so it reads as prose, not as another thing to click. */
+.context-menu li.menu-note {
+  margin-top: var(--sp-1);
+  padding-top: calc(var(--sp-2) + 1px);
+  border-top: 1px solid var(--border);
+  max-width: 230px;
+  font-size: var(--fs-xs);
+  line-height: 1.4;
+  color: var(--text-tertiary);
+  white-space: normal;
+  cursor: default;
+}
+.context-menu li.menu-note:hover {
+  background: none;
+}
+/* The toolbar popover hangs off its button instead of the pointer, so it is
+   absolute within the wrapper rather than fixed like the row menu. */
+.tree-sort-wrap {
+  position: relative;
+  display: inline-flex;
+}
+.context-menu.tree-sort-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  /* Opens down-and-right from the button. The toolbar is left-anchored (it sits
+     just after the "Notes" label, not at the sidebar's right edge), so
+     right-aligning would walk the menu off the sidebar's LEFT edge instead.
+     Overhanging to the right is fine — nothing in the sidebar clips, and a
+     popover laid briefly over the editor is what a popover is. */
+  left: 0;
+  min-width: 210px;
+}
+
+/* ---- Role picker (Members tab) ----
+   Button-anchored like the sort popover. Right-aligned because it sits at the
+   row's right edge; opening left keeps it over the dialog, not off its side. */
+.role-select-wrap {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+/* Positioning is done in JS (`MenuSelect` → `placeMenu`) in viewport
+   coordinates, so the menu can flip above its trigger and can't be clipped by a
+   scrolling ancestor. Only the sizing belongs here. */
+.context-menu.role-menu {
+  min-width: 150px;
+}
+/* Portalled to <body>, so it is no longer nested inside whatever opened it and
+   has to out-rank those layers by hand: the settings modal is 200 and a modal
+   backdrop is 300. A popover always belongs above the surface it was opened
+   from. */
+.context-menu.menu-portal {
+  z-index: 400;
+}
+.context-menu.role-menu li {
+  text-transform: capitalize;
+}
+.role-caret {
+  color: var(--text-tertiary);
+  font-size: 0.75em;
+  line-height: 1;
+}
+/* Pill variant: keeps the badge's shape and role-colored text but sits on a
+   bordered surface chip — visibly a control, unlike the static tinted badge
+   on rows the caller can't change. (Scoped under the wrap so these beat the
+   .member-role.admin/.owner background rules that appear later in the file.) */
+.role-select-wrap .member-role.role-trigger {
+  border: 1px solid var(--border);
+  background: var(--bg-surface);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.role-select-wrap .member-role.role-trigger .role-caret {
+  color: var(--text-tertiary);
+  font-size: 0.8em;
+}
+.role-select-wrap .member-role.role-trigger:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+.role-select-wrap .member-role.role-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+.role-select-wrap .member-role.role-trigger:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+/* Field variant: dressed like the settings inputs beside it (invite bar). */
+.role-field-trigger {
+  background: var(--bg-subtle);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-md);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  white-space: nowrap;
+  text-transform: capitalize;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.role-field-trigger:hover {
+  border-color: var(--border-strong);
+}
+.role-field-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  background: var(--bg-surface);
+}
+
+/* ---- Range slider — the app's one ----
+   Lifted out of `components/graph.css`, where it was the graph panel's private
+   restyling of the native control, when Settings → Appearance needed the same
+   slider for Content width. Same look, one definition: a hairline track and a
+   small accent thumb ringed in the surface colour so it reads as lifted off
+   the line. `.range-value` is its readout — tabular mono, right-aligned, so a
+   number changing under a dragging thumb doesn't shift the row.
+
+   Only the WebKit thumb is styled: Tauri renders in WKWebView, WebKitGTK and
+   WebView2, so the `::-moz-range-thumb` half of the graph's original rule had
+   no target to reach and did not come along.
+
+   `styles/settings.css` exempts ranges from its `.settings-page input` rule, or
+   the settings card would repaint the track as a text field. */
+.range-input {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 100%;
+  height: 3px;
+  border-radius: 2px;
+  background: var(--border-strong);
+  cursor: pointer;
+}
+.range-input::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 13px;
+  height: 13px;
+  border-radius: 50%;
+  background: var(--accent);
+  border: 2px solid var(--bg-surface);
+  transition: transform var(--t-fast) var(--ease);
+}
+.range-input::-webkit-slider-thumb:hover {
+  transform: scale(1.15);
+}
+.range-value {
+  min-width: 32px;
+  text-align: right;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Color swatch row inside the ⋯ menu (Finder-tag style) */
+.context-menu li.menu-swatches {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  cursor: default;
+}
+.context-menu li.menu-swatches:hover {
+  background: none;
+}
+.swatch {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-block;
+  cursor: pointer;
+  border: 2px solid transparent;
+  transition:
+    transform var(--t-med) var(--ease-spring),
+    border-color var(--t-fast) var(--ease);
+}
+.swatch:hover {
+  transform: scale(1.25);
+}
+.swatch.on {
+  border-color: var(--text-primary);
+}
+.swatch.clear {
+  background: var(--bg-surface);
+  border: 1px solid var(--border-strong);
+  position: relative;
+}
+.swatch.clear.on {
+  border-color: var(--text-primary);
+}
+.swatch.clear::after {
+  content: "";
+  position: absolute;
+  left: 1px;
+  right: 1px;
+  top: 50%;
+  height: 1px;
+  background: var(--border-strong);
+  transform: rotate(-45deg);
+}
+/* Appearance tab — per-item color picker over the whole vault */
+.appearance-list {
+  list-style: none;
+  margin: var(--sp-2) 0 var(--sp-3);
+  padding: 0;
+  max-height: 480px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+}
+.appearance-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 5px var(--sp-3);
+  min-height: 32px;
+}
+.appearance-row + .appearance-row {
+  border-top: 1px solid var(--border);
+}
+.appearance-row:hover {
+  background: var(--bg-hover);
+}
+.appearance-glyph {
+  flex-shrink: 0;
+  width: 16px;
+  height: 16px;
+  color: var(--text-secondary);
+}
+.appearance-glyph svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.appearance-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--type-chrome-size);
+}
+.appearance-swatches {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  flex-shrink: 0;
+}
+.appearance-swatches .swatch {
+  padding: 0;
+  appearance: none;
+  background-clip: padding-box;
+}
+
+/* ============================================================
+   Main pane — floating white sheet
+   ============================================================ */
+.main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-surface);
+  border-top-left-radius: var(--radius-xl);
+  box-shadow: var(--shadow-md);
+  /* Plain `hidden`, NOT `clip`: clip triggered a WKWebView compositing bug
+     that blanked sibling layers when the editor's layers came up. */
+  overflow: hidden;
+  position: relative;
+}
+
+/* Settings → Versioning: the vault checkpoint list. */
+.checkpoint-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.checkpoint-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) 0;
+  border-bottom: 1px solid var(--border);
+}
+.checkpoint-row:last-child {
+  border-bottom: none;
+}
+.checkpoint-main {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  margin-right: auto;
+}
+.checkpoint-title {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.checkpoint-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.checkpoint-note {
+  margin-top: var(--sp-3);
+  font-size: var(--fs-xs);
+}
+
+/* Post-auto-update "What's New" modal. Rides the shared .modal/.modal-backdrop
+   chrome; everything below is the celebratory dressing. */
+.whats-new {
+  /* Wide and short rather than a tower: a long release list must never push
+     the dialog past the viewport (it used to clip top AND bottom). The card
+     caps its height, the notes list scrolls, hero + CTA stay pinned. */
+  width: 580px;
+  max-width: min(580px, 92vw);
+  max-height: min(72vh, 620px);
+  display: flex;
+  flex-direction: column;
+  text-align: center;
+  padding: var(--sp-6) var(--sp-6) var(--sp-5);
+  /* A soft accent wash from the top so the moment reads as good news, not a
+     system dialog — same trick as the welcome screen's radial. */
+  background:
+    radial-gradient(320px 180px at 50% -30px, var(--accent-soft) 0%, transparent 70%),
+    var(--bg-surface);
+}
+.whats-new-hero {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.whats-new-glyph {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  border-radius: var(--radius-lg);
+  color: #fff;
+  background: var(--accent-gradient, var(--accent));
+  box-shadow: var(--shadow-md);
+  animation: whats-new-pop 420ms cubic-bezier(0.2, 0.9, 0.3, 1.3) both;
+}
+.whats-new-title {
+  margin: var(--sp-2) 0 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--text-primary);
+}
+.whats-new-version {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--sp-3);
+}
+.whats-new-sub {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.whats-new-notes {
+  list-style: none;
+  margin: var(--sp-4) 0 0;
+  padding: var(--sp-4);
+  /* The one flexible region: eats the leftover height and scrolls past it. */
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  text-align: left;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+}
+.whats-new-notes li {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  line-height: 1.45;
+  /* Each line settles in a beat after the previous one (delay set inline). */
+  animation: whats-new-line 320ms var(--ease) both;
+}
+.whats-new-notes li svg {
+  flex: none;
+  margin-top: 3px;
+  color: var(--accent);
+}
+.whats-new-cta {
+  width: 100%;
+  flex: none;
+  margin-top: var(--sp-4);
+  padding: var(--sp-3) var(--sp-4);
+}
+@keyframes whats-new-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5) rotate(-12deg);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1) rotate(0);
+  }
+}
+@keyframes whats-new-line {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .whats-new-glyph,
+  .whats-new-notes li {
+    animation: none;
+  }
+}
+/* Note-level tools sit below the workspace tab row. */
+.main-header {
+  display: flex;
+  align-items: stretch;
+  gap: var(--sp-3);
+  min-height: 44px;
+  padding: 0 var(--sp-6) 0 var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  justify-content: flex-end;
+}
+/* Controls keep their own box, never wrap, and stay vertically centred. */
+.main-header > * {
+  flex: none;
+  align-self: center;
+  white-space: nowrap;
+}
+.save-indicator {
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+}
+.save-indicator.saving {
+  color: var(--accent);
+}
+.save-indicator.error {
+  color: var(--danger);
+}
+
+.editor-wrap {
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
+/* ---- Image / PDF preview ---- */
+.file-preview {
+  height: 100%;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+}
+.file-preview-body {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+}
+.file-preview-image .file-preview-body {
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+}
+.file-preview-img {
+  max-width: 100%;
+  max-height: 100%;
+  object-fit: contain;
+  border-radius: var(--radius-md);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.18);
+}
+.file-preview-pdf .file-preview-body {
+  overflow: hidden;
+}
+.file-preview-frame {
+  width: 100%;
+  height: 100%;
+  border: 0;
+}
+
+/* ---- Removed-on-disk banner ---- */
+.banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin: var(--sp-4) var(--sp-6) 0;
+  padding: var(--sp-3) var(--sp-4);
+  background: var(--warning-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.banner-actions {
+  display: flex;
+  gap: var(--sp-2);
+}
+/* Update banner: same shape as the removed-note banner, but an accent tint so
+   it reads as informational rather than a warning. */
+.update-banner {
+  background: var(--accent-soft, var(--warning-soft));
+}
+
+/* The update banner sits at the very top of the WINDOW (see .app-shell), so it
+   trades the floating-card look for a flush full-width strip. Content is
+   centered and the side padding is wide enough that nothing lands under the
+   macOS traffic lights, which float over the top-left corner when the strip
+   becomes the topmost thing on screen. */
+.global-banner {
+  margin: 0;
+  border-radius: 0;
+  border-bottom: 1px solid var(--border);
+  justify-content: center;
+  padding: var(--sp-3) 96px;
+}
+
+/* Member-joined celebration: same banner shape, an accent tint, and a gentle
+   entrance so it reads as a happy moment rather than an alert. */
+.celebrate-banner {
+  background: var(--accent-soft, var(--warning-soft));
+  border: 1px solid var(--accent, transparent);
+  animation: celebrate-in 260ms cubic-bezier(0.2, 0.9, 0.3, 1.2);
+}
+@keyframes celebrate-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+/* Confetti overlays the whole window and never intercepts clicks. */
+.celebrate-confetti {
+  position: fixed;
+  inset: 0;
+  width: 100vw;
+  height: 100vh;
+  pointer-events: none;
+  z-index: 9999;
+}
+.update-detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-3);
+}
+.release-notes {
+  white-space: pre-wrap;
+}
+
+/* ---- Updates tab (Settings) ---- */
+.updates-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+/* Button + inline status share one baseline row. The status sits beside the
+   button (not below), so appearing/clearing it never changes the row height —
+   the button governs it. That's what kills the "shake" on click. */
+.update-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 36px;
+  padding: var(--sp-1) var(--sp-2);
+}
+.update-check-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  /* Fixed width holds the label + spinner so the button never resizes as it
+     toggles between idle and busy. */
+  min-width: 152px;
+  flex: none;
+}
+.update-status {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: 1.3;
+  animation: fade-in var(--t-fast) var(--ease) both;
+}
+.update-status.error {
+  color: var(--danger);
+}
+
+/* Ring spinner shown inside the button while a check/download is in flight. */
+.btn-spinner {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  border-radius: 50%;
+  border: 2px solid color-mix(in srgb, var(--text-on-accent) 35%, transparent);
+  border-top-color: var(--text-on-accent);
+  animation: btn-spin 0.6s linear infinite;
+}
+@keyframes btn-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .btn-spinner {
+    animation-duration: 1.4s;
+  }
+  .update-status {
+    animation: none;
+  }
+}
+.mono {
+  font-family: var(--font-mono, monospace);
+  font-size: var(--fs-sm);
+}
+
+/* ============================================================
+   Backlinks
+   ============================================================ */
+.backlinks-panel {
+  border-top: 1px solid var(--border);
+  max-height: 32%;
+  overflow: auto;
+  padding: var(--sp-4) var(--sp-6) var(--sp-5);
+}
+.backlinks-panel.collapsed {
+  max-height: none;
+  overflow: visible;
+  padding-top: var(--sp-3);
+  padding-bottom: var(--sp-3);
+}
+.panel-header {
+  margin-bottom: var(--sp-3);
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+}
+.backlinks-panel.collapsed .panel-header {
+  margin-bottom: 0;
+}
+.panel-chevron {
+  display: inline-block;
+  transition: transform var(--t-fast) var(--ease);
+  color: var(--text-tertiary);
+  font-size: var(--fs-md);
+  line-height: 1;
+}
+.panel-chevron.open {
+  transform: rotate(90deg);
+}
+.panel-header .count {
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-pill);
+  padding: 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  line-height: 18px;
+}
+.backlinks-empty {
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+}
+.backlinks-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.backlink {
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease);
+}
+.backlink:hover {
+  background: var(--bg-hover);
+}
+.backlink-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.backlink-text {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  margin-top: 2px;
+  line-height: var(--lh-body);
+}
+
+/* ============================================================
+   Sidebar footer — compact identity bar + account popover
+   The footer is a single row (avatar · vault · sync dot);
+   everything else lives in the popover menu or a focused modal.
+   ============================================================ */
+.sidebar-footer {
+  margin-top: auto;
+  border-top: 1px solid var(--border);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-1);
+}
+.account-menu {
+  position: relative;
+}
+
+.identity-bar {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  padding: var(--sp-2);
+  text-align: left;
+  color: var(--text-primary);
+  transition: background var(--t-fast) var(--ease);
+}
+.identity-bar:hover {
+  background: var(--bg-hover);
+}
+.identity-bar.open {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+.identity-avatar.signed-out {
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  transition: transform var(--t-med) var(--ease-spring);
+}
+.identity-bar:hover .identity-avatar.signed-out {
+  transform: scale(1.12);
+}
+.identity-avatar.signed-out svg {
+  width: 15px;
+  height: 15px;
+}
+
+/* Avatar + presence light — the avatar is the profile anchor, so it's larger
+   here than in lists, springs up on hover, and wears a status light. */
+.identity-avatar-wrap {
+  position: relative;
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.identity-avatar-wrap /* Monogram stand-in while the avatar chunk loads. */
+.face-loading {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-subtle);
+  color: var(--text-tertiary);
+  font-weight: 700;
+  font-size: 0.6em;
+  line-height: 1;
+}
+
+.avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--fs-sm);
+  transition: transform var(--t-med) var(--ease-spring);
+}
+.identity-bar:hover .identity-avatar-wrap .avatar {
+  transform: scale(1.12);
+}
+.presence-light {
+  position: absolute;
+  right: -2px;
+  bottom: -2px;
+  width: 11px;
+  height: 11px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-app);
+  background: var(--text-tertiary);
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.identity-bar:hover .presence-light {
+  border-color: var(--bg-hover);
+}
+.identity-bar.open .presence-light {
+  border-color: var(--bg-surface);
+}
+.presence-light.active {
+  background: var(--success);
+}
+/* Chosen availability (see AccountMenu): away → amber, busy → red. Matches the
+   Settings status dots and the note-roster peer dots. */
+.presence-light.away {
+  background: #f59e0b;
+}
+.presence-light.busy {
+  background: var(--danger);
+}
+.presence-light.idle {
+  background: var(--warning);
+  animation: sync-pulse 1.3s var(--ease) infinite;
+}
+.presence-light.blocked {
+  background: var(--danger);
+}
+.presence-light.offline {
+  background: var(--text-tertiary);
+}
+.identity-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+}
+.identity-line1 {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+  line-height: var(--lh-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.identity-line2 {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  line-height: var(--lh-tight);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Pending-invitation ping */
+.identity-alert {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-soft);
+}
+.identity-chevron {
+  color: var(--text-tertiary);
+  font-size: var(--fs-md);
+  flex-shrink: 0;
+  transform: rotate(-90deg);
+  transition: transform var(--t-fast) var(--ease);
+}
+.identity-bar.open .identity-chevron {
+  transform: rotate(90deg);
+}
+
+/* ---- Popover menus: account (opens up from the identity bar) and
+   vault switcher (opens down from the sidebar header) ---- */
+.account-popover,
+.vault-popover {
+  position: absolute;
+  left: 0;
+  right: 0;
+  z-index: 150;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: var(--sp-2);
+  max-height: min(480px, 72vh);
+  overflow-y: auto;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-lg);
+  animation: rise-in var(--t-fast) var(--ease) both;
+}
+.account-popover {
+  bottom: calc(100% + var(--sp-2));
+  /* Break free of the narrow sidebar width so vault names, the settings
+     row and the server URL read without truncating or feeling crowded. */
+  right: auto;
+  width: 348px;
+  max-width: calc(100vw - var(--sp-4));
+  /* No scroll — the whole menu fits, so let it size to its content. */
+  max-height: none;
+  overflow: visible;
+}
+
+/* A denser scale for this menu than the shared `menu-*` defaults, which are
+   tuned for the settings pages that also use them. The popover is wider than
+   the sidebar precisely so names get room; oversized rows spent that room on
+   air instead. Scoped so AccountSettings' tab list keeps the larger scale. */
+.account-popover .menu-item {
+  font-size: var(--fs-sm);
+  padding: 5px var(--sp-2);
+}
+.account-popover .menu-swatch {
+  width: 18px;
+  height: 18px;
+  font-size: var(--type-micro-size);
+}
+.account-popover .menu-icon {
+  width: 14px;
+  height: 14px;
+}
+.account-popover .menu-label {
+  padding: var(--sp-1) var(--sp-2) 2px;
+}
+.account-popover .menu-account {
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+}
+.account-popover .menu-account .avatar {
+  width: 28px;
+  height: 28px;
+  font-size: var(--fs-xs);
+}
+.account-popover .menu-account .identity-line1 {
+  font-size: var(--fs-sm);
+}
+.account-popover .menu-current,
+.account-popover .ws-badge {
+  font-size: var(--type-micro-size);
+  padding: 1px 6px;
+}
+.sidebar-header {
+  position: relative;
+}
+.vault-popover {
+  top: calc(100% - var(--sp-1));
+  left: var(--sp-2);
+  right: var(--sp-2);
+}
+.menu-account {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-3);
+}
+.menu-account .avatar {
+  width: 32px;
+  height: 32px;
+  font-size: var(--fs-sm);
+}
+.menu-sep {
+  height: 1px;
+  flex-shrink: 0;
+  background: var(--border);
+  margin: var(--sp-1) calc(-1 * var(--sp-2));
+}
+.menu-label {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.07em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  padding: var(--sp-2) var(--sp-2) var(--sp-1);
+}
+.menu-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  background: none;
+  border: none;
+  padding: var(--sp-2);
+  border-radius: var(--radius-sm);
+  font-size: var(--fs-md);
+  color: var(--text-primary);
+  text-align: left;
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.menu-item:hover {
+  background: var(--bg-hover);
+}
+.menu-item:active {
+  background: var(--bg-active);
+}
+/* The vault you're in — pinned first, tinted, labelled Current */
+.menu-item.active {
+  background: var(--accent-soft);
+}
+.menu-item.active:hover {
+  background: var(--accent-soft-hover);
+}
+.menu-item.active .menu-item-label {
+  font-weight: 600;
+}
+.menu-current {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--accent);
+  background: var(--bg-surface);
+  border-radius: var(--radius-pill);
+  padding: 1px var(--sp-2);
+}
+/* State chip on a switcher row: Local vs Synced. Distinct from --accent so it
+   reads as metadata, not an action. */
+.ws-badge {
+  flex-shrink: 0;
+  font-size: var(--type-micro-size);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  border-radius: var(--radius-pill);
+  padding: 1px var(--sp-2);
+}
+.ws-badge.local {
+  color: var(--text-tertiary);
+  background: var(--bg-active);
+}
+.ws-badge.synced {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.menu-item.subtle {
+  color: var(--text-secondary);
+}
+.menu-item.subtle:hover {
+  color: var(--text-primary);
+}
+.menu-item.danger {
+  color: var(--danger);
+}
+.menu-item.danger:hover {
+  background: var(--danger-soft);
+}
+.menu-item-label {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-hint {
+  color: var(--text-tertiary);
+  font-size: var(--fs-xs);
+  max-width: 55%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.menu-icon {
+  width: 15px;
+  height: 15px;
+  color: var(--text-tertiary);
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.menu-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.menu-item:hover .menu-icon {
+  color: var(--text-secondary);
+}
+.menu-check {
+  width: 14px;
+  height: 14px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.menu-swatch {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  transition: transform var(--t-med) var(--ease-spring);
+}
+.menu-item:hover .menu-swatch {
+  transform: scale(1.1);
+}
+.menu-item.active .menu-swatch {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+.menu-swatch.plus {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  font-weight: 500;
+}
+.menu-swatch.more {
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  font-size: var(--fs-md);
+  font-weight: 700;
+  letter-spacing: 1px;
+}
+.menu-create-org {
+  display: flex;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+}
+.menu-create-org input {
+  flex: 1;
+  min-width: 0;
+}
+
+/* ---- Auth + members dialogs ---- */
+/* Roomier than the stock 420px `.modal`: the server-choice cards carry an
+   icon tile + two lines each, and the sign-in form has a Google button, a
+   divider and a caption — both breathe better with a little more width. */
+.auth-dialog {
+  width: 468px;
+  padding: var(--sp-8);
+}
+.auth-dialog .modal-header {
+  margin-bottom: var(--sp-6);
+}
+.auth-dialog .segmented {
+  margin-bottom: var(--sp-4);
+}
+.auth-dialog .auth-error {
+  margin-top: var(--sp-3);
+}
+/* Turn-on-sync promo card on the General tab of a local vault. */
+.sync-promo {
+  margin: var(--sp-4) 0 var(--sp-2);
+  padding: var(--sp-5);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: linear-gradient(135deg, var(--accent-soft), transparent 70%);
+}
+.sync-promo-title {
+  margin: 0 0 var(--sp-2);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.sync-promo-desc {
+  margin: 0 0 var(--sp-4);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  max-width: 46ch;
+}
+/* Gate panel shown when a locked team section is opened on a local vault. */
+.sync-gate {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  max-width: 44ch;
+  padding: var(--sp-6) 0;
+}
+.sync-gate-icon {
+  width: 30px;
+  height: 30px;
+  color: var(--accent);
+}
+.sync-gate h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+}
+.sync-gate p {
+  margin: 0;
+}
+/* Import / Export tab — airy, minimal vertical rhythm. */
+.io-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-6);
+  max-width: 60ch;
+}
+.io-section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.io-heading {
+  margin: 0;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.io-desc {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.io-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: var(--sp-1) 0;
+}
+/* A footnote about what an action will actually do — readable, not greyed.
+   `--fs-xs` is what keeps it under `.io-desc` now that both are secondary. */
+.io-hint {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: var(--lh-body);
+}
+.io-result {
+  color: var(--success);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--success-soft);
+  border: 1px solid var(--success);
+  border-radius: var(--radius-sm);
+}
+.settings-page .lock-bar select:first-child {
+  flex: 1.6;
+  min-width: 0;
+}
+.settings-page .lock-bar select {
+  flex: 1;
+  min-width: 0;
+  width: auto;
+}
+.perm-empty {
+  padding: var(--sp-4) 0;
+}
+.lock-glyph {
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.lock-glyph svg {
+  width: 12px;
+  height: 12px;
+}
+.lock-glyph.all {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+
+/* ============================================================
+   Access panel (the locker) — unified structural view + who-can-access.
+   All colors via tokens so light/dark come for free.
+   ============================================================ */
+.access-panel {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.access-intro {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.access-intro strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.access-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+/* The Access tab's own eyebrows. Same role as `.subhead`, so the same colour
+   reasoning: tertiary is the disabled grey, and a section heading is not
+   disabled. */
+.access-listlabel,
+.access-seclabel {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin: 0 0 var(--sp-2);
+}
+
+/* --- master list --- */
+/* No scroll of its own. The settings page already scrolls, and a second scroll
+   region nested inside it is what sliced rows in half at the top edge — you
+   could never tell whether a row was cut off or simply short. The list grows to
+   its content and the page carries it; folders start collapsed, so what's on
+   screen by default is the vault's top level, not everything in it. */
+.access-master {
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-2);
+}
+.access-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.access-row {
+  width: 100%;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: 4px var(--sp-2);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  background: transparent;
+  color: var(--text-primary);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.access-row:hover {
+  background: var(--bg-hover);
+}
+.access-row.sel {
+  background: var(--accent-soft);
+  border-color: transparent;
+}
+/* One list line: twisty + row button, side by side. Indentation lives on the
+   line so the twisty indents with the row it belongs to. */
+.access-item {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding-right: var(--sp-2);
+}
+.access-item .access-row {
+  padding-left: 2px;
+}
+
+/* Folder twisty. Its own hit target beside the row button, so opening a folder
+   and selecting it stay separate intents. */
+.access-twisty {
+  width: 14px;
+  height: 14px;
+  padding: 0;
+  border: none;
+  background: transparent;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-tertiary);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition:
+    transform var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.access-twisty.spacer {
+  cursor: default;
+}
+.access-twisty:not(.spacer):hover {
+  color: var(--text-primary);
+}
+.access-twisty.open {
+  transform: rotate(90deg);
+}
+.access-twisty svg {
+  width: 100%;
+  height: 100%;
+}
+/* The twisty is a sibling of the row, so it takes its selected colour from the
+   line, not from a descendant selector. */
+.access-item:has(.access-row.sel) .access-twisty {
+  color: var(--accent);
+}
+
+/* "Applying…" / "Resolving…" beside a section label. Permission writes fan out
+   into several round trips and a socket kick, so the wait is real and has to be
+   narrated — otherwise the panel just looks stuck. */
+.access-applying {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: var(--sp-2);
+  text-transform: none;
+  letter-spacing: normal;
+  font-weight: 500;
+  color: var(--text-tertiary);
+}
+.access-seg.busy {
+  opacity: 0.55;
+  pointer-events: none;
+}
+.access-seg {
+  transition: opacity var(--t-fast) var(--ease);
+}
+
+.access-glyph {
+  width: 16px;
+  height: 16px;
+  flex-shrink: 0;
+  color: var(--text-tertiary);
+  display: inline-flex;
+}
+.access-row.sel .access-glyph {
+  color: var(--accent);
+}
+.access-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.access-rname {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.access-rright {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+}
+
+/* status badge (pill) */
+.access-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  padding: 3px 9px 3px 7px;
+  border-radius: var(--radius-pill);
+  white-space: nowrap;
+}
+.access-badge svg {
+  width: 11px;
+  height: 11px;
+}
+.access-badge.open {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.access-badge.ro {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.access-badge.priv {
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+}
+/* The vault's mode hasn't arrived yet. A blank pill the width of a real one,
+   because the alternative — falling back to "Private" — states the opposite of
+   the truth in every shared vault for as long as the network takes. */
+.access-badge.loading {
+  background: var(--bg-hover);
+  color: var(--text-tertiary);
+  min-width: 66px;
+  justify-content: center;
+}
+
+/* whole-vault mode block, above the per-item list */
+.access-ws {
+  margin-bottom: var(--sp-4);
+  padding-bottom: var(--sp-4);
+  border-bottom: 1px solid var(--border-subtle, var(--border));
+}
+/* Shown only when the per-item settings, not the vault row, decide what the
+   team gets — the control marks the real answer active and this says why. */
+.access-ws-note {
+  margin: var(--sp-2) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.access-ws-note strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* affected-people avatar stack */
+.access-avstack {
+  display: inline-flex;
+}
+.access-av-wrap {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  overflow: hidden;
+  display: inline-grid;
+  place-items: center;
+  flex-shrink: 0;
+}
+.access-avstack .access-av-wrap {
+  margin-left: -6px;
+  box-shadow: 0 0 0 2px var(--bg-subtle);
+}
+.access-row.sel .access-avstack .access-av-wrap {
+  box-shadow: 0 0 0 2px var(--accent-soft);
+}
+.access-av-wrap .avatar {
+  width: 20px;
+  height: 20px;
+}
+.access-av-wrap.locked {
+  position: relative;
+}
+.access-av-wrap.locked::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  background: color-mix(in srgb, var(--bg-app) 45%, transparent);
+}
+
+/* --- detail --- */
+.access-detail {
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-sm);
+  padding: var(--sp-5);
+}
+.access-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8) var(--sp-4);
+  text-align: center;
+  /* The copy explains why the panel is empty and what to do about it, so it
+     reads at secondary; the glyph below keeps its own tertiary + opacity
+     because that one IS decoration. */
+  color: var(--text-secondary);
+}
+.access-empty p {
+  margin: 0;
+  font-size: var(--fs-sm);
+  max-width: 34ch;
+}
+.access-empty-glyph {
+  width: 34px;
+  height: 34px;
+  color: var(--text-tertiary);
+  opacity: 0.7;
+}
+.access-empty-glyph svg {
+  width: 100%;
+  height: 100%;
+}
+.access-crumb {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  min-height: 14px;
+}
+.access-dtitle {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 2px 0 var(--sp-3);
+}
+.access-tglyph {
+  width: 20px;
+  height: 20px;
+  color: var(--accent);
+  flex-shrink: 0;
+}
+.access-tglyph svg {
+  width: 100%;
+  height: 100%;
+}
+.access-dtitle h3 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.access-banner {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+  margin-bottom: var(--sp-4);
+}
+.access-banner strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.access-bico {
+  width: 15px;
+  height: 15px;
+  flex-shrink: 0;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.access-jump {
+  border: none;
+  background: none;
+  padding: 0;
+  font: inherit;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* segmented tri-state */
+.access-seg {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: var(--sp-1);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-1);
+  margin-bottom: var(--sp-5);
+}
+.access-segbtn {
+  border: 1px solid transparent;
+  background: transparent;
+  border-radius: var(--radius-md);
+  padding: var(--sp-3) var(--sp-3);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  transition:
+    background var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.access-segbtn:not(:disabled):hover {
+  background: var(--bg-hover);
+}
+.access-st-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.access-st-top svg {
+  width: 14px;
+  height: 14px;
+}
+.access-st-sub {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  line-height: 1.35;
+}
+.access-segbtn.active {
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-sm);
+}
+.access-segbtn.active[data-mode="open"] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--success),
+    var(--shadow-sm);
+}
+.access-segbtn.active[data-mode="open"] .access-st-top {
+  color: var(--success);
+}
+.access-segbtn.active[data-mode="readonly"] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--warning),
+    var(--shadow-sm);
+}
+.access-segbtn.active[data-mode="readonly"] .access-st-top {
+  color: var(--warning);
+}
+/* Private had no accent, so the chosen card was told apart from its neighbours
+   only by a shadow — on a light ground that is not a selection, it is a guess.
+   It borrows the neutral the Private badge already uses rather than the danger
+   red: restricting a vault is a decision, not a mistake. */
+.access-segbtn.active[data-mode="private"] {
+  box-shadow:
+    inset 0 0 0 1.5px var(--text-secondary),
+    var(--shadow-sm);
+}
+.access-segbtn.active[data-mode="private"] .access-st-top {
+  color: var(--text-primary);
+}
+.access-segbtn:disabled {
+  cursor: default;
+}
+.access-segbtn.soon {
+  opacity: 0.6;
+}
+.access-soon-tag {
+  font-size: var(--type-tiny-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--accent);
+  background: var(--accent-soft);
+  padding: 1px 5px;
+  border-radius: var(--radius-pill);
+  margin-left: 2px;
+}
+
+/* who-can-access list */
+.access-people {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.access-hint {
+  margin: var(--sp-2) 0 0;
+  padding: var(--sp-3);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  color: var(--text-secondary);
+}
+.access-hint strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.access-prow {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-1);
+  border-radius: var(--radius-md);
+}
+.access-prow:hover {
+  background: var(--bg-subtle);
+}
+.access-prow.ai {
+  background: var(--accent-soft);
+  padding: var(--sp-2) var(--sp-3);
+  margin-bottom: var(--sp-2);
+}
+.access-prow.ai:hover {
+  background: var(--accent-soft-hover);
+}
+.access-av-wrap.ai {
+  background: var(--accent-gradient);
+  color: var(--text-on-accent);
+}
+.access-av-wrap.ai svg {
+  width: 13px;
+  height: 13px;
+}
+.access-pmain {
+  flex: 1;
+  min-width: 0;
+}
+.access-pname {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--fs-md);
+  font-weight: 500;
+  color: var(--text-primary);
+}
+.access-you {
+  color: var(--text-tertiary);
+  font-weight: 400;
+}
+.access-prole {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+.access-tag {
+  font-size: var(--type-tiny-size);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 6px;
+  border-radius: var(--radius-sm);
+}
+.access-tag.ai {
+  color: var(--accent);
+  background: var(--bg-surface);
+}
+.access-lv {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+.access-lv.can {
+  color: var(--success);
+}
+.access-lv.view {
+  color: var(--warning);
+}
+.access-lv.no {
+  color: var(--text-tertiary);
+}
+/* Per-member picker in the Access panel. Same popover as the Members page's
+   role picker (see MenuSelect) — the native <select> that used to sit here was
+   the last piece of OS chrome in the product and read as unfinished beside it.
+   Sized a notch smaller than the role field because it sits inside a list row. */
+.access-choice-trigger {
+  background: var(--bg-subtle);
+  border: 1px solid transparent;
+  color: var(--text-primary);
+  border-radius: var(--radius-md);
+  padding: 5px var(--sp-2) 5px var(--sp-3);
+  font: inherit;
+  font-size: var(--fs-sm);
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  cursor: pointer;
+  white-space: nowrap;
+  flex-shrink: 0;
+  transition:
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.access-choice-trigger:hover:not(:disabled) {
+  border-color: var(--border-strong);
+}
+.access-choice-trigger:focus-visible {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+  background: var(--bg-surface);
+}
+.access-choice-trigger:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+/* Wider than the role menu (these labels carry a hint line), and with the
+   role list's `capitalize` undone — that exists for "owner"/"admin", and would
+   turn "Can view" into "Can View". Specificity matches `.context-menu.role-menu`
+   so it actually overrides it. */
+.context-menu.role-menu.access-choice-menu {
+  min-width: 232px;
+}
+.context-menu.role-menu.access-choice-menu li {
+  text-transform: none;
+  align-items: flex-start;
+}
+/* Second line on an option — says what the choice does, so "Private" doesn't
+   have to be guessed at. */
+.menu-option-hint {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  margin-top: 1px;
+}
+.role-menu li .role-option-label {
+  display: inline-block;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  color: var(--text-secondary);
+  border-radius: var(--radius-pill);
+  padding: var(--sp-1) var(--sp-3) var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.theme-toggle:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  border-color: var(--border-strong);
+}
+.theme-toggle-icon {
+  display: inline-flex;
+  width: 15px;
+  height: 15px;
+  color: var(--accent);
+}
+.theme-toggle-icon svg {
+  width: 100%;
+  height: 100%;
+}
+.subhead {
+  font-size: var(--fs-xs);
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 600;
+  color: var(--text-tertiary);
+  margin: var(--sp-1) 0 0;
+}
+.muted {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+
+.auth-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+/* Social sign-in (Google) button + "or" divider above the email/password form */
+.oauth-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+.oauth-btn:hover:not(:disabled) {
+  background: var(--bg-subtle);
+  border-color: var(--border-strong, var(--border));
+}
+.oauth-btn:disabled {
+  opacity: 0.6;
+}
+/* Guidance shown while the Google flow waits on the system browser. */
+.auth-hint {
+  margin: calc(-1 * var(--sp-1)) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+  text-align: center;
+}
+.auth-divider {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  margin: var(--sp-1) 0;
+}
+.auth-divider::before,
+.auth-divider::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+.row {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.row input {
+  flex: 1;
+}
+.row select {
+  width: auto;
+}
+
+/* Segmented control (sign in / sign up) */
+.segmented {
+  display: flex;
+  background: var(--bg-subtle);
+  border-radius: var(--radius-pill);
+  padding: 3px;
+  gap: 2px;
+}
+.segmented button {
+  flex: 1;
+  background: transparent;
+  border: none;
+  color: var(--text-secondary);
+  padding: var(--sp-1) var(--sp-2);
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  border-radius: var(--radius-pill);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.segmented button:hover {
+  color: var(--text-primary);
+}
+.segmented button.active {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.auth-error {
+  color: var(--danger);
+  font-size: var(--fs-sm);
+  background: var(--danger-soft);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+}
+
+/* Free-plan upgrade nudge — warning palette, not danger (it isn't an error). */
+.limit-nudge {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  flex-wrap: wrap;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--warning-soft);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  margin-top: var(--sp-2);
+}
+.limit-nudge .link-btn {
+  flex: none;
+  color: var(--warning);
+  font-weight: 600;
+}
+.limit-nudge .link-btn:hover {
+  color: var(--warning);
+  background: color-mix(in srgb, var(--warning) 16%, transparent);
+}
+
+/* Error boundary fallback (e.g. a crashed graph panel) */
+.error-boundary {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg-base, #000) 70%, transparent);
+  z-index: 50;
+}
+.error-boundary-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: flex-start;
+  max-width: 24rem;
+  padding: var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg, 12px);
+  box-shadow: var(--shadow-lg, 0 8px 32px rgba(0, 0, 0, 0.3));
+}
+
+/* ---- Server choice — the auth dialog's first step (#91) ----
+   The server URL used to be a collapsed <details> "Server settings" at the
+   bottom of this card, which is why self-hosting teams' members kept signing
+   up on the managed instance: it was the only option with any visual weight.
+   The two options here deliberately share one class so neither can read as
+   the default. */
+.server-choice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.server-choice-lede {
+  margin: 0 0 var(--sp-1);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+/* One card = an icon tile, a title + hint, and a trailing chevron. `.server-option`
+   is the card shell (a <button> for managed, a <div> for self-hosted so the URL
+   form can live inside it); `.server-option-head` is the clickable row. */
+.server-option {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  padding: 0;
+  text-align: left;
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+.server-option:hover {
+  background: var(--bg-hover);
+  border-color: var(--border);
+}
+.server-option:focus-visible,
+.server-option-head:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.server-option.active {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+.server-option-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  width: 100%;
+  padding: var(--sp-4);
+  background: none;
+  border: none;
+  color: inherit;
+  font: inherit;
+  text-align: left;
+  border-radius: var(--radius-lg);
+}
+.server-option-icon {
+  flex: none;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  color: var(--text-secondary);
+  box-shadow: var(--shadow-sm);
+  transition:
+    background var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.server-option:hover .server-option-icon,
+.server-option.active .server-option-icon {
+  color: var(--accent);
+}
+.server-option-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.server-option-title {
+  font-size: var(--fs-md);
+  font-weight: 600;
+  line-height: var(--lh-tight);
+}
+.server-option-hint {
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-tight);
+}
+.server-option-chevron {
+  flex: none;
+  display: grid;
+  place-items: center;
+  color: var(--text-tertiary);
+  transition:
+    transform var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+.server-option:hover .server-option-chevron {
+  color: var(--text-secondary);
+}
+.server-option.active .server-option-chevron {
+  transform: rotate(90deg);
+  color: var(--accent);
+}
+/* The self-hosted card's URL form, revealed inside the card so the input can
+   only read as belonging to that option. */
+.server-option-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  padding: 0 var(--sp-4) var(--sp-4);
+  animation: fade-in var(--t-med) var(--ease) both;
+}
+.server-option-body input {
+  background: var(--bg-surface);
+  border-color: var(--border);
+  padding: var(--sp-2) var(--sp-3);
+}
+.server-option-body input:hover {
+  border-color: var(--border-strong);
+}
+.server-option-body input:focus {
+  border-color: var(--accent);
+}
+.server-option-body .auth-error {
+  margin: 0;
+}
+.server-connect-row {
+  margin-top: var(--sp-1);
+}
+.server-connect-row .primary {
+  flex: none;
+}
+/* The address an invite link is offering. Wraps rather than truncating: the
+   whole point of this card is that the user can read the URL before saying
+   yes to it. */
+.server-link-url {
+  display: block;
+  overflow-wrap: anywhere;
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+/* Caption under the sign-in form naming the server it is about to post to. */
+.auth-server-note {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  flex-wrap: wrap;
+  margin: var(--sp-5) 0 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.auth-server-note strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Why the sign-in card is on screen when a team invitation raised it. */
+.auth-invite-lede {
+  margin: 0 0 var(--sp-3);
+  padding: var(--sp-3);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.auth-invite-lede strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* "Forgot password?" — right-aligned under the password field, so it reads as
+   belonging to it rather than as a second submit action. */
+.auth-forgot {
+  display: flex;
+  justify-content: flex-end;
+  margin: calc(-1 * var(--sp-1)) 0 0;
+  font-size: var(--fs-sm);
+}
+.auth-reset-lede {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+/* The reset form's terminal state: no form left, just what happens next. */
+.auth-reset-done {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.auth-reset-done p {
+  margin: 0;
+}
+.auth-reset-done strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Members + shares lists */
+.member-list,
+.share-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.member-list li,
+.share-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-1) 0;
+  font-size: var(--fs-md);
+}
+.member-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.member-role {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+  border-radius: var(--radius-pill);
+  padding: 2px var(--sp-2);
+  text-transform: capitalize;
+  white-space: nowrap;
+}
+.member-role.owner,
+.member-role.admin {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.invite-inbox {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+  padding: var(--sp-3);
+}
+.invite-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+/* Two lines: what you'd be joining, and who asked. Takes the row's spare width
+   so the Accept/Decline buttons keep their intrinsic size. */
+.invite-row-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  overflow: hidden;
+}
+.invite-row-title {
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* The old rule this replaces stretched a direct `.muted` child of the row.
+   The row's text now lives in `.invite-row-meta`, a COLUMN — `flex: 1` there
+   would grow the caption vertically instead of taking the row's width. */
+.invite-row-meta .muted {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-transform: capitalize;
+}
+
+/* Confirmation after an invite is created (Members tab). Neutral, not an
+   error — and it holds the link when the server can't send email, which is
+   why it is inline and persistent rather than a toast. */
+.invite-notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin-top: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--bg-subtle);
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.invite-notice.is-warning {
+  background: var(--warning-soft);
+}
+.invite-notice-link {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.invite-notice-link code {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+/* Avatars — circular, deterministic color, initials */
+.avatar {
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  overflow: hidden;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.avatar svg,
+.avatar img {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+.avatar img {
+  object-fit: cover;
+}
+
+/* ============================================================
+   Sync-state chips — pill, soft semantic fills
+   ============================================================ */
+.sync-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 3px var(--sp-3);
+  background: var(--bg-hover);
+  color: var(--text-secondary);
+  /* Ease the Saving…↔Synced tint change so the state shift feels smooth. */
+  transition:
+    background-color 260ms var(--ease, ease),
+    color 260ms var(--ease, ease);
+}
+.sync-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  flex-shrink: 0;
+}
+.sync-lock {
+  width: 11px;
+  height: 11px;
+  flex-shrink: 0;
+  display: inline-flex;
+}
+.sync-badge.synced {
+  background: var(--success-soft);
+  color: var(--success);
+}
+.sync-badge.read-only {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+.sync-badge.connecting {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.sync-badge.connecting .sync-dot {
+  animation: sync-pulse 1.3s var(--ease) infinite;
+}
+.sync-badge.error {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.sync-badge.no-access {
+  background: var(--danger-soft);
+  color: var(--danger);
+}
+/* A run that ended with failures renders as a button: the remedy ("Sync now")
+   lives on the message instead of asking the user to sign out and back in. */
+button.sync-badge-retry {
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+}
+button.sync-badge-retry:hover {
+  filter: brightness(0.96);
+}
+.sync-retry-cta {
+  padding-left: var(--sp-2);
+  border-left: 1px solid currentColor;
+  opacity: 0.85;
+  white-space: nowrap;
+}
+@keyframes sync-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* Indeterminate progress sliver shown inside the badge while syncing */
+.sync-progress {
+  position: relative;
+  width: 34px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: color-mix(in srgb, currentColor 25%, transparent);
+  overflow: hidden;
+  flex-shrink: 0;
+}
+.sync-progress-fill {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 45%;
+  border-radius: var(--radius-pill);
+  background: currentColor;
+  animation: sync-slide 1.1s var(--ease) infinite;
+}
+@keyframes sync-slide {
+  from {
+    left: -45%;
+  }
+  to {
+    left: 100%;
+  }
+}
+/* Determinate variant: the bulk sync run knows how much work it has, so the bar
+   fills instead of sliding. Same element, same tokens — only the motion differs. */
+.sync-progress.determinate .sync-progress-fill {
+  animation: none;
+  left: 0;
+  transition: width 240ms var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* The fill still has to show the ratio, so only the easing goes. (The
+     indeterminate slide is left alone: without it the bar would sit frozen at
+     45%, which reads as stuck rather than calm.) */
+  .sync-progress.determinate .sync-progress-fill {
+    transition: none;
+  }
+}
+
+
+/* Remote cursors + selections: styled in components/editor.css (single source
+   of truth). yCollab's selection highlight is kept; its inline caret is hidden
+   there in favour of our own animated caret layer (lib/editor/remoteCursors.ts). */
+
+/* ============================================================
+   Modal — share dialog
+   ============================================================ */
+.modal-backdrop {
+  position: fixed;
+  inset: 0;
+  background: rgba(20, 20, 30, 0.4);
+  backdrop-filter: blur(2px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* Above the settings modal's own backdrop (`.settings-backdrop`, 200) so a
+     dialog opened from within Settings — Sign in from the Turn-on-sync card,
+     Upgrade, a confirm — sits on top of it regardless of DOM order. */
+  z-index: 300;
+  animation: fade-in var(--t-med) var(--ease) both;
+}
+.modal {
+  background: var(--bg-surface);
+  border-radius: var(--radius-xl);
+  padding: var(--sp-6);
+  width: 420px;
+  max-width: 90vw;
+  box-shadow: var(--shadow-lg);
+  animation: rise-in var(--t-med) var(--ease) both;
+}
+.modal-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  margin-bottom: var(--sp-5);
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.modal-header .muted {
+  font-family: var(--font-body);
+  font-weight: 400;
+}
+.share-dialog .subhead {
+  margin: var(--sp-5) 0 var(--sp-2);
+}
+.share-add {
+  display: flex;
+  gap: var(--sp-2);
+  align-items: center;
+}
+.share-add select {
+  flex: 1;
+}
+.share-list li .member-name {
+  flex: 1;
+}
+
+/* ============================================================
+   HTML page view — sandboxed live preview + source editor
+   ============================================================ */
+.html-view {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+}
+.html-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-2) var(--sp-4);
+}
+.html-tabs {
+  width: 180px;
+}
+.html-frame {
+  flex: 1;
+  min-height: 0;
+  border: none;
+  background: #fff;
+  border-top: 1px solid var(--border);
+}
+.html-source {
+  flex: 1;
+  min-height: 0;
+  resize: none;
+  border: none;
+  outline: none;
+  border-top: 1px solid var(--border);
+  padding: var(--sp-4) var(--sp-6);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  line-height: 1.6;
+}
+
+/* ============================================================
+   Vault join code (Members tab)
+   ============================================================ */
+.join-code-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  background: var(--accent-soft);
+  border-radius: var(--radius-md);
+}
+.join-code-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.join-code {
+  font-family: var(--font-mono);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  color: var(--accent);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  white-space: nowrap;
+}
+
+/* Vaults tab: switcher rows, quick actions, and the managed-root path. */
+.vault-list .vault-folder {
+  font-weight: 400;
+}
+/* Trailing per-row actions (Switch · Remove from device · Delete). */
+.vault-row-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+/* Under the account's vault list: two quiet pill buttons that swap for an
+   inline form (input + primary + cancel) when pressed. */
+/* New vault / Join with code. It closes the vault list above it and opens the
+   next section, so it needs more air above than below. */
+.vault-tab-actions {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: var(--sp-4) 0 var(--sp-2);
+}
+.vault-tab-add {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.vault-tab-add svg {
+  flex: none;
+  color: var(--text-secondary);
+}
+.vault-tab-form {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  max-width: 480px;
+}
+.vault-tab-form input {
+  flex: 1;
+  min-width: 0;
+}
+.vault-tab-form .vault-tab-code {
+  font-family: var(--font-mono);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+.vault-tab-form .vault-tab-code::placeholder {
+  font-family: var(--font-body);
+  letter-spacing: normal;
+  text-transform: none;
+}
+.vault-tab-form .primary,
+.vault-tab-form .ghost-pill {
+  flex: none;
+}
+.vault-root-path {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1) var(--sp-2);
+  overflow-x: auto;
+  white-space: nowrap;
+}
+
+/* MCP tab: newly-minted token callout + config snippet. */
+.mcp-new-token {
+  padding: var(--sp-3);
+  margin-bottom: var(--sp-3);
+  border: 1px solid var(--accent);
+  border-radius: var(--radius-md);
+  background: var(--accent-soft);
+}
+.mcp-token-value {
+  flex: 1;
+  min-width: 0;
+  font-size: var(--fs-sm);
+  letter-spacing: normal;
+  overflow-x: auto;
+}
+.mcp-snippet {
+  flex: 1;
+  min-width: 0;
+  font-family: var(--font-mono);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-2);
+  white-space: pre-wrap;
+  word-break: break-all;
+}
+
+/* MCP connections — one card per token: live status, client, usage, tools. */
+.mcp-conn-list {
+  list-style: none;
+  margin: var(--sp-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.mcp-conn {
+  border: 1px solid var(--border-subtle, var(--bg-hover));
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+}
+.mcp-conn.open {
+  border-color: var(--accent);
+}
+.mcp-conn-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+}
+.mcp-dot {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--text-secondary);
+}
+.mcp-dot.on {
+  background: #22c55e;
+  box-shadow: 0 0 0 3px rgba(34, 197, 94, 0.2);
+}
+.mcp-dot.off {
+  background: var(--text-secondary);
+  opacity: 0.5;
+}
+.mcp-conn-main {
+  flex: 1;
+  min-width: 0;
+}
+.mcp-conn-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.mcp-status {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 1px var(--sp-2);
+}
+.mcp-status.on {
+  color: #16a34a;
+  background: rgba(34, 197, 94, 0.14);
+}
+.mcp-status.off {
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.mcp-conn-sub {
+  font-size: var(--fs-xs);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mcp-tool-list {
+  list-style: none;
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  border-top: 1px solid var(--border-subtle, var(--bg-hover));
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--sp-1) var(--sp-3);
+}
+.mcp-tool-list li {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+  min-width: 0;
+}
+.mcp-tool-list code {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-primary);
+}
+.mcp-tool-badge {
+  flex: none;
+  font-size: var(--type-micro-size);
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.mcp-tool-badge.read {
+  color: #2563eb;
+  background: rgba(37, 99, 235, 0.12);
+}
+.mcp-tool-badge.write {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.14);
+}
+.mcp-tool-badge.destructive {
+  color: #dc2626;
+  background: rgba(220, 38, 38, 0.14);
+}
+
+/* "Set up this vault" folder prompt. Sits above the settings modal (200). */
+.vault-folder-backdrop {
+  z-index: 210;
+}
+
+/* The vault setup prompt gets a bespoke, minimal layout rather than the
+   generic modal-header/hero-button treatment: an accent folder badge, tight
+   type hierarchy, and two calm buttons (gradient primary + filled secondary). */
+.vault-folder-prompt {
+  position: relative;
+  width: 440px;
+  padding: var(--sp-8) var(--sp-8) var(--sp-6);
+  text-align: center;
+  border: 1px solid var(--border);
+}
+.wf-close {
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+}
+.wf-badge {
+  width: 52px;
+  height: 52px;
+  margin: 0 auto var(--sp-4);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-lg);
+}
+.wf-badge svg {
+  width: 24px;
+  height: 24px;
+}
+.wf-title {
+  margin: 0 0 var(--sp-5);
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.wf-title strong {
+  font-weight: 600;
+}
+.wf-desc {
+  margin: calc(-1 * var(--sp-2)) auto var(--sp-6);
+  max-width: 34ch;
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+}
+/* "Why am I seeing this" callout (folder moved / failed to open): a calm
+   left-aligned well with a warning glyph and the folder path typeset on its
+   own line, so a long absolute path doesn't shred the sentence around it. */
+.wf-notice {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  margin: 0 0 var(--sp-6);
+  padding: var(--sp-3) var(--sp-4);
+  text-align: left;
+  background: var(--warning-soft);
+  border-radius: var(--radius-md);
+}
+.wf-notice-glyph {
+  flex: none;
+  margin-top: 2px;
+  color: var(--warning);
+}
+.wf-notice-body {
+  flex: 1;
+  min-width: 0;
+}
+.wf-notice p {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  line-height: var(--lh-body);
+}
+.wf-notice code {
+  display: block;
+  margin-top: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  background: var(--bg-surface);
+  border-radius: var(--radius-sm);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+  word-break: break-all;
+}
+.vault-folder-actions {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.wf-btn {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  border: 1px solid transparent;
+  border-radius: var(--radius-pill);
+  font: inherit;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease);
+}
+/* AsyncButton wraps the children in one inline `.async-btn-label` span, so the
+   button's own flex alignment never reaches the icon — it rode the text
+   baseline. Make the label the flex row instead. */
+.wf-btn .async-btn-label {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.wf-btn svg {
+  flex: none;
+}
+.wf-btn:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.wf-btn-primary {
+  background: var(--accent-gradient);
+  color: var(--text-on-accent);
+  box-shadow: var(--shadow-sm);
+}
+.wf-btn-primary:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: var(--shadow-md);
+}
+.wf-btn-primary:active:not(:disabled) {
+  transform: translateY(1px);
+  box-shadow: var(--shadow-sm);
+}
+.wf-btn-ghost {
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  border-color: var(--border);
+}
+.wf-btn-ghost:hover:not(:disabled) {
+  background: var(--bg-hover);
+  border-color: var(--border-strong);
+}
+.wf-btn-ghost:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.vault-folder-prompt .error {
+  margin: var(--sp-4) 0 0;
+}
+button.secondary {
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  border: 1px solid transparent;
+  border-radius: var(--radius-md);
+  padding: var(--sp-2) var(--sp-4);
+  font: inherit;
+  font-weight: 600;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease);
+}
+button.secondary:hover:not(:disabled) {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+button.secondary:disabled {
+  opacity: 0.5;
+}
+
+/* ============================================================
+   Motion
+   ============================================================ */
+@keyframes fade-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes rise-in {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* The miniature. The frame is the app's ground and the page inside it is the
+   editor's surface — the same two colours the real window puts side by side —
+   so the column's air reads as margin rather than as emptiness. Its width and
+   margins are set inline from `computePreviewColumn` (real pane, real `ch`,
+   scaled down); everything here is the picture frame around that arithmetic. */
+.width-preview {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.width-preview-frame {
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-2);
+}
+.width-preview-page {
+  height: 104px;
+  padding: var(--sp-4) 0;
+  overflow: hidden;
+  background: var(--bg-surface);
+  border-radius: var(--radius-md);
+}
+.width-preview-col {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  /* Follows the thumb rather than jumping to each stop. The app-wide
+     reduced-motion rule already flattens this to nothing. */
+  transition:
+    width var(--t-med) var(--ease),
+    margin var(--t-med) var(--ease);
+}
+/* Borrowed from the editor's loading skeleton, at miniature scale and holding
+   still: a shimmer here would say "loading" on a panel that is not loading. */
+.width-preview .skel-line {
+  height: 6px;
+  animation: none;
+}
+.width-preview .skel-title {
+  height: 9px;
+  margin-bottom: var(--sp-1);
+}
+.width-preview-caption {
+  text-align: center;
+}
+
+/* ---- Account settings (profile, status, notifications) ---- */
+.account-profile,
+.connection-tab,
+.status-tab,
+.about-tab {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.account-profile .field,
+.connection-tab .field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.field-label {
+  font-size: var(--fs-sm);
+  font-weight: 500;
+  color: var(--text-secondary);
+}
+.field-hint {
+  display: block;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  font-weight: 400;
+  margin-top: 2px;
+}
+.profile-hero {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  padding-bottom: var(--sp-2);
+}
+.profile-hero .avatar {
+  width: 56px;
+  height: 56px;
+  font-size: var(--fs-md);
+}
+.profile-hero-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.profile-hero-meta strong {
+  font-size: var(--fs-md);
+}
+
+/* Activity status options */
+.status-options {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.status-tab .menu-item-label {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0;
+}
+.status-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: var(--radius-pill);
+  background: var(--text-tertiary);
+}
+.status-dot.online {
+  background: #22c55e;
+}
+.status-dot.away {
+  background: #f59e0b;
+}
+.status-dot.busy {
+  background: var(--danger);
+}
+.status-dot.invisible {
+  background: transparent;
+  box-shadow: inset 0 0 0 2px var(--text-tertiary);
+}
+
+/* Notification toggle row */
+.toggle-row {
+  cursor: pointer;
+}
+.toggle-row input[type="checkbox"] {
+  width: auto;
+  flex: none;
+  cursor: pointer;
+}
+
+/* ── Switch ──────────────────────────────────────────────────────────────
+   A real checkbox, visually replaced. The input keeps its size and sits on
+   top at zero opacity so it stays the hit target and the focus owner — the
+   track below is pure paint. */
+.switch {
+  position: relative;
+  display: inline-flex;
+  flex: none;
+  width: 40px;
+  height: 24px;
+}
+.switch .switch-input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+  z-index: 1;
+}
+.switch.is-disabled .switch-input {
+  cursor: not-allowed;
+}
+/* The OFF track has to read as a control that is off, not as a control that
+   is disabled. `--bg-subtle` over a `--bg-surface` card is almost the same
+   white, and `--border` at 9% alpha didn't draw an edge, so the switch
+   disappeared and only the knob's shadow hinted at it. `--bg-active` is the
+   deepest neutral fill we have and `--border-strong` gives it a real rim; in
+   dark both tokens flip to lighter values against the darker card, so the
+   contrast survives the theme without the track glowing. Disabled stays
+   distinguishable because `.switch.is-disabled` dims the whole control. */
+.switch-track {
+  position: absolute;
+  inset: 0;
+  border-radius: var(--radius-pill);
+  background: var(--bg-active);
+  box-shadow: inset 0 0 0 1px var(--border-strong);
+  transition:
+    background var(--t-med) var(--ease),
+    box-shadow var(--t-med) var(--ease);
+}
+.switch-knob {
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  background: var(--bg-surface);
+  /* A rim as well as a drop shadow: the knob is `--bg-surface`, and now that
+     the off track is a real fill the two are close together in dark mode
+     (where a shadow alone reads as nothing). The ring is what keeps the thumb
+     visible on the off track AND on the accent one, in both themes. */
+  box-shadow:
+    var(--shadow-sm),
+    inset 0 0 0 1px var(--border-strong);
+  /* The knob is what makes the change read as a decision rather than a blink,
+     so it gets a slight overshoot on the way across. */
+  transition: transform var(--t-med) cubic-bezier(0.34, 1.4, 0.64, 1);
+}
+.switch.on .switch-track {
+  background: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent);
+}
+.switch.on .switch-knob {
+  transform: translateX(16px);
+}
+.switch.is-disabled {
+  opacity: 0.5;
+}
+.switch .switch-input:focus-visible + .switch-track {
+  box-shadow: var(--focus-ring);
+}
+@media (prefers-reduced-motion: reduce) {
+  .switch-knob,
+  .switch-track {
+    transition: none;
+  }
+}
+
+/* ============================================================
+   Billing — plan card + upgrade dialog
+   ============================================================ */
+.billing-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-5);
+}
+.billing-card.plan-pro {
+  border: none;
+  background:
+    linear-gradient(var(--bg-surface), var(--bg-surface)) padding-box,
+    var(--accent-gradient) border-box;
+  border: 1px solid transparent;
+  box-shadow: var(--shadow-sm);
+}
+.billing-plan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+}
+.billing-plan-name {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 700;
+  color: var(--text-primary);
+}
+.plan-pro .billing-plan-name {
+  background: var(--accent-gradient);
+  -webkit-background-clip: text;
+  background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+.billing-status {
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  background: var(--success-soft);
+  color: var(--success);
+}
+.billing-status.past_due {
+  background: var(--warning-soft);
+  color: var(--warning);
+}
+.billing-status.canceled,
+.billing-status.none {
+  background: var(--bg-active);
+  color: var(--text-secondary);
+}
+/* Inside the plan card the card's own `gap` is the rhythm, so the two things
+   that carry their own outer margins for other surfaces (the settings eyebrow,
+   the upgrade dialog's feature list) hand it back here — otherwise their
+   margins ADD to the gap instead of collapsing with it. */
+.billing-card .subhead {
+  margin: var(--sp-2) 0 0;
+}
+.billing-card .upgrade-features {
+  margin: 0;
+}
+.billing-action {
+  align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin-top: var(--sp-1);
+}
+
+/* ---- Subscriptions list (#109) ----
+   A `.member-list` row that has to carry a second line (renewal, price, seats)
+   under the vault name, so its name cell stops being one ellipsised span.
+   Everything else on the row is the existing pill and action vocabulary.
+
+   This is the list where someone checks what they are paying for, so the row
+   is taller than the settings default and the vault NAME leads it at display
+   size. Pills and actions centre against the two-line block rather than
+   hanging off its first line. */
+.settings-content .member-list > li.billing-sub-row {
+  align-items: center;
+  padding: var(--sp-4) 0;
+}
+.billing-sub-name {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  color: var(--text-primary);
+}
+/* The name line: the vault name plus, at most, a "Current" pill. A flex row
+   so the pill keeps its size while the name is the part that ellipsises. */
+.billing-sub-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.billing-sub-vault {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.billing-sub-title .member-role {
+  flex-shrink: 0;
+}
+/* Every fact about the subscription on ONE line, joined with " · ": renewal,
+   price, seats, and who pays when that isn't the reader. Three stacked lines
+   made a row taller than the card above it. */
+.billing-sub-meta {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+/* Up to three actions plus two pills — more than the vault list carries. Let
+   them wrap rather than squeeze the vault name down to an ellipsis. */
+.billing-sub-row .vault-row-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
+}
+/* ---- Transfer dialog ----
+   The destinations ride the upgrade dialog's selectable card, laid out as a
+   row (name left, seats right) inside the confirm dialog's centred body. The
+   list is left-aligned and full width so it reads as a form, not prose. */
+.transfer-targets {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  width: 100%;
+  margin: var(--sp-2) 0;
+  text-align: left;
+}
+.upgrade-plan-card.transfer-target {
+  flex-direction: row;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-3);
+  padding: var(--sp-3) var(--sp-4);
+  /* Room for the corner check on the right, on every row not just selected. */
+  padding-right: calc(var(--sp-4) + 28px);
+}
+.upgrade-plan-card.transfer-target.selected::after {
+  top: 50%;
+  transform: translateY(-50%);
+}
+.transfer-target-name {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: var(--fs-md);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.transfer-target-meta {
+  flex-shrink: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.transfer-target.selected .transfer-target-meta {
+  color: var(--accent);
+}
+.confirm-body .transfer-targets-note {
+  font-size: var(--fs-sm);
+  color: var(--text-tertiary);
+}
+/* One line of prose introducing a section's list. */
+.billing-section-note {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+  line-height: var(--lh-body);
+}
+
+/* ============================================================
+   Upgrade dialog — first-class plan-selection surface
+   ============================================================ */
+.upgrade-dialog {
+  /* Compact so the page shows around it rather than the dialog dominating. */
+  width: 440px;
+}
+.upgrade-lead {
+  margin: 0 0 var(--sp-5);
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+}
+.upgrade-lead strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+/* Two selectable billing cards; collapses to one full-width card when a
+   single interval is offered (auto-fit). Selection drives the CTA. */
+.upgrade-plans {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(0, 1fr));
+  gap: var(--sp-3);
+}
+.upgrade-plan-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-4);
+  text-align: left;
+  background: var(--bg-subtle);
+  border: 1.5px solid transparent;
+  border-radius: var(--radius-lg);
+  cursor: pointer;
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    box-shadow var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+.upgrade-plan-card:hover {
+  background: var(--bg-hover);
+}
+.upgrade-plan-card:active {
+  transform: translateY(1px);
+}
+.upgrade-plan-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.upgrade-plan-card.selected {
+  background: var(--accent-soft);
+  border-color: var(--accent);
+}
+/* Selected-state check badge, top-right corner. */
+.upgrade-plan-card.selected::after {
+  content: "✓";
+  position: absolute;
+  top: var(--sp-3);
+  right: var(--sp-3);
+  width: 20px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font-size: var(--type-label-size);
+  font-weight: 700;
+  box-shadow: var(--shadow-sm);
+}
+.upgrade-plan-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-height: 20px;
+  padding-right: var(--sp-6); /* leave room for the corner check */
+}
+.upgrade-plan-cadence {
+  font-family: var(--font-display);
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+}
+.upgrade-plan-card.selected .upgrade-plan-cadence {
+  color: var(--accent);
+}
+.upgrade-save-badge {
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  color: var(--text-on-accent);
+  background: var(--accent-gradient);
+  padding: 2px var(--sp-2);
+  border-radius: var(--radius-pill);
+  line-height: 1.4;
+}
+.upgrade-price {
+  display: flex;
+  align-items: baseline;
+  gap: 3px;
+}
+.upgrade-amount {
+  font-family: var(--font-display);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  color: var(--text-primary);
+  line-height: 1.05;
+}
+.upgrade-per {
+  font-size: var(--fs-md);
+  color: var(--text-secondary);
+}
+.upgrade-plan-note {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.upgrade-features {
+  list-style: none;
+  margin: var(--sp-6) 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.upgrade-features li {
+  position: relative;
+  padding-left: var(--sp-8);
+  font-size: var(--fs-md);
+  line-height: 1.4;
+  color: var(--text-primary);
+}
+.upgrade-features li::before {
+  content: "✓";
+  position: absolute;
+  left: 0;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: grid;
+  place-items: center;
+  border-radius: 50%;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font-size: var(--type-caption-size);
+  font-weight: 700;
+}
+
+.upgrade-cta {
+  width: 100%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-lg);
+  background: var(--accent-gradient);
+  box-shadow: var(--shadow-md);
+}
+.upgrade-cta:hover:not(:disabled) {
+  filter: brightness(1.05);
+  box-shadow: var(--shadow-lg);
+}
+
+/* Waiting / timeout / success phases — scaled to match the plan surface. */
+.upgrade-waiting {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--sp-3);
+  padding: var(--sp-8) var(--sp-5) var(--sp-5);
+}
+.upgrade-waiting .btn-spinner.accent {
+  width: 32px;
+  height: 32px;
+  border-width: 3px;
+  border-color: var(--accent-soft);
+  border-top-color: var(--accent);
+  margin-bottom: var(--sp-1);
+}
+.upgrade-waiting .subhead {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  letter-spacing: 0;
+  text-transform: none;
+  color: var(--text-primary);
+}
+.upgrade-waiting .muted {
+  max-width: 36ch;
+}
+.upgrade-waiting .primary.sm {
+  margin-top: var(--sp-2);
+}
+
+.upgrade-success-mark {
+  position: relative;
+  display: grid;
+  place-items: center;
+  width: 64px;
+  height: 64px;
+  margin-bottom: var(--sp-1);
+  border-radius: 50%;
+  background: var(--success-soft);
+  color: var(--success);
+  font-size: var(--fs-2xl);
+  font-weight: 700;
+  animation: upgrade-pop 420ms var(--ease-spring) both;
+}
+/* One tasteful expanding ring on entrance. */
+.upgrade-success-mark::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--success);
+  animation: upgrade-ring 700ms var(--ease) both;
+}
+@keyframes upgrade-pop {
+  from {
+    opacity: 0;
+    transform: scale(0.5);
+  }
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+@keyframes upgrade-ring {
+  from {
+    opacity: 0.55;
+    transform: scale(1);
+  }
+  to {
+    opacity: 0;
+    transform: scale(1.7);
+  }
+}
+
+/* ============================================================
+   Loading states & micro-interactions
+   ------------------------------------------------------------
+   Feedback for asynchronous work, in one place so the same wait looks the same
+   everywhere. Three rules the whole section follows:
+
+   1. A press is acknowledged instantly (`:active`), a *wait* is only labelled
+      once it outlives ~140ms (`useAsyncAction`). Under that, an indicator
+      flashes and reads as a glitch rather than as progress.
+   2. Nothing changes size mid-action. Spinners are laid out beside a label whose
+      width is already reserved, so a control never resizes under the cursor and
+      pulls a different button into the click.
+   3. Every animation has a `prefers-reduced-motion` answer. The information has
+      to survive the motion being switched off.
+   ============================================================ */
+
+/* ---- Spinner (the app's one ring) ---- */
+.spinner {
+  flex: none;
+  display: inline-block;
+  border-radius: 50%;
+  border-style: solid;
+  border-color: color-mix(in srgb, currentColor 22%, transparent);
+  border-top-color: currentColor;
+  animation: btn-spin 0.62s linear infinite;
+}
+.spinner-xs {
+  width: 12px;
+  height: 12px;
+  border-width: 1.7px;
+}
+.spinner-sm {
+  width: 16px;
+  height: 16px;
+  border-width: 2px;
+}
+.spinner-md {
+  width: 22px;
+  height: 22px;
+  border-width: 2.4px;
+}
+/* `.spinner-inherit` needs no rule — the base above is already currentColor,
+   which is the right answer for a spinner inside a button (a red Delete spins
+   red). The rest exist only where currentColor would be wrong or absent. */
+.spinner-accent {
+  color: var(--accent);
+}
+.spinner-on-accent {
+  border-color: color-mix(in srgb, var(--text-on-accent) 35%, transparent);
+  border-top-color: var(--text-on-accent);
+}
+.spinner-neutral {
+  border-color: var(--border-strong);
+  border-top-color: var(--text-secondary);
+}
+@media (prefers-reduced-motion: reduce) {
+  /* Slowed rather than stopped: a frozen ring says "hung", and the one thing
+     this element must never do is imply the app has died. */
+  .spinner {
+    animation-duration: 1.5s;
+  }
+}
+
+/* ---- Success tick: draws itself in, so it reads as "just completed" ---- */
+.checkmark {
+  flex: none;
+  color: var(--success);
+  stroke-dasharray: 26;
+  animation: check-draw 0.26s var(--ease) both;
+}
+.checkmark-xs {
+  width: 13px;
+  height: 13px;
+}
+.checkmark-sm {
+  width: 16px;
+  height: 16px;
+}
+.checkmark-md {
+  width: 20px;
+  height: 20px;
+}
+@keyframes check-draw {
+  from {
+    stroke-dashoffset: 26;
+    opacity: 0.4;
+  }
+  to {
+    stroke-dashoffset: 0;
+    opacity: 1;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .checkmark {
+    animation: none;
+    stroke-dasharray: none;
+  }
+}
+
+/* ---- AsyncButton layout ---- */
+/* Applies to any button that can grow a spinner, including the hand-rolled
+   sign-in submit — hence the bare selectors rather than a component class. */
+button:has(> .async-btn-label),
+button.is-busy,
+button.is-done {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+/* A busy button stays interactive-looking rather than greying out: it IS doing
+   what you asked, and the standard 0.55 disabled opacity reads as "rejected". */
+button.is-busy:disabled,
+button.is-done:disabled {
+  opacity: 1;
+  cursor: progress;
+}
+button.is-done:disabled {
+  cursor: default;
+}
+/* `.selbar-icon` and friends are 28px squares; a spinner swapping in for the
+   glyph must not stretch them. */
+.selbar-icon.is-busy,
+.selbar-icon.is-done {
+  gap: 0;
+}
+
+/* Share menu: the row just copied says so inline (the menu stays open). */
+.share-popover .share-copied {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  color: var(--success);
+}
+
+/* ---- Confirm dialog (destructive access changes, etc.) ---- */
+.confirm-dialog {
+  width: 440px;
+  padding: var(--sp-8) var(--sp-8) var(--sp-6);
+  text-align: center;
+}
+.confirm-badge {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  margin: 0 auto var(--sp-4);
+  border-radius: var(--radius-lg);
+  color: var(--danger);
+  background: var(--danger-soft);
+}
+.confirm-dialog.tone-accent .confirm-badge {
+  color: var(--accent);
+  background: var(--accent-soft);
+}
+.confirm-title {
+  margin: 0 0 var(--sp-3);
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+.confirm-body {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: 0 auto var(--sp-6);
+  max-width: 38ch;
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+}
+.confirm-body p {
+  margin: 0;
+}
+.confirm-body strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.confirm-actions {
+  display: flex;
+  justify-content: center;
+  gap: var(--sp-2);
+}
+.confirm-actions .primary,
+.confirm-actions .ghost-pill {
+  min-width: 128px;
+  padding: var(--sp-3) var(--sp-5);
+  font-size: var(--fs-md);
+}
+.confirm-actions .primary.danger {
+  background: var(--danger);
+}
+.confirm-actions .primary.danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 88%, black);
+}
+
+/* ---- Vault switching ---- */
+/* The header renames itself to the destination at once; these two rules are the
+   supporting evidence that the rename is a *pending* claim, not a finished one. */
+.sidebar-header.is-switching .vault-path {
+  color: var(--text-tertiary);
+  font-style: italic;
+}
+.vault-switch-spinner {
+  margin-left: var(--sp-1);
+}
+/* The tree below still lists the outgoing vault. Fade it and refuse clicks
+   rather than letting someone open a note from a vault they're leaving (the
+   epoch guard would silently drop it, which looks like a dead row). */
+/* A real flex item in BOTH states, never `display: contents` switching to
+   `block`: the tree measures itself with a ResizeObserver, so a wrapper that
+   changes box type mid-switch would resize the tree and make it jump at exactly
+   the moment we're trying to say "nothing here is changing yet". */
+.sidebar-tree-wrap {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  transition:
+    opacity var(--t-med) var(--ease),
+    filter var(--t-med) var(--ease);
+}
+.sidebar-tree-wrap.is-switching {
+  opacity: 0.38;
+  pointer-events: none;
+  filter: saturate(0.6);
+}
+/* App-wide switching overlay. Above every modal (300) — Settings is where most
+   switches start — and below the update wall (400). The delayed fade-in means a
+   sub-200ms local switch never shows it at all. */
+.vault-switch-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 350;
+  display: grid;
+  place-items: center;
+  background: color-mix(in srgb, var(--bg-app) 72%, transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: fade-in var(--t-med) var(--ease) 180ms both;
+}
+.vault-switch-card {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-4);
+  padding: var(--sp-5) var(--sp-6);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  animation: rise-in var(--t-med) var(--ease) 180ms both;
+}
+.vault-switch-text {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+.vault-switch-title {
+  font-family: var(--font-display);
+  font-size: var(--fs-lg);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.vault-switch-title strong {
+  font-weight: 700;
+}
+.vault-switch-sub {
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+
+/* ---- Required-update wall ----
+   Covers the whole window above everything else (modals top out at 300):
+   updates are mandatory, so nothing behind this may be reachable until the
+   install lands. The card stays calm — this is routine, not an emergency. */
+.update-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 400;
+  display: grid;
+  place-items: center;
+  padding: var(--sp-6);
+  background: color-mix(in srgb, var(--bg-app) 82%, transparent);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  animation: fade-in var(--t-med) var(--ease) both;
+}
+.update-gate-card {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-4);
+  width: min(420px, 100%);
+  padding: var(--sp-8) var(--sp-8) var(--sp-6);
+  text-align: center;
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--shadow-lg);
+  animation: rise-in var(--t-med) var(--ease) both;
+}
+/* Accent tile with a download arrow — the one graphic on the card; no logo. */
+.update-gate-badge {
+  display: grid;
+  place-items: center;
+  width: 52px;
+  height: 52px;
+  color: var(--accent);
+  background: var(--accent-soft);
+  border-radius: var(--radius-lg);
+}
+.update-gate-heading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.update-gate-card h1 {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--fs-xl);
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+}
+.update-gate-version {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-secondary);
+  background: var(--bg-subtle);
+  padding: 2px 10px;
+  border-radius: var(--radius-pill);
+}
+.update-gate-card p {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: var(--fs-md);
+  line-height: var(--lh-body);
+  max-width: 34ch;
+}
+.update-gate-card p strong {
+  color: var(--text-primary);
+  font-weight: 600;
+}
+.update-gate-actions {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--sp-2);
+  width: 100%;
+  margin-top: var(--sp-2);
+}
+.update-gate-cta {
+  width: 100%;
+  padding: var(--sp-3) var(--sp-4);
+  font-size: var(--fs-md);
+}
+/* Reload is the escape hatch, not a peer of Install: a quiet text button. */
+.update-gate-actions .ghost-pill {
+  border-color: transparent;
+  color: var(--text-secondary);
+}
+.update-gate-actions .ghost-pill:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+}
+.update-gate .update-progress {
+  width: 100%;
+  max-width: 260px;
+  flex: none;
+  margin-top: var(--sp-1);
+}
+
+/* ---- Update download progress ---- */
+.update-progress {
+  position: relative;
+  flex: 1;
+  min-width: 80px;
+  max-width: 240px;
+  height: 4px;
+  border-radius: var(--radius-pill);
+  background: var(--accent-soft);
+  overflow: hidden;
+}
+.update-progress-fill {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  border-radius: inherit;
+  background: var(--accent);
+  transition: width var(--t-med) var(--ease);
+}
+/* No content length from the server: sweep instead of lying about a target. */
+.update-progress.indeterminate .update-progress-fill {
+  width: 35%;
+  animation: progress-sweep 1.1s var(--ease) infinite;
+}
+@keyframes progress-sweep {
+  from {
+    transform: translateX(-100%);
+  }
+  to {
+    transform: translateX(340%);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .update-progress.indeterminate .update-progress-fill {
+    animation-duration: 2.4s;
+  }
+}
+
+/* ---- Banners: the slot animates its own height ---- */
+/* `overflow: hidden` is what makes the height animation possible — without it
+   the banner's content spills out of the collapsing box mid-transition. */
+.banner-slot {
+  overflow: hidden;
+  flex: none;
+}
+
+/* ---- Toasts ---- */
+.toast-viewport {
+  position: fixed;
+  right: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 60;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: var(--sp-2);
+  /* The viewport itself must not swallow clicks meant for the editor beneath;
+     each toast re-enables them for its own box. */
+  pointer-events: none;
+  max-width: min(380px, calc(100vw - var(--sp-8)));
+}
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-2) var(--sp-2) var(--sp-3);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-lg);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+/* A 6px dot rather than a coloured background: the tone is legible at a glance
+   without the toast shouting over the note you're reading. */
+.toast-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--text-tertiary);
+}
+.toast-success .toast-dot {
+  background: var(--success);
+}
+.toast-error .toast-dot {
+  background: var(--danger);
+}
+.toast-error {
+  border-color: color-mix(in srgb, var(--danger) 45%, var(--border));
+}
+.toast-text {
+  flex: 1;
+  min-width: 0;
+}
+.toast-close {
+  flex: none;
+  background: none;
+  border: none;
+  color: var(--text-tertiary);
+  font-size: var(--fs-lg);
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  border-radius: var(--radius-sm);
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease);
+}
+.toast-close:hover {
+  color: var(--text-primary);
+  background: var(--bg-hover, color-mix(in srgb, var(--text-primary) 8%, transparent));
+}
+
+/* ---- Press feedback on the controls that had none ---- */
+/* Rule 1 of this section: a click is acknowledged in the same frame it happens,
+   whatever the action goes on to do. `.primary` already did this; these are the
+   controls where pressing produced no physical response at all. */
+.ghost-pill:active:not(:disabled),
+button.secondary:active:not(:disabled),
+.wf-btn:active:not(:disabled) {
+  transform: translateY(1px);
+}
+.icon-btn:active:not(:disabled),
+.selbar-icon:active:not(:disabled) {
+  transform: scale(0.9);
+}
+.icon-btn,
+.selbar-icon {
+  transition:
+    color var(--t-fast) var(--ease),
+    background var(--t-fast) var(--ease),
+    transform var(--t-fast) var(--ease);
+}
+@media (prefers-reduced-motion: reduce) {
+  .ghost-pill:active:not(:disabled),
+  button.secondary:active:not(:disabled),
+  .wf-btn:active:not(:disabled),
+  .icon-btn:active:not(:disabled),
+  .selbar-icon:active:not(:disabled) {
+    transform: none;
+  }
+}

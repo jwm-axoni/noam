@@ -1,0 +1,1013 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
+import "./editor.css";
+import { convertFileSrc } from "@tauri-apps/api/core";
+import { closeCompletion } from "@codemirror/autocomplete";
+import { keymap, EditorView } from "@codemirror/view";
+import { WORKSPACE_RESIZE_EVENT } from "../layout/types";
+import { Compartment, EditorState } from "@codemirror/state";
+import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
+import { remoteCursors } from "../lib/editor/remoteCursors";
+import type { Awareness } from "y-protocols/awareness";
+import {
+  createEditorState,
+  editableExtensions,
+  lineNumberExtension,
+  presentationExtensions,
+  readOnlyGuardedKeymap,
+} from "../lib/editor";
+import { foldEffectsFor, parseNoteUiState, persistFolds } from "../lib/editor/folding";
+import { propertiesMode as propertiesModeFacet } from "../lib/editor/frontmatter";
+import { loadTypes } from "../lib/frontmatter/types";
+import { setActiveNote } from "../lib/editor/activeView";
+import { bindActiveNote } from "../lib/editor/activeNoteBinding";
+import { saveAttachment } from "../lib/attachments";
+import { bridgeManager, type NoteBridge } from "../lib/bridge";
+import { editorMeasureStyle } from "../lib/editorMeasure";
+import { effectiveLockForPath, lockScopesByPath } from "../lib/locks";
+import { playPingSound } from "../lib/presence/ping";
+import { syncManager } from "../lib/sync/docSession";
+import { colorForUser, PRESENCE_OFFLINE, statusTone, ringShowsColor } from "../lib/presence/color";
+import type { ActivityStatus } from "../lib/prefs";
+import { useStore } from "../store";
+import * as ipc from "../lib/ipc";
+import { HtmlView } from "./HtmlView";
+import { FilePreview } from "./FilePreview";
+import { previewKind } from "../lib/preview";
+import { relativeAgo } from "./Identity";
+import { EditorEmpty, EditorSkeleton } from "./EditorPlaceholders";
+import { characterSvg } from "./Avatar";
+import { agoFromIso, lastEditedTooltip } from "./versionFormat";
+import type { ViewMode } from "../lib/editor/viewMode";
+import {
+  extractOutline,
+  notifyEditorOutlineChanged,
+  setActiveEditorOutlineHandle,
+} from "../lib/editor/outline";
+import { documentStats, type DocumentStats } from "../lib/editor/documentStats";
+import { StatusBar } from "./workspace/StatusBar";
+
+interface Peer {
+  id: string;
+  name: string;
+  color: string;
+  /** Their chosen availability status, broadcast via awareness (`user.status`). */
+  status?: ActivityStatus;
+  /** Line their cursor is on (from the `activity` awareness field), if known. */
+  line: number | null;
+  /** Timestamp (ms) of their last activity update — powers "last active". */
+  lastActive: number | null;
+}
+
+interface AwarenessPeerState {
+  user?: { id?: string; name?: string; color?: string; status?: ActivityStatus };
+  activity?: { line?: number; at?: number };
+  ping?: { to?: string; name?: string; at?: number };
+}
+
+/** Derive the unique peers currently present in a doc from awareness states. */
+function readPeers(awareness: Awareness): Peer[] {
+  const seen = new Map<string, Peer>();
+  awareness.getStates().forEach((state) => {
+    const s = state as AwarenessPeerState;
+    const u = s.user;
+    if (!u?.id) return;
+    const prev = seen.get(u.id);
+    const line = typeof s.activity?.line === "number" ? s.activity.line : null;
+    const at = typeof s.activity?.at === "number" ? s.activity.at : null;
+    if (!prev) {
+      seen.set(u.id, {
+        id: u.id,
+        name: u.name ?? "Someone",
+        color: u.color ?? colorForUser(u.id),
+        status: u.status,
+        line,
+        lastActive: at,
+      });
+    } else {
+      if (prev.line == null && line != null) prev.line = line;
+      if (prev.status == null && u.status != null) prev.status = u.status;
+      if (at != null && (prev.lastActive == null || at > prev.lastActive)) {
+        prev.lastActive = at;
+      }
+    }
+  });
+  return [...seen.values()];
+}
+
+/**
+ * Build the image-`src` resolver the editor hands to live preview. Local vault
+ * paths (relative to the note, or vault-root when prefixed with `/`) become
+ * `asset:` URLs the webview can stream; already-loadable URLs pass through. The
+ * vault dir is granted to the asset-protocol scope on open (Rust side).
+ */
+function makeResolveAsset(vaultPath: string | null, notePath: string) {
+  return (src: string): string => {
+    if (!src || /^(https?:|data:|blob:|asset:|tauri:|mailto:)/i.test(src)) return src;
+    if (!vaultPath) return src;
+    const noteDir = notePath.includes("/")
+      ? notePath.slice(0, notePath.lastIndexOf("/"))
+      : "";
+    const rootRelative = src.startsWith("/");
+    const segs = rootRelative || !noteDir ? [] : noteDir.split("/");
+    for (const part of src.split("/")) {
+      if (part === "" || part === ".") continue;
+      if (part === "..") segs.pop();
+      else segs.push(part);
+    }
+    const abs = `${vaultPath.replace(/\/$/, "")}/${segs.join("/")}`;
+    return convertFileSrc(abs);
+  };
+}
+
+/** Max slots in the stacked avatar row before the rest collapse into "+N". */
+const MAX_AVATARS = 4;
+const DOCUMENT_STATS_DEBOUNCE_MS = 180;
+
+/**
+ * A single presence avatar: the peer's illustrated character (the same DiceBear
+ * "notionists" art used for profile avatars, seeded by their name so it matches
+ * their account avatar) framed by a ring in their unique presence colour. The
+ * colour arrives as `--user-color` so the CSS owns the ring/glow treatment.
+ */
+function PresenceAvatar({
+  peer,
+  className,
+  online = true,
+}: {
+  peer: Peer;
+  className?: string;
+  /** When false the ring goes neutral gray — the local session isn't live. */
+  online?: boolean;
+}) {
+  const svg = useMemo(() => characterSvg(peer.name || peer.id || "?"), [peer.name, peer.id]);
+  // The ring shows the peer's unique colour only when the local session is live
+  // AND the peer's own availability reads as present (online/busy). Away/invisible
+  // peers — or any peer when we're offline — get the neutral gray ring.
+  const tone = statusTone(peer.status);
+  const live = online && ringShowsColor(tone);
+  return (
+    <span
+      className={`presence-avatar tone-${tone}${live ? "" : " offline"}${className ? ` ${className}` : ""}`}
+      style={{ "--user-color": live ? peer.color : PRESENCE_OFFLINE } as CSSProperties}
+      aria-hidden="true"
+      dangerouslySetInnerHTML={{ __html: svg }}
+    />
+  );
+}
+
+/**
+ * "Recent activity" section of the roster popover: who last touched this note
+ * (stamped server-side, so it covers teammates and AI writes alike). Lives
+ * INSIDE the presence dropdown rather than as its own chrome: presence answers
+ * "who is here now", this answers "who was here", and stacking them in one
+ * popover keeps history visibly subordinate — smaller, dimmer faces.
+ */
+function RosterRecent({ notePath, now }: { notePath: string; now: number }) {
+  const docId = syncManager.registry.getMapping(notePath)?.docId ?? null;
+  const name = useStore((s) => (docId ? (s.noteLastEdited[docId]?.name ?? null) : null));
+  const at = useStore((s) => (docId ? (s.noteLastEdited[docId]?.at ?? null) : null));
+  const svg = useMemo(() => (name ? characterSvg(name) : null), [name]);
+  if (!svg || !at) return null;
+  return (
+    <>
+      <div className="peer-roster-title roster-recent-title">Recent activity</div>
+      <div className="roster-recent-row" title={lastEditedTooltip(name, at, now)}>
+        <span
+          className="roster-recent-avatar"
+          aria-hidden="true"
+          dangerouslySetInnerHTML={{ __html: svg }}
+        />
+        <span className="roster-recent-name">{name}</span>
+        <span className="roster-recent-when">edited {agoFromIso(at, now)}</span>
+      </div>
+    </>
+  );
+}
+
+/**
+ * "Who's in this note" avatar stack (spec 04 §5). Avatars overlap; anything past
+ * MAX_AVATARS collapses into a "+N" chip. The roster popover opens on hover/focus
+ * of the stack; a click (or keyboard activation) opens it too, for touch and
+ * assistive tech — it never toggles shut, so it can't fight the hover state.
+ */
+function PresenceBar({
+  peers,
+  open,
+  onOpen,
+  online = true,
+}: {
+  peers: Peer[];
+  open: boolean;
+  onOpen: () => void;
+  /** Live sync state — when false, avatar rings show neutral gray. */
+  online?: boolean;
+}) {
+  if (peers.length === 0) return null;
+  // Keep the row to at most MAX_AVATARS slots: when there are more, show a few
+  // faces and roll the remainder into the "+N" chip (which fills the last slot).
+  const shown = peers.length > MAX_AVATARS ? peers.slice(0, MAX_AVATARS - 1) : peers;
+  const overflow = peers.length - shown.length;
+  const names = peers.map((p) => p.name).join(", ");
+  return (
+    <button
+      type="button"
+      className={`presence-bar${open ? " open" : ""}`}
+      onClick={onOpen}
+      aria-label={`${peers.length} here: ${names}`}
+      aria-expanded={open}
+    >
+      {shown.map((p) => (
+        <PresenceAvatar key={p.id} peer={p} online={online} />
+      ))}
+      {overflow > 0 && <span className="presence-avatar presence-overflow">+{overflow}</span>}
+    </button>
+  );
+}
+
+/** One row in the roster: avatar + name + status/last-active + optional Ping. */
+function PeerRow({
+  peer,
+  isSelf,
+  now,
+  onPing,
+}: {
+  peer: Peer;
+  isSelf: boolean;
+  now: number;
+  onPing: (peer: Peer) => void;
+}) {
+  const [pinged, setPinged] = useState(false);
+  const editing = peer.line != null;
+  const tone = statusTone(peer.status);
+  // Availability wins over cursor activity: an away/busy teammate reads as
+  // away/busy even if their caret is still parked on a line.
+  const statusLabel =
+    tone === "away" || tone === "offline"
+      ? "Away"
+      : tone === "busy"
+        ? "Busy"
+        : editing
+          ? `Editing line ${peer.line}`
+          : "Viewing";
+  return (
+    <div className="peer-row">
+      <PresenceAvatar peer={peer} className="sm" />
+      <div className="peer-row-meta">
+        <span className="peer-row-name">
+          {peer.name}
+          {isSelf && <span className="muted"> (you)</span>}
+        </span>
+        <span className="peer-row-status">
+          <span className={`peer-dot tone-${tone}${editing && tone === "online" ? " active" : ""}`} />
+          {statusLabel}
+          {peer.lastActive != null && (
+            <span className="peer-row-ago"> · {relativeAgo(peer.lastActive, now)}</span>
+          )}
+        </span>
+      </div>
+      {!isSelf && (
+        <button
+          type="button"
+          className="peer-ping"
+          disabled={pinged}
+          title="Send a ping"
+          onClick={(e) => {
+            e.stopPropagation();
+            onPing(peer);
+            setPinged(true);
+          }}
+        >
+          {pinged ? "✓" : "Ping"}
+        </button>
+      )}
+    </div>
+  );
+}
+
+/**
+ * Roster popover: the quick list of everyone in the note, each with their live
+ * status ring, where they are, and how long since they were last active. Opens
+ * on a click of the presence stack; the parent closes it on any outside click.
+ */
+function PeerRoster({
+  peers,
+  selfId,
+  onPing,
+  notePath,
+}: {
+  peers: Peer[];
+  selfId: string | null;
+  onPing: (peer: Peer) => void;
+  /** When set, the popover ends with the note's "Recent activity" section. */
+  notePath?: string | null;
+}) {
+  const [now, setNow] = useState(() => Date.now());
+  useEffect(() => {
+    const id = window.setInterval(() => setNow(Date.now()), 15_000);
+    return () => window.clearInterval(id);
+  }, []);
+  return (
+    <div className="peer-roster">
+      <div className="peer-roster-title">
+        {peers.length} {peers.length === 1 ? "person" : "people"} here
+      </div>
+      {peers.map((p) => (
+        <PeerRow
+          key={p.id}
+          peer={p}
+          isSelf={p.id === selfId}
+          now={now}
+          onPing={onPing}
+        />
+      ))}
+      {notePath && <RosterRecent notePath={notePath} now={now} />}
+    </div>
+  );
+}
+
+/**
+ * The note editor. CodeMirror is bound to the note's Y.Text through a
+ * `y-codemirror.next` (yCollab) binding. Local keystrokes flow into the CRDT
+ * (origin 'editor'); the bridge egests to disk on a debounce; external file
+ * edits and remote peers merge live into the same Y.Text. When signed in and the
+ * doc is shared, a HocuspocusProvider syncs it to the server and supplies live
+ * cursors + presence; a view-only grant makes the editor read-only.
+ */
+export function Editor() {
+  const hostRef = useRef<HTMLDivElement | null>(null);
+  const viewRef = useRef<EditorView | null>(null);
+
+  const openNote = useStore((s) => s.openNote);
+  const syncEnabled = useStore((s) => s.syncEnabled);
+  const locks = useStore((s) => s.locks);
+  const lifts = useStore((s) => s.lifts);
+  const session = useStore((s) => s.session);
+  const tree = useStore((s) => s.tree);
+  const syncStatus = useStore((s) => s.syncStatus);
+  // A version the user is hovering in the history panel, rendered over the live
+  // editor. The live view stays mounted and synced underneath — this is a look,
+  // not a mode.
+  const versionPreview = useStore((s) => s.versionPreview);
+  const noteVersions = useStore((s) => s.noteVersions);
+  const backlinkCount = useStore((s) => s.backlinks.length);
+  const notePath = openNote?.path ?? null;
+
+  const [peers, setPeers] = useState<Peer[]>([]);
+  const [readOnly, setReadOnly] = useState(false);
+  // False from the moment a note starts opening until its CodeMirror view is in
+  // the DOM. Drives the loading skeleton over the (genuinely empty) pane.
+  const [viewMounted, setViewMounted] = useState(false);
+  const [stats, setStats] = useState<DocumentStats | null>(null);
+  const statsTimerRef = useRef<number | null>(null);
+  // True between destroying one note's view and mounting the next one's: the
+  // pane is empty because WE emptied it, so the skeleton must appear at once
+  // rather than after its first-open grace delay (see `EditorSkeleton`).
+  const switchingNoteRef = useRef(false);
+  // Editability is held in a Compartment so a lock applied while the note is
+  // open can flip the live view read-only without rebuilding it.
+  const editableRef = useRef<Compartment | null>(null);
+  // The open note's bridge — kept so the syncStatus effect can roll back
+  // keystrokes the server rejected (typed before its read-only verdict landed).
+  const bridgeRef = useRef<NoteBridge | null>(null);
+  // True once the server has confirmed edit access for THIS note session. Gates
+  // the rollback above: a live mid-session lock must never undo edits the
+  // server already accepted.
+  const hadEditAccessRef = useRef(false);
+  // The Properties display mode, in a Compartment so the Settings row
+  // reconfigures the live view instead of rebuilding it (like `editable`).
+  const propsModeRef = useRef<Compartment | null>(null);
+  const propertiesMode = useStore((s) => s.propertiesMode);
+  // Presentation mode is a fourth compartment. Its extension factory is kept
+  // beside it so a later mode change can rebuild the presentation set with the
+  // same navigation and asset callbacks, on this same EditorView.
+  const viewModeRef = useRef<Compartment | null>(null);
+  const viewModeExtensionsRef = useRef<
+    ((mode: ViewMode) => ReturnType<typeof presentationExtensions>) | null
+  >(null);
+  const viewMode = useStore((s) => s.viewMode);
+  // The line-number gutter, also compartmented: flipping the Settings switch
+  // must not tear the live view down (and with it the CRDT binding).
+  const lineNumbersRef = useRef<Compartment | null>(null);
+  const lineNumbers = useStore((s) => s.lineNumbers);
+  const previousReadOnlyRef = useRef(readOnly);
+  const editorMeasure = useStore((s) => s.editorMeasure);
+  const previewHostRef = useRef<HTMLDivElement | null>(null);
+  const [rosterOpen, setRosterOpen] = useState(false);
+  // Wraps the presence stack + its roster popover so an outside click can be
+  // told apart from a click on the controls themselves.
+  const presenceRef = useRef<HTMLDivElement | null>(null);
+  // Grace timer for the hover-out close: leaving the stack schedules a close a
+  // beat later so gliding across the small gap into the popover (which cancels
+  // it) doesn't make the roster flicker shut.
+  const rosterCloseTimer = useRef<number | null>(null);
+  const [pingFrom, setPingFrom] = useState<string | null>(null);
+  const awarenessRef = useRef<Awareness | null>(null);
+  // Pings already played, keyed by sender clientId + timestamp.
+  const seenPingsRef = useRef<Set<string>>(new Set());
+  const isHtml = notePath != null && /\.html?$/i.test(notePath);
+  // Images/PDFs aren't notes: no CRDT doc, no sync — just a streamed preview.
+  const preview = notePath != null ? previewKind(notePath) : null;
+
+  const publishDocumentStats = useCallback((debounced: boolean) => {
+    if (statsTimerRef.current != null) {
+      window.clearTimeout(statsTimerRef.current);
+      statsTimerRef.current = null;
+    }
+    const publish = () => {
+      statsTimerRef.current = null;
+      const current = viewRef.current;
+      if (!current) return;
+      setStats(documentStats(
+        current.state.doc.toString(),
+        useStore.getState().backlinks.length,
+      ));
+    };
+    if (debounced) {
+      statsTimerRef.current = window.setTimeout(publish, DOCUMENT_STATS_DEBOUNCE_MS);
+    } else {
+      publish();
+    }
+  }, []);
+
+  // The roster opens on hover/focus of the presence stack (below); these keep it
+  // honest for the pointer/keyboard paths too — a press outside closes it, as
+  // does Escape. Keyed only on `rosterOpen` (not on the peer list) so the steady
+  // stream of awareness updates from other live peers never tears the listeners
+  // down and rebuilds them mid-interaction.
+  useEffect(() => {
+    if (!rosterOpen) return;
+    const onPointerDown = (e: PointerEvent) => {
+      if (!presenceRef.current?.contains(e.target as Node)) setRosterOpen(false);
+    };
+    const onKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setRosterOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    document.addEventListener("keydown", onKeyDown);
+    return () => {
+      document.removeEventListener("pointerdown", onPointerDown, true);
+      document.removeEventListener("keydown", onKeyDown);
+    };
+  }, [rosterOpen]);
+
+  // Open now / close-after-a-beat, shared by the hover and focus handlers.
+  const openRoster = () => {
+    if (rosterCloseTimer.current != null) {
+      window.clearTimeout(rosterCloseTimer.current);
+      rosterCloseTimer.current = null;
+    }
+    setRosterOpen(true);
+  };
+  const scheduleCloseRoster = () => {
+    if (rosterCloseTimer.current != null) window.clearTimeout(rosterCloseTimer.current);
+    rosterCloseTimer.current = window.setTimeout(() => {
+      rosterCloseTimer.current = null;
+      setRosterOpen(false);
+    }, 140);
+  };
+  useEffect(
+    () => () => {
+      if (rosterCloseTimer.current != null) window.clearTimeout(rosterCloseTimer.current);
+    },
+    [],
+  );
+
+  // Is this note (or a containing folder) locked? Refines the read-only badge
+  // copy — a lock is deliberate protection, not a missing grant.
+  const lockScope =
+    notePath && syncEnabled
+      ? effectiveLockForPath(
+          lockScopesByPath(tree, locks, session?.user.id, lifts),
+          notePath,
+        )
+      : null;
+  // The banner speaks about THIS note, so a whole-vault Read-only posture is
+  // not a lock for its purposes — "this note is locked" would send someone
+  // hunting for a setting on a note that has none. The vault-wide state is
+  // exactly what "View-only access" already says, so it keeps that copy.
+  const itemLock = lockScope === "vault" ? null : lockScope;
+
+  useEffect(() => {
+    if (!hostRef.current || notePath == null || /\.html?$/i.test(notePath)) return;
+    if (previewKind(notePath) != null) return; // image/PDF preview, not a CRDT note
+    const docId = useStore.getState().openNote?.id ?? null;
+    if (docId == null) return; // wait until the note's doc_id (meta) is known
+    const myUserId = useStore.getState().session?.user.id ?? null;
+
+    let cancelled = false;
+    let view: EditorView | null = null;
+    let awareness: Awareness | null = null;
+    let onAwarenessChange: (() => void) | null = null;
+    // The editor pane is empty until CodeMirror is constructed below, and
+    // getting there means opening the bridge, hydrating the CRDT from SQLite
+    // and — for a synced note — waiting out the provider's first sync. On a
+    // cold note that is a blank white sheet for long enough to look broken.
+    setViewMounted(false);
+    setStats(null);
+
+    const navigate = async (target: string) => {
+      try {
+        const resolved = await ipc.resolveWikilink(target);
+        if (resolved) {
+          await useStore.getState().openNoteByPath(resolved.path);
+          return;
+        }
+        const slash = target.lastIndexOf("/");
+        const dir = slash === -1 ? "" : target.slice(0, slash);
+        const name = slash === -1 ? target : target.slice(slash + 1);
+        // The name comes from the link, so this takes the explicit-name path —
+        // no rename box, unlike ⌘N / the sidebar's + (see `createNoteIn`).
+        await useStore.getState().createNoteAt(dir, name);
+      } catch (err) {
+        console.error("wiki-link navigation failed", err);
+      }
+    };
+
+    (async () => {
+      // Open the bridge; defer the disk-seed when this doc will sync so the
+      // server's canonical state is pulled first (spec 03 §5 ordering).
+      const willSync = syncManager.willSync(notePath);
+      // The fold state is fetched ALONGSIDE the bridge, never after it: it has
+      // to be in hand by the time the view is constructed, so the folds can be
+      // applied in the same tick and no unfolded frame ever paints.
+      const uiEpoch = useStore.getState().vault?.epoch;
+      const [bridge, storedUiState] = await Promise.all([
+        bridgeManager.openNote(notePath, docId, { seedFromFile: !willSync }),
+        ipc.getNoteUiState(docId, uiEpoch).catch(() => null),
+      ]);
+      if (cancelled || !hostRef.current) return;
+
+      const opened = await syncManager.openDoc(bridge, notePath);
+      if (cancelled || !hostRef.current) {
+        return;
+      }
+      awareness = opened.awareness;
+      awarenessRef.current = awareness;
+      bridgeRef.current = bridge;
+      hadEditAccessRef.current = false;
+      // Locks come FIRST: `opened.readOnly` is optimistic (the server's token
+      // verdict arrives an HTTP round trip later), so anything we already know
+      // locally — a "locked" share on this note or an ancestor folder — makes
+      // the very first frame read-only. The verdict then confirms it
+      // ("read-only" status) or relaxes it ("synced" → editable).
+      const st = useStore.getState();
+      const lockedLocally =
+        syncEnabled &&
+        effectiveLockForPath(
+          lockScopesByPath(st.tree, st.locks, st.session?.user.id, st.lifts),
+          notePath,
+        ) != null;
+      const ro = opened.readOnly || opened.status === "no-access" || lockedLocally;
+      setReadOnly(ro);
+      const editable = new Compartment();
+      editableRef.current = editable;
+      const propsMode = new Compartment();
+      propsModeRef.current = propsMode;
+      const lineNumberCompartment = new Compartment();
+      lineNumbersRef.current = lineNumberCompartment;
+      const viewModeCompartment = new Compartment();
+      viewModeRef.current = viewModeCompartment;
+      // Vault-wide inputs for the Properties panel. Loaded in the background:
+      // the panel renders from inferred types until they arrive.
+      const epoch = useStore.getState().vault?.epoch;
+      void loadTypes(epoch);
+      let propertyKeys: string[] = [];
+      const propertyValues = new Map<string, string[]>();
+      void ipc
+        .listPropertyKeys(epoch)
+        .then((rows) => {
+          propertyKeys = rows.map((r) => r.key);
+        })
+        .catch(() => {});
+
+      const getTitles = () => useStore.getState().titles;
+      const onNavigate = (target: string) => void navigate(target);
+      const resolveAsset = makeResolveAsset(
+        useStore.getState().vault?.path ?? null,
+        notePath,
+      );
+      const presentationOptions = { getTitles, onNavigate, resolveAsset };
+      viewModeExtensionsRef.current = (mode) =>
+        presentationExtensions(mode, presentationOptions);
+
+      const state = createEditorState({
+        doc: bridge.text.toString(),
+        collab: true,
+        header: {
+          path: notePath,
+          mode: useStore.getState().propertiesMode,
+          modeCompartment: propsMode,
+          // The inline title commits a RENAME, never a CRDT edit. `Exact`, not
+          // `renameNoteFile`: a name a person just typed must be refused on a
+          // collision, not silently turned into "Name 1".
+          renameTo: async (nextPath) => {
+            try {
+              await useStore.getState().renameNoteFileExact(notePath, nextPath);
+              return null;
+            } catch (e) {
+              console.error("rename from inline title failed", e);
+              return "That name couldn't be saved.";
+            }
+          },
+          noteExists: (p) => ipc.noteExists(p, useStore.getState().vault?.epoch),
+          getPropertyKeys: () => propertyKeys,
+          getPropertyValues: (key) => {
+            const cached = propertyValues.get(key);
+            if (cached) return cached;
+            propertyValues.set(key, []);
+            void ipc
+              .listPropertyValues(key, useStore.getState().vault?.epoch)
+              .then((values) => propertyValues.set(key, values))
+              .catch(() => {});
+            return [];
+          },
+        },
+        getTitles,
+        getTags: () => useStore.getState().tags,
+        lineNumbers: {
+          on: useStore.getState().lineNumbers,
+          compartment: lineNumberCompartment,
+        },
+        viewMode: {
+          mode: st.viewMode,
+          compartment: viewModeCompartment,
+        },
+        onNavigate,
+        resolveAsset,
+        saveAttachment,
+        extraExtensions: [
+          yCollab(bridge.text, awareness, { undoManager: bridge.undoManager }),
+          // Our own animated carets + always-on name flags, over yCollab's
+          // selection highlight (its inline caret is hidden in editor.css).
+          remoteCursors(bridge.text, awareness),
+          keymap.of(readOnlyGuardedKeymap(yUndoManagerKeymap)),
+          // Publish "editing line N" so peers can see where everyone is.
+          EditorView.updateListener.of((u) => {
+            if (!u.selectionSet && !u.docChanged && !u.focusChanged) return;
+            const line = u.state.doc.lineAt(u.state.selection.main.head).number;
+            awareness?.setLocalStateField("activity", { line, at: Date.now() });
+          }),
+          EditorView.updateListener.of((update) => {
+            if (!update.docChanged) return;
+            notifyEditorOutlineChanged();
+            publishDocumentStats(true);
+          }),
+          // View-only grants / locks: the editor cannot be typed into (spec
+          // 04 §4). Compartmented so a live lock change can reconfigure it.
+          editable.of(editableExtensions(ro || st.viewMode === "reading")),
+          // Remember which sections were folded. Debounced well clear of the
+          // bridge's 150/300 ms timings — this writes to `index.sqlite`, never
+          // to the `.md`.
+          persistFolds((json) => {
+            void ipc
+              .setNoteUiState(docId, json, useStore.getState().vault?.epoch)
+              .catch(() => {});
+          }),
+        ],
+      });
+
+      // A note created by ⌘N / the sidebar's + wants the cursor in its TITLE,
+      // not the body — read before the view exists, because the title widget
+      // consumes the flag as it mounts inside the constructor below.
+      const titleWantsFocus = useStore.getState().pendingTitleFocus === notePath;
+      view = new EditorView({ state, parent: hostRef.current });
+      // Restore the folds SYNCHRONOUSLY, in the tick the view is created. A
+      // `useEffect` or a rAF would be one painted frame too late, and the note
+      // would visibly collapse in front of the reader every time it opened.
+      const foldEffects = foldEffectsFor(view.state, parseNoteUiState(storedUiState));
+      if (foldEffects.length) view.dispatch({ effects: foldEffects });
+      viewRef.current = view;
+      publishDocumentStats(false);
+      setActiveEditorOutlineHandle({
+        getHeadings: () => view ? extractOutline(view.state) : [],
+        navigate: (offset) => {
+          if (!view) return;
+          const anchor = Math.max(0, Math.min(offset, view.state.doc.length));
+          view.dispatch({
+            selection: { anchor },
+            effects: EditorView.scrollIntoView(anchor, { y: "start", yMargin: 24 }),
+          });
+          view.focus();
+        },
+      });
+      switchingNoteRef.current = false;
+      setViewMounted(true);
+      setActiveNote(bindActiveNote(view)); // let out-of-tree drops embed into this note
+      if (!ro && st.viewMode !== "reading" && !titleWantsFocus) view.focus();
+
+      // Live "who's here" avatar row + incoming pings addressed to this user.
+      onAwarenessChange = () => {
+        if (cancelled || !awareness) return;
+        setPeers(readPeers(awareness));
+        if (!myUserId) return;
+        awareness.getStates().forEach((state, clientId) => {
+          if (clientId === awareness!.clientID) return;
+          const ping = (state as AwarenessPeerState).ping;
+          if (!ping?.at || ping.to !== myUserId) return;
+          const key = `${clientId}:${ping.at}`;
+          // Only fresh pings ring — stale awareness replays stay silent.
+          if (seenPingsRef.current.has(key) || Date.now() - ping.at > 10_000) return;
+          seenPingsRef.current.add(key);
+          if (useStore.getState().mentionSound) playPingSound();
+          setPingFrom(ping.name ?? "Someone");
+          window.setTimeout(() => setPingFrom(null), 4000);
+        });
+      };
+      awareness.on("change", onAwarenessChange);
+      onAwarenessChange();
+    })();
+
+    return () => {
+      cancelled = true;
+      if (onAwarenessChange && awareness) awareness.off("change", onAwarenessChange);
+      setActiveNote(null);
+      setActiveEditorOutlineHandle(null);
+      // Order matters: the ref is read by the render that `setViewMounted`
+      // schedules, so it must be written first.
+      if (view) switchingNoteRef.current = true;
+      setViewMounted(false);
+      if (view) view.destroy();
+      viewRef.current = null;
+      editableRef.current = null;
+      propsModeRef.current = null;
+      viewModeRef.current = null;
+      viewModeExtensionsRef.current = null;
+      lineNumbersRef.current = null;
+      bridgeRef.current = null;
+      hadEditAccessRef.current = false;
+      awarenessRef.current = null;
+      seenPingsRef.current.clear();
+      setPeers([]);
+      setReadOnly(false);
+      setStats(null);
+      setRosterOpen(false);
+      setPingFrom(null);
+      if (statsTimerRef.current != null) {
+        window.clearTimeout(statsTimerRef.current);
+        statsTimerRef.current = null;
+      }
+      // Tear down the network session, then flush + close the bridge.
+      syncManager.closeCurrent();
+      void bridgeManager.closeCurrent();
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [notePath, syncEnabled]);
+
+  // Backlinks come from the committed index rather than from markdown guesses.
+  // When that index refreshes, fold its real count into the current snapshot.
+  useEffect(() => {
+    if (viewRef.current) publishDocumentStats(false);
+  }, [backlinkCount, publishDocumentStats]);
+
+  // Live lock/grant changes on the OPEN note. When someone locks it "for
+  // everyone," the server force-closes our socket; DocSync re-mints a read-only
+  // token on reconnect and the status flips to "read-only" here — no reopen
+  // needed. Also refresh the lock list so the tree badge appears for us too.
+  useEffect(() => {
+    if (syncStatus === "read-only" || syncStatus === "no-access") {
+      setReadOnly(true);
+      if (syncStatus === "read-only") void useStore.getState().refreshLocks();
+      // Anything typed before this verdict arrived was already rejected by the
+      // server (it drops updates from read-only connections), so those
+      // keystrokes exist only in the local doc — a silent fork that would
+      // egest to the .md file and diverge forever. Roll them back. Guarded by
+      // hadEditAccessRef: once "synced" confirmed edit access this session,
+      // a later lock must not undo edits the server accepted.
+      if (!hadEditAccessRef.current) {
+        const um = bridgeRef.current?.undoManager;
+        if (um) while (um.undoStack.length > 0) um.undo();
+      }
+    } else if (syncStatus === "synced") {
+      // Unlocked / edit grant restored — become editable again.
+      hadEditAccessRef.current = true;
+      setReadOnly(false);
+    }
+  }, [syncStatus]);
+
+  // Push the Properties display mode into the live view when it changes.
+  useEffect(() => {
+    const view = viewRef.current;
+    const compartment = propsModeRef.current;
+    if (!view || !compartment) return;
+    view.dispatch({
+      effects: compartment.reconfigure(propertiesModeFacet.of(propertiesMode)),
+    });
+  }, [propertiesMode]);
+
+  // Push the line-number gutter setting into the live view.
+  useEffect(() => {
+    const view = viewRef.current;
+    const compartment = lineNumbersRef.current;
+    if (!view || !compartment) return;
+    view.dispatch({ effects: compartment.reconfigure(lineNumberExtension(lineNumbers)) });
+  }, [lineNumbers]);
+
+  // Swap only the presentation compartment. The view, Y.Text/yCollab binding,
+  // awareness listeners, remote cursor layer and UndoManager all stay alive.
+  useEffect(() => {
+    const view = viewRef.current;
+    const compartment = viewModeRef.current;
+    const extensions = viewModeExtensionsRef.current;
+    if (!view || !compartment || !extensions) return;
+    if (viewMode === "reading") closeCompletion(view);
+    view.dispatch({ effects: compartment.reconfigure(extensions(viewMode)) });
+  }, [viewMode]);
+
+  // Dock animation/resizing changes line wrapping. Ask CodeMirror to measure
+  // once per coalesced host resize and restore the same top document block plus
+  // its pixel offset, so opening history does not make the reader lose place.
+  useEffect(() => {
+    const measureKey = {};
+    const onWorkspaceResize = () => {
+      const view = viewRef.current;
+      if (!view) return;
+      view.requestMeasure({
+        key: measureKey,
+        read(current) {
+          const scrollTop = current.scrollDOM.scrollTop;
+          const block = current.lineBlockAtHeight(scrollTop);
+          return { from: block.from, offset: scrollTop - block.top };
+        },
+        write(anchor, current) {
+          const block = current.lineBlockAt(Math.min(anchor.from, current.state.doc.length));
+          current.scrollDOM.scrollTop = Math.max(0, block.top + anchor.offset);
+        },
+      });
+    };
+    window.addEventListener(WORKSPACE_RESIZE_EVENT, onWorkspaceResize);
+    return () => window.removeEventListener(WORKSPACE_RESIZE_EVENT, onWorkspaceResize);
+  }, [notePath]);
+
+  // Push access read-only + Reading mode into the live CodeMirror view. A mode
+  // change never focuses the editor; only an actual access restoration does.
+  useEffect(() => {
+    const wasReadOnly = previousReadOnlyRef.current;
+    previousReadOnlyRef.current = readOnly;
+    const view = viewRef.current;
+    const editable = editableRef.current;
+    if (!view || !editable) return;
+    view.dispatch({
+      effects: editable.reconfigure(
+        editableExtensions(readOnly || viewMode === "reading"),
+      ),
+    });
+    if (wasReadOnly && !readOnly && viewMode !== "reading") view.focus();
+  }, [readOnly, viewMode]);
+
+  // Hover preview of a past version: a SECOND, throwaway CodeMirror over the
+  // host. It is deliberately not the live view reconfigured — that view is bound
+  // to the Y.Text, and pushing old text through it would be an edit, i.e. the
+  // exact "replace state backwards" mistake the revert path exists to avoid.
+  // This one is read-only, unbound, and destroyed the moment the pointer leaves.
+  const previewVersionId = versionPreview?.versionId ?? null;
+  const previewContent = versionPreview?.content ?? null;
+  useEffect(() => {
+    if (previewContent == null || !previewHostRef.current || notePath == null) return;
+    const state = createEditorState({
+      doc: previewContent,
+      collab: false,
+      getTitles: () => useStore.getState().titles,
+      onNavigate: () => {},
+      resolveAsset: makeResolveAsset(
+        useStore.getState().vault?.path ?? null,
+        notePath,
+      ),
+      extraExtensions: [EditorState.readOnly.of(true), EditorView.editable.of(false)],
+    });
+    const view = new EditorView({ state, parent: previewHostRef.current });
+    return () => view.destroy();
+  }, [previewVersionId, previewContent, notePath]);
+
+  // App only mounts this component with a note open; the guard is here so the
+  // branches below can treat `notePath` as a string.
+  if (notePath == null) {
+    return <EditorEmpty />;
+  }
+
+  // HTML pages render live in a sandboxed frame instead of the CRDT editor.
+  if (isHtml) {
+    return <HtmlView path={notePath} />;
+  }
+
+  // Images and PDFs stream from disk into a lightweight viewer.
+  if (preview) {
+    return <FilePreview path={notePath} />;
+  }
+
+  const myId = session?.user.id ?? null;
+
+  const sendPing = (peer: Peer) => {
+    const me = useStore.getState().session?.user;
+    awarenessRef.current?.setLocalStateField("ping", {
+      to: peer.id,
+      name: me?.name || me?.email || "Someone",
+      at: Date.now(),
+    });
+  };
+
+  const showToolbar = peers.length > 0;
+  // "from 2h ago" for the pill. The panel holds the metadata; the preview state
+  // carries only the id + text, so look the timestamp back up here.
+  const previewedAt =
+    previewVersionId != null
+      ? (noteVersions?.find((v) => v.id === previewVersionId)?.createdAt ?? null)
+      : null;
+
+  return (
+    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+      {(readOnly || showToolbar) && (
+        <div className="editor-topbar">
+          {readOnly && (
+            <div
+              className={`editor-lockbanner${itemLock ? " locked" : " viewonly"}`}
+              role="status"
+            >
+              <span className="editor-lockbanner-icon" aria-hidden="true">
+                <svg
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2.2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <rect x="4" y="11" width="16" height="10" rx="2" />
+                  <path d="M8 11V7a4 4 0 0 1 8 0v4" />
+                </svg>
+              </span>
+              <span className="editor-lockbanner-text">
+                <strong>{itemLock ? "This note is locked" : "View-only access"}</strong>
+                <span className="editor-lockbanner-sub">
+                  {itemLock
+                    ? "You can read it, but your changes won’t be saved or synced."
+                    : "You can read this note, but you can’t edit it."}
+                </span>
+              </span>
+            </div>
+          )}
+          {showToolbar && (
+            <div className="editor-toolbar">
+              <div
+                className="presence-controls"
+                ref={presenceRef}
+                onMouseEnter={openRoster}
+                onMouseLeave={scheduleCloseRoster}
+                onFocus={openRoster}
+                onBlur={(e) => {
+                  // Ignore focus moving between the stack and a Ping button
+                  // inside the controls; only close when it truly leaves.
+                  if (!e.currentTarget.contains(e.relatedTarget as Node)) {
+                    scheduleCloseRoster();
+                  }
+                }}
+              >
+                <PresenceBar
+                  peers={peers}
+                  open={rosterOpen}
+                  onOpen={openRoster}
+                  online={
+                    syncEnabled &&
+                    (syncStatus === "synced" ||
+                      syncStatus === "read-only" ||
+                      syncStatus === "connecting")
+                  }
+                />
+                {rosterOpen && (
+                  <PeerRoster
+                    peers={peers}
+                    selfId={myId}
+                    onPing={sendPing}
+                    notePath={notePath}
+                  />
+                )}
+              </div>
+              {pingFrom && (
+                <span className="ping-toast" role="status">
+                  🔔 {pingFrom} pinged you
+                </span>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+      {/* The host must stay mounted whether or not the view exists — the effect
+          above needs `hostRef.current` to attach CodeMirror to — so the skeleton
+          overlays it rather than replacing it. The wrapper is the positioning
+          context for the version-preview overlay, which covers the live text
+          without unmounting it. */}
+      <div className="editor-host-wrap">
+        <div className="editor-host" ref={hostRef} />
+        {previewContent != null && (
+          <div className="version-preview">
+            <div className="version-preview-host" ref={previewHostRef} />
+            <span className="version-preview-pill" role="status">
+              Viewing version from {agoFromIso(previewedAt, Date.now())} — read-only
+            </span>
+          </div>
+        )}
+      </div>
+      <StatusBar stats={stats} />
+      {!viewMounted && <EditorSkeleton immediate={switchingNoteRef.current} />}
+    </div>
+  );
+}

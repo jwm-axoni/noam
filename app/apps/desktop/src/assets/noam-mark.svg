@@ -1,0 +1,40 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 192 64">
+  <title>Noam Fan mark masks</title>
+  <!-- Back and front-page masks. The back mask cuts out the three-pixel blade
+       gap, so the surface below the mark remains visible through it. -->
+  <defs>
+    <mask
+      id="fan-back-cutout"
+      x="0"
+      y="0"
+      width="64"
+      height="64"
+      maskUnits="userSpaceOnUse"
+      mask-type="luminance"
+    >
+      <rect width="64" height="64" fill="white" />
+      <rect
+        x="11"
+        y="16"
+        width="30"
+        height="42"
+        rx="8"
+        fill="black"
+        stroke="black"
+        stroke-width="6"
+        paint-order="stroke"
+      />
+    </mask>
+  </defs>
+  <g mask="url(#fan-back-cutout)">
+    <rect
+      x="21"
+      y="7"
+      width="30"
+      height="42"
+      rx="8"
+      transform="rotate(12 36 28)"
+    />
+  </g>
+  <rect x="139" y="16" width="30" height="42" rx="8" />
+</svg>

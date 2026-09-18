@@ -1,0 +1,35 @@
+# Build output and deps (installed/built fresh inside the image)
+**/node_modules/
+**/dist/
+**/dist-ssr/
+
+# Rust build artifacts (multi-GB, never needed to build the server image)
+**/target/
+app/apps/desktop/gen/
+
+# Env files and secrets
+.env
+.env.*
+!.env.example
+*.key
+*.key.pub
+*.local
+
+# Logs
+*.log
+logs/
+
+# OS / editor cruft
+.DS_Store
+.idea/
+.vscode/
+
+# Local app data (derived index + CRDT store)
+.context/
+
+# VCS and docs (not needed inside the image)
+.git/
+.github/
+docs/
+*.md
+!app/**/*.md

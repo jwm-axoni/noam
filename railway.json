@@ -1,0 +1,19 @@
+{
+  "$schema": "https://railway.com/railway.schema.json",
+  "build": {
+    "builder": "DOCKERFILE",
+    "dockerfilePath": "app/apps/server/Dockerfile"
+  },
+  "deploy": {
+    "preDeployCommand": ["node dist/db/migrate.js"],
+    "healthcheckPath": "/health",
+    "healthcheckTimeout": 300,
+    "restartPolicyType": "ON_FAILURE",
+    "restartPolicyMaxRetries": 5,
+    "limitOverride": {
+      "containers": {
+        "memoryBytes": 1073741824
+      }
+    }
+  }
+}

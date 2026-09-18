@@ -1,0 +1,381 @@
+/* ============================================================
+   Noam — Design Tokens ("Atomize PLUS")
+   Light-first layered surfaces, 4pt grid, pill radii, soft diffuse
+   shadows, violet primary. The same scale is mirrored for dark.
+   All UI styling MUST consume these variables — no hardcoded colors.
+
+   Theming: light lives on :root. Dark is applied by [data-theme="dark"]
+   (set by src/lib/theme.ts, which resolves the light/dark/system toggle).
+   A prefers-color-scheme fallback covers the pre-hydration frame before
+   the toggle script paints data-theme.
+   ============================================================ */
+
+:root {
+  color-scheme: light;
+
+  /* Surfaces (light) */
+  --bg-app: #ececf0;            /* app background / canvas */
+  --bg-surface: #ffffff;        /* cards, editor sheet, dialogs */
+  --bg-subtle: #f7f7f9;         /* subtle wells, input fills */
+  --bg-hover: #ececf1;          /* hover fills */
+  --bg-active: #e4e4ea;         /* pressed / selected fills */
+
+  /* Graph void backdrop (light): a soft radial lift off the app background,
+     so the graph sits IN the theme instead of punching a dark hole in it.
+     The WebGL backdrop shader reads these same stops via getComputedStyle —
+     keep the three stops in sync with the gradient in graph.css. */
+  --graph-void-core: #f5f5f8;
+  --graph-void-mid: #eaeaef;
+  --graph-void-rim: #dbdbe2;
+  /* Graph vignette rim tint: subtle cool shade in light, near-black in dark. */
+  --graph-vignette: rgba(25, 28, 45, 0.10);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(22, 25, 37, 0.55);
+  --graph-state-border: rgba(255, 255, 255, 0.07);
+  --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --graph-state-code: #bcb2ff;
+  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
+  --graph-state-code-border: rgba(127, 115, 255, 0.32);
+  --graph-node: #8f84ff;
+  --graph-node-strong: #a49bff;
+  --graph-node-glow: rgba(143, 132, 255, 0.7);
+  --graph-node-dim: rgba(143, 132, 255, 0.55);
+  --graph-link-dim: rgba(143, 132, 255, 0.35);
+
+  /* Text */
+  --text-primary: #1a1a1e;
+  --text-secondary: #6b6b76;
+  --text-tertiary: #9a9aa5;
+  /* The faint tier: markdown syntax markers (#, **, `, >, -), the fold
+     chevrons and the line-number gutter. One step quieter than tertiary —
+     present enough to find, quiet enough that prose reads as prose. Every
+     theme block below must define it too: miss one and every marker in the
+     editor turns black for a frame (or forever, in that theme). */
+  --text-faint: #bfbfc8;
+  --text-on-accent: #ffffff;
+
+  /* Accent (Atomize violet — from the Figma kit) */
+  --accent: #7f73ff;
+  --accent-hover: #6a5cf5;
+  --accent-soft: #efedff;       /* soft fills, selection tints */
+  --accent-soft-hover: #e4e0ff;
+  --accent-gradient: linear-gradient(135deg, #9a8fff 0%, #7f73ff 100%);
+  /* Rare decorative-only partner (hero art), never for controls */
+  --decor-gradient: linear-gradient(135deg, #7f73ff 0%, #ff6a3d 120%);
+
+  /* Links (secondary accent) */
+  --link: #3b82f6;
+
+  /* Brand — Noam's Paper & Ink Fan mark and wordmark. */
+  --brand-ink: #2b2724;
+  --brand-pencil: #a09585;
+
+  /* Semantic */
+  --danger: #e5484d;
+  --danger-soft: #fdebec;
+  --success: #30a46c;
+  --success-soft: #e9f6ef;
+  --warning: #d98a00;
+  --warning-soft: #fff4e0;
+
+  /* Borders */
+  --border: rgba(20, 20, 40, 0.09);
+  --border-strong: rgba(20, 20, 40, 0.15);
+  --focus-ring: 0 0 0 3px rgba(127, 115, 255, 0.30);
+
+  /* Radii (generously rounded, pills for actions/chips) */
+  --radius-sm: 8px;
+  --radius-md: 10px;
+  --radius-lg: 14px;
+  --radius-xl: 18px;
+  --radius-pill: 999px;
+
+  /* Shadows (soft, diffuse, never harsh) */
+  --shadow-sm: 0 1px 2px rgba(20, 20, 40, 0.05), 0 1px 6px rgba(20, 20, 40, 0.04);
+  --shadow-md: 0 8px 24px rgba(20, 20, 40, 0.08);
+  --shadow-lg: 0 16px 40px rgba(20, 20, 40, 0.16);
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+
+  /* Spacing — 4pt grid */
+  --sp-1: 4px;
+  --sp-2: 8px;
+  --sp-3: 12px;
+  --sp-4: 16px;
+  --sp-5: 20px;
+  --sp-6: 24px;
+  --sp-8: 32px;
+  --sp-10: 40px;
+
+  /* The editor's prose column. One pair of tokens so the CM6 theme
+     (`lib/editor/theme.ts`) and the loading skeleton (`components/editor.css`)
+     can never drift — the skeleton must land exactly where the real text does.
+     88ch is the readable measure — past roughly ninety characters the eye
+     loses the start of the next line, which is where every typographic rule of
+     thumb (and Obsidian's own default) lands. `--editor-gutter` is the minimum
+     breathing room at each edge on narrow windows (see the `max(...)` the
+     consumers wrap these in). This is only the DEFAULT: Settings → Appearance →
+     "Content width" overrides `--editor-measure` inline on `.editor-column`
+     (60–120ch, or 100% for full width — `lib/editorMeasure.ts`), and every
+     consumer then follows for free — which only works because `--editor-pad-x`
+     is composed on `.editor-column` and not here. See the note on it below. */
+  --editor-measure: 88ch;
+  --editor-gutter: 64px;
+
+  /* The inline note title — the note's filename, rendered as an editable
+     heading above the body. Sized to match `t.heading1` in the editor's
+     HighlightStyle so a title and an H1 look like the same typography. */
+  --inline-title-size: var(--type-title-size);
+  --inline-title-weight: var(--type-weight-bold);
+  --inline-title-family: var(--font-display);
+  --inline-title-color: var(--text-primary);
+  --inline-title-placeholder: var(--text-tertiary);
+  /* Title → properties/body. */
+  --inline-title-gap: var(--sp-4);
+
+  /* Height to keep clear at the very top of the window for system window
+     controls. Zero everywhere the OS still draws its own title bar above the
+     webview; only macOS runs `titleBarStyle: "Overlay"`, where the webview owns
+     the full height and the traffic lights float over our top-left corner.
+     `[data-platform]` is stamped on <html> by `lib/platform.ts`. */
+  --titlebar-inset: 0px;
+
+  /* Workspace chrome. Docks reserve these tracks in normal grid flow. */
+  --workspace-activity-width: 40px;
+  --workspace-panel-header-height: 36px;
+  --workspace-status-height: 24px;
+  --workspace-toolbar-target: 32px;
+  --workspace-separator-size: 6px;
+  --workspace-dock-transition: 180ms;
+  --workspace-canvas: var(--bg-app);
+  --workspace-chrome-surface: var(--bg-subtle);
+  --workspace-panel-surface: var(--bg-subtle);
+  --workspace-document-surface: var(--bg-surface);
+  --workspace-divider: var(--border);
+
+  /* Typography. Components use the named roles below; the `--fs-*` aliases
+     remain for older surfaces while they move onto the same scale. */
+  --font-body: "Open Sauce Two", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --font-display: "Radio Canada Big", "Open Sauce Two", -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", ui-monospace, monospace;
+  --type-label-size: 11px;
+  --type-micro-size: 10px;
+  --type-tiny-size: 9px;
+  --type-caption-size: 12px;
+  --type-chrome-size: 13px;
+  --type-ui-size: 14px;
+  --type-document-size: 16px;
+  --type-section-size: 20px;
+  --type-title-size: 28px;
+  --type-heading-1-size: 28px;
+  --type-heading-2-size: 22px;
+  --type-heading-3-size: 18px;
+  --type-code-size: 14px;
+  --type-code-relative: 0.875em;
+  --type-caption-relative: 0.85em;
+  --icon-sm-size: 16px;
+  --icon-md-size: 18px;
+  --icon-lg-size: 20px;
+  --type-leading-tight: 1.25;
+  --type-leading-chrome: 1.4;
+  --type-leading-document: 1.65;
+  --type-weight-regular: 400;
+  --type-weight-medium: 500;
+  --type-weight-semibold: 600;
+  --type-weight-bold: 700;
+  --fs-xs: var(--type-label-size);
+  --fs-sm: var(--type-chrome-size);
+  --fs-md: var(--type-ui-size);
+  --fs-lg: var(--type-document-size);
+  --fs-xl: var(--type-section-size);
+  --fs-2xl: var(--type-title-size);
+  --lh-tight: var(--type-leading-tight);
+  --lh-body: var(--type-leading-document);
+
+  /* Motion */
+  --ease: cubic-bezier(0.2, 0, 0, 1);
+  /* Playful overshoot — reserved for tiny elements (avatars, chips) */
+  --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
+  --t-fast: 120ms;
+  --t-med: 200ms;
+
+  /* ---- Editor syntax surfaces (see lib/editor/theme.ts + ofm/) ---- */
+
+  /* The `==highlight==` wash. A literal yellow on purpose: a highlighter is
+     the one editor colour that must NOT follow the accent — it reads as ink
+     on the page, not as UI chrome. */
+  --highlight-bg: rgba(255, 208, 0, 0.28);
+  /* How much of a callout's own colour tints its body. A percentage, so the
+     same value works against either theme's surface. */
+  --callout-tint: 8%;
+  /* The fold-chevron column to the left of the prose (Stage 3b). */
+  --editor-fold-gutter: 24px;
+  /* Indentation guides. Reuse the border tiers so they follow the theme
+     rather than introducing a third grey. */
+  --indent-guide: var(--border);
+  --indent-guide-active: var(--border-strong);
+}
+
+/* The editor's horizontal inset. It lives on `.cm-line` (not `.cm-content`)
+   because CodeMirror's drawSelection() derives every selection rect from the
+   FIRST `.cm-line`'s padding and cannot see padding on the content element —
+   full-line rects used to start ~58px left of the text and overrun its right
+   edge. Percentages resolve at the USE site, and every consumer's containing
+   block is `.cm-content`'s content box, so the value is identical for lines,
+   block widgets (`cm-block-inset`) and the loading skeleton.
+
+   DECLARED ON `.editor-column`, AND IT HAS TO BE. `var()` inside a custom
+   property is substituted at computed-value time ON THE DECLARING ELEMENT, and
+   the result inherits as a finished token stream. Declared on `:root` — where
+   it lived until 2026-09-11 — this baked `:root`'s own 88ch into the stream, so
+   overriding `--editor-measure` further down the tree changed nothing at all
+   and the width control was inert. (The two-state "Readable line length" switch
+   this replaced never worked either, for exactly this reason: its
+   `.editor-column[data-measure="full"] { --editor-measure: 100% }` had no other
+   consumer to reach.) `--editor-measure` and `--editor-gutter` keep their
+   defaults on `:root`; only the element that composes them moves, to the one
+   element the inline override is set on (`lib/editorMeasure.ts`). Every
+   consumer — the CM6 theme's `.cm-line`, block widgets, blockquote, rule, copy
+   button and indent guides, plus the loading skeleton — lives inside an
+   `.editor-column`, including the version-history preview's own CodeMirror.
+   Anything mounted outside one would resolve `var(--editor-pad-x)` to nothing
+   and lose its inset, so keep it here. */
+.editor-column {
+  --editor-pad-x: max(
+    var(--editor-gutter),
+    calc((100% - var(--editor-measure)) / 2)
+  );
+}
+
+/* Traffic lights are ~12px tall centred around y≈19, so 28px clears them —
+   the same strip macOS would have reserved for itself before we took the
+   title bar over. Deliberately outside the theme blocks: it's a property of
+   the host OS, not of light/dark. */
+:root[data-platform="macos"] {
+  --titlebar-inset: 28px;
+}
+
+/* ---- Dark theme tokens (shared by explicit toggle + system fallback) ---- */
+[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg-app: #101014;
+  --bg-surface: #1d1d24;
+  --bg-subtle: #17171c;
+  --bg-hover: #26262e;
+  --bg-active: #2f2f38;
+
+  /* Graph void backdrop (dark): the deep-space gradient. Same three stops as
+     the WebGL backdrop shader defaults — the shader re-reads these live, so
+     flipping the theme repaints the canvas without a reload. */
+  --graph-void-core: #0f111b;
+  --graph-void-mid: #080910;
+  --graph-void-rim: #030409;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(22, 25, 37, 0.72);
+  --graph-state-border: rgba(255, 255, 255, 0.09);
+  --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+  --graph-state-code: #bcb2ff;
+  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
+  --graph-state-code-border: rgba(127, 115, 255, 0.32);
+  --graph-node: #8f84ff;
+  --graph-node-strong: #a49bff;
+  --graph-node-glow: rgba(143, 132, 255, 0.7);
+  --graph-node-dim: rgba(143, 132, 255, 0.55);
+  --graph-link-dim: rgba(143, 132, 255, 0.35);
+
+  --text-primary: #f2f2f5;
+  --text-secondary: #a6a6b2;
+  --text-tertiary: #6e6e78;
+  --text-faint: #55555f;
+  --brand-ink: #ebe4d6;
+  --brand-pencil: #8a8074;
+
+  --accent: #8f84ff;
+  --accent-hover: #a49bff;
+  --accent-soft: rgba(127, 115, 255, 0.18);
+  --accent-soft-hover: rgba(127, 115, 255, 0.26);
+  --accent-gradient: linear-gradient(135deg, #9a8fff 0%, #7f73ff 100%);
+  --decor-gradient: linear-gradient(135deg, #7f73ff 0%, #ff6a3d 120%);
+
+  --link: #6ea8ff;
+
+  --danger-soft: rgba(229, 72, 77, 0.18);
+  --success: #3cb883;
+  --success-soft: rgba(48, 164, 108, 0.18);
+  --warning: #f0b429;
+  --warning-soft: rgba(240, 180, 41, 0.16);
+
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --focus-ring: 0 0 0 3px rgba(143, 132, 255, 0.40);
+
+  --highlight-bg: rgba(255, 208, 0, 0.22);
+
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* Pre-hydration fallback: honour the OS until the toggle script paints
+   data-theme. Once data-theme is set (light or dark), this no longer matches. */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]):not([data-theme="dark"]) {
+    color-scheme: dark;
+
+    --bg-app: #101014;
+    --bg-surface: #1d1d24;
+    --bg-subtle: #17171c;
+    --bg-hover: #26262e;
+    --bg-active: #2f2f38;
+
+    --graph-void-core: #0f111b;
+    --graph-void-mid: #080910;
+    --graph-void-rim: #030409;
+    --graph-vignette: rgba(0, 0, 0, 0.6);
+    --graph-state-text: rgba(233, 236, 245, 0.72);
+    --graph-state-heading: #f4f6fb;
+    --graph-state-surface: rgba(22, 25, 37, 0.72);
+    --graph-state-border: rgba(255, 255, 255, 0.09);
+    --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
+    --graph-state-code: #bcb2ff;
+    --graph-state-code-bg: rgba(127, 115, 255, 0.18);
+    --graph-state-code-border: rgba(127, 115, 255, 0.32);
+    --graph-node: #8f84ff;
+    --graph-node-strong: #a49bff;
+    --graph-node-glow: rgba(143, 132, 255, 0.7);
+    --graph-node-dim: rgba(143, 132, 255, 0.55);
+    --graph-link-dim: rgba(143, 132, 255, 0.35);
+
+    --text-primary: #f2f2f5;
+    --text-secondary: #a6a6b2;
+    --text-tertiary: #6e6e78;
+    --text-faint: #55555f;
+    --brand-ink: #ebe4d6;
+    --brand-pencil: #8a8074;
+
+    --accent: #8f84ff;
+    --accent-hover: #a49bff;
+    --accent-soft: rgba(127, 115, 255, 0.18);
+    --accent-soft-hover: rgba(127, 115, 255, 0.26);
+    --link: #6ea8ff;
+
+    --danger-soft: rgba(229, 72, 77, 0.18);
+    --success: #3cb883;
+    --success-soft: rgba(48, 164, 108, 0.18);
+    --warning: #f0b429;
+    --warning-soft: rgba(240, 180, 41, 0.16);
+
+    --border: rgba(255, 255, 255, 0.09);
+    --border-strong: rgba(255, 255, 255, 0.18);
+    --focus-ring: 0 0 0 3px rgba(143, 132, 255, 0.40);
+
+    --highlight-bg: rgba(255, 208, 0, 0.22);
+
+    --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+    --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+    --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+  }
+}

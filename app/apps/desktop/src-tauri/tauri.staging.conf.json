@@ -1,0 +1,12 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Noam Staging",
+  "identifier": "com.noam.app.staging",
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["noam-staging"]
+      }
+    }
+  }
+}

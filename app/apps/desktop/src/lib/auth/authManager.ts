@@ -1,0 +1,172 @@
+// Auth orchestration (spec 04 §7). Ties the typed HTTP client (`api.ts`) to the
+// OS keychain (`ipc.ts`) and the persisted server URL. Owns the single shared
+// ApiClient instance so the sync layer reuses the same base URL + bearer token.
+//
+// Session tokens are captured from Better Auth's `set-auth-token` header and
+// stored ONLY in the OS keychain — never localStorage/plaintext.
+
+import {
+  ApiClient,
+  DEFAULT_SERVER_URL,
+  resolveServerUrl,
+  type AuthUser,
+  type SessionInfo,
+} from "../api";
+import * as ipc from "../ipc";
+
+/**
+ * Keychain key namespace. Bumped from `session:` when macOS builds started being
+ * signed with a Developer ID certificate (v0.1.10).
+ *
+ * A macOS keychain item's ACL is bound to the code identity of the app that
+ * CREATED it. Every build up to and including v0.1.8 was ad-hoc signed
+ * (`Signature=adhoc`, no team), so the items those builds wrote are owned by an
+ * identity the signed app cannot match. Reading one back does not fail quietly —
+ * macOS puts up "Noam wants to use your confidential information", asking for
+ * the user's *login keychain password*. That is indistinguishable from malware
+ * to most people, and denying it is worse than it looks: writing the session
+ * back needs the same ACL, so a denied user is asked to sign in on every launch,
+ * forever.
+ *
+ * Changing the prefix means the signed app looks up a key that does not exist —
+ * no item, no ACL check, no prompt. It signs in once and creates an item it
+ * genuinely owns, and is never prompted again. The orphaned `session:` items are
+ * left alone deliberately: deleting them needs the very permission we are
+ * avoiding asking for.
+ */
+const KEY_PREFIX = "session-v2:";
+
+export class AuthManager {
+  /** The single shared client; the sync layer imports this too. */
+  readonly api: ApiClient;
+  private serverUrl: string;
+
+  constructor(api?: ApiClient) {
+    this.api = api ?? new ApiClient();
+    this.serverUrl = this.api.getBaseUrl();
+  }
+
+  getServerUrl(): string {
+    return this.serverUrl;
+  }
+
+  /** Keychain namespace is per-server so multiple servers don't collide. */
+  private keychainKey(url = this.serverUrl): string {
+    return KEY_PREFIX + url;
+  }
+
+  /**
+   * Load the configured server URL + restore a persisted session on launch.
+   * Returns the live session, or null if signed out / token invalid / offline.
+   */
+  async init(): Promise<SessionInfo | null> {
+    try {
+      // `resolveServerUrl` — not the raw persisted value — so a dev build that
+      // was once pointed at the managed instance doesn't silently keep talking
+      // to production on every later launch.
+      const url = resolveServerUrl(await ipc.getServerUrl());
+      this.serverUrl = stripSlash(url);
+      this.api.setBaseUrl(this.serverUrl);
+    } catch {
+      /* config unavailable — fall back to the default URL */
+    }
+
+    let token: string | null = null;
+    try {
+      token = await ipc.keychainGet(this.keychainKey());
+    } catch {
+      token = null;
+    }
+    if (!token) return null;
+
+    this.api.setToken(token);
+    try {
+      const session = await this.api.getSession();
+      if (!session) {
+        // Token invalid/revoked — drop it.
+        await this.clearToken();
+        return null;
+      }
+      return session;
+    } catch {
+      // Network error (server down): keep the token for a later retry, but we
+      // are effectively signed out for now (the app stays usable offline).
+      return null;
+    }
+  }
+
+  /** Change + persist the server URL. Restores that server's token if present. */
+  async setServerUrl(url: string): Promise<SessionInfo | null> {
+    const clean = stripSlash(url) || DEFAULT_SERVER_URL;
+    this.serverUrl = clean;
+    this.api.setBaseUrl(clean);
+    await ipc.setServerUrl(clean);
+    this.api.setToken(null);
+    return this.init();
+  }
+
+  async signUp(input: { email: string; password: string; name: string }): Promise<AuthUser> {
+    const { user, token } = await this.api.signUp(input);
+    if (token) await ipc.keychainSet(this.keychainKey(), token);
+    return user;
+  }
+
+  async signIn(input: { email: string; password: string }): Promise<AuthUser> {
+    const { user, token } = await this.api.signIn(input);
+    if (token) await ipc.keychainSet(this.keychainKey(), token);
+    return user;
+  }
+
+  /**
+   * Google sign-in via the system browser + a loopback handoff (spec 04 §7).
+   * The Rust core owns the 127.0.0.1 listener; we bridge it to the server's
+   * social flow and the one-time-code exchange, then persist the token exactly
+   * like an email/password sign-in.
+   */
+  async signInWithGoogle(): Promise<AuthUser> {
+    const { port, state } = await ipc.googleOauthListen();
+    // Embed the loopback listener's single-use nonce in the callback URL. The
+    // server's `finish` only sets `code`/`error`, so this `state` survives the
+    // round-trip and the Rust listener rejects any callback that doesn't echo
+    // it — blocking a local process from injecting its own auth code.
+    const redirect = `http://127.0.0.1:${port}/cb?state=${encodeURIComponent(state)}`;
+    const callbackURL = `${this.serverUrl}/api/desktop-auth/finish?redirect=${encodeURIComponent(
+      redirect,
+    )}`;
+    const authorizeUrl = await this.api.socialSignInUrl("google", callbackURL);
+    await ipc.openExternal(authorizeUrl);
+    const code = await ipc.googleOauthAwait();
+    const { user, token } = await this.api.exchangeDesktopCode(code);
+    if (token) await ipc.keychainSet(this.keychainKey(), token);
+    return user;
+  }
+
+  async signOut(): Promise<void> {
+    try {
+      await this.api.signOut();
+    } finally {
+      await this.clearToken();
+    }
+  }
+
+  async currentSession(): Promise<SessionInfo | null> {
+    return this.api.getSession();
+  }
+
+  private async clearToken(): Promise<void> {
+    this.api.setToken(null);
+    try {
+      await ipc.keychainDelete(this.keychainKey());
+    } catch {
+      /* best-effort */
+    }
+  }
+}
+
+function stripSlash(url: string): string {
+  return url.trim().replace(/\/+$/, "");
+}
+
+/** Process-wide singleton; the shared ApiClient lives on `authManager.api`. */
+export const authManager = new AuthManager();
+export const api = authManager.api;

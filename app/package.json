@@ -1,0 +1,23 @@
+{
+  "name": "noam",
+  "private": true,
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "packageManager": "pnpm@10.34.5",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev:desktop": "pnpm --filter desktop tauri dev",
+    "dev:server": "turbo run dev --filter=server",
+    "build": "turbo run build",
+    "build:desktop": "pnpm --filter desktop tauri build",
+    "check:publication": "node ../scripts/check-publication.mjs --scope tree",
+    "test:publication": "node ../scripts/check-publication.test.mjs",
+    "test": "node ../scripts/check-publication.test.mjs && node ../scripts/check-publication.mjs --scope tree && turbo run test"
+  },
+  "devDependencies": {
+    "railway": "^3.11.0",
+    "turbo": "^2.10.5"
+  }
+}

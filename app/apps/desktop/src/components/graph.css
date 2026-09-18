@@ -1,0 +1,436 @@
+/* ============================================================
+   Graph View — full-pane link graph
+   ============================================================ */
+
+.graph-panel,
+.graph-view {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  background: var(--bg-app);
+  display: flex;
+  flex-direction: column;
+}
+
+.graph-view {
+  flex: 1;
+}
+
+.graph-panel {
+  container-type: inline-size;
+}
+
+.graph-canvas-wrap {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+  /* Theme-aware backdrop. The graph sits IN the app theme: a soft radial lift
+     off the app background in light mode, the deep-space void in dark mode
+     (stops from --graph-void-* tokens). The 2D canvas clears to transparent so
+     this shows through; the WebGL path paints the same stops itself via
+     WebGLGraphRenderer.setBackdropColors (it re-reads the tokens live, so the
+     GPU canvas follows the theme without a reload). */
+  background: radial-gradient(
+    ellipse 130% 130% at 50% 44%,
+    var(--graph-void-core) 0%,
+    var(--graph-void-mid) 52%,
+    var(--graph-void-rim) 100%
+  );
+}
+
+/* Vignette: sink the rim so the eye falls to the luminous core. The tint is
+   theme-aware (near-black in dark, a whisper of cool shade in light). */
+.graph-canvas-wrap::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 1;
+  background: radial-gradient(
+    ellipse 100% 100% at 50% 46%,
+    transparent 45%,
+    var(--graph-vignette) 100%
+  );
+}
+
+.graph-canvas {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  display: block;
+  z-index: 0;
+  cursor: grab;
+}
+
+.graph-canvas.is-dragging {
+  cursor: grabbing;
+}
+
+.graph-canvas.is-hovering-node {
+  cursor: pointer;
+}
+
+/* Host-local controls. No viewport/titlebar offsets: the workspace owns them.
+   The toolbar consumes a real row so compact docks never paint controls over
+   graph content, while full graphs place them directly below workspace tabs. */
+.graph-toolbar {
+  position: relative;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  min-height: 36px;
+  padding: 0 var(--sp-2) 0 var(--sp-3);
+  background: var(--bg-surface);
+  border-bottom: 1px solid var(--border);
+  pointer-events: auto;
+}
+.graph-panel.is-compact .graph-toolbar {
+  min-height: 32px;
+  padding-left: var(--sp-2);
+}
+
+.graph-counts {
+  font-size: var(--type-chrome-size);
+  line-height: var(--type-leading-chrome);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
+.graph-toolbar-spacer {
+  flex: 1;
+}
+
+.graph-icon-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border: none;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-document-size);
+  line-height: 1;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+
+.graph-icon-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.graph-icon-btn:active {
+  background: var(--bg-active);
+}
+
+.graph-icon-btn.is-active {
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.graph-icon-btn.is-spinning {
+  animation: graph-spin 0.7s linear;
+}
+
+@keyframes graph-spin {
+  from {
+    transform: rotate(0deg);
+  }
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---- Empty / loading / error states ---- */
+.graph-state {
+  position: absolute;
+  inset: 0;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--sp-8);
+  pointer-events: none;
+}
+
+.graph-state-card {
+  max-width: 460px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-3);
+  padding: var(--sp-10) var(--sp-10) var(--sp-8);
+  text-align: center;
+  color: var(--graph-state-text);
+  font-size: var(--type-ui-size);
+  line-height: var(--type-leading-document);
+  background: var(--graph-state-surface);
+  border: 1px solid var(--graph-state-border);
+  border-radius: var(--radius-xl);
+  box-shadow: var(--graph-state-shadow);
+  backdrop-filter: blur(14px);
+}
+
+.graph-state-card strong {
+  display: block;
+  margin-bottom: var(--sp-1);
+  color: var(--graph-state-heading);
+  font-family: var(--font-display);
+  font-size: var(--type-title-size);
+  font-weight: var(--type-weight-semibold);
+  letter-spacing: -0.01em;
+}
+
+.graph-state-card span {
+  max-width: 34ch;
+  line-height: 1.6;
+}
+
+.graph-state-card code {
+  font-family: var(--font-mono);
+  font-size: var(--type-code-relative);
+  color: var(--graph-state-code);
+  background: var(--graph-state-code-bg);
+  border: 1px solid var(--graph-state-code-border);
+  padding: 2px 7px;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+
+/* Empty state: a small constellation glyph anchors the copy — nodes + links,
+   a preview of what the graph becomes. */
+.graph-empty {
+  gap: var(--sp-4);
+}
+.graph-empty-glyph {
+  margin-bottom: var(--sp-3);
+  color: var(--graph-node);
+}
+.graph-empty-glyph .ge-node {
+  fill: var(--graph-node);
+}
+.graph-empty-glyph .ge-node-hub {
+  fill: var(--graph-node-strong);
+  filter: drop-shadow(0 0 10px var(--graph-node-glow));
+}
+.graph-empty-glyph .ge-node-dim {
+  fill: none;
+  stroke: var(--graph-node-dim);
+  stroke-width: 1.5;
+  stroke-dasharray: 3 3;
+}
+.graph-empty-glyph .ge-link {
+  stroke: var(--graph-link-dim);
+  stroke-width: 1.5;
+  stroke-linecap: round;
+}
+
+/* ============================================================
+   Settings panel — floating card, bottom-left, dismissible
+   ============================================================ */
+.graph-controls {
+  position: absolute;
+  left: var(--sp-4);
+  bottom: var(--sp-4);
+  z-index: 2;
+  width: min(300px, calc(100% - var(--sp-8)));
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: var(--shadow-md);
+  animation: fade-in var(--t-fast) var(--ease) both;
+  max-height: calc(100% - var(--sp-8));
+  overflow-y: auto;
+}
+
+.graph-control-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.graph-control-group-title {
+  font-family: var(--font-body);
+  font-size: var(--type-label-size);
+  font-weight: var(--type-weight-semibold);
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+
+.graph-control-row {
+  display: grid;
+  grid-template-columns: 96px 1fr auto;
+  align-items: center;
+  gap: var(--sp-2);
+}
+
+.graph-control-row label {
+  font-size: var(--type-chrome-size);
+  line-height: var(--type-leading-chrome);
+  color: var(--text-secondary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* The slider and its readout are `.range-input` / `.range-value` in App.css —
+   shared with Settings → Appearance rather than restyled twice. */
+
+.graph-control-row input[type="checkbox"] {
+  accent-color: var(--accent);
+  cursor: pointer;
+}
+
+.graph-control-search {
+  grid-column: 1 / -1;
+  width: 100%;
+  padding: var(--sp-1) var(--sp-2);
+  font-family: var(--font-body);
+  font-size: var(--type-chrome-size);
+  color: var(--text-primary);
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.graph-control-search::placeholder {
+  color: var(--text-tertiary);
+}
+.graph-control-search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+/* Segmented control (color mode). Spans the value + trailing columns and fills
+   the row so all four options fit without clipping. */
+.graph-seg {
+  grid-column: 2 / -1;
+  display: flex;
+  width: 100%;
+  min-width: 0;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-app);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+.graph-seg-btn {
+  flex: 1;
+  min-width: 0;
+  padding: 3px 4px;
+  border: none;
+  border-radius: calc(var(--radius-sm) - 1px);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-chrome-size);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.graph-seg-btn:hover {
+  color: var(--text-primary);
+}
+.graph-seg-btn.is-active {
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+/* Legend. */
+.graph-legend {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.graph-legend-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  font-size: var(--type-chrome-size);
+  color: var(--text-secondary);
+}
+.graph-legend-dot {
+  flex: none;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+}
+.graph-legend-count {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: var(--type-chrome-size);
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Footer / reset. */
+.graph-control-footer {
+  display: flex;
+  justify-content: flex-end;
+}
+.graph-control-reset {
+  padding: var(--sp-1) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-chrome-size);
+  cursor: pointer;
+  transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
+}
+.graph-control-reset:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+@container (max-width: 340px) {
+  .graph-controls {
+    left: var(--sp-2);
+    bottom: var(--sp-2);
+    width: calc(100% - var(--sp-4));
+    max-height: calc(100% - var(--sp-4));
+    padding: var(--sp-3);
+  }
+
+  .graph-control-row {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  .graph-control-row > label,
+  .graph-seg {
+    grid-column: 1 / -1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .graph-controls,
+  .graph-icon-btn { animation-duration: 0ms; transition-duration: 0ms; }
+}
+
+/* Worker path only (8k+ nodes): the layout is being arranged off-thread and we
+   deliberately do not paint it mid-flight, so hide the canvases until it cools.
+   `visibility` rather than `display: none` — the canvases must keep their real
+   size, or the renderer re-measures to 0×0 and has to rebuild on reveal. */
+.graph-canvas-wrap.is-settling .graph-canvas {
+  visibility: hidden;
+}
+/* Scoped to the settling card only. The base `.graph-state-card` is a COLUMN
+   (the error card stacks a heading over its message), so overriding it globally
+   would lay that out sideways. */
+.graph-state-card.graph-settling {
+  flex-direction: row;
+  gap: var(--sp-2);
+  padding: var(--sp-4) var(--sp-6);
+}

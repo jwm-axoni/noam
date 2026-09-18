@@ -1,0 +1,439 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Noam architecture</title>
+<style>
+:root {
+  /* Noam dark surfaces with the Paper & Ink Fan palette. */
+  --board: #101014;
+  --panel: rgba(29, 29, 36, .82);
+  --ink: #f2ecdf;
+  --ink-72: rgba(242, 236, 223, .74);
+  --ink-56: rgba(242, 236, 223, .58);
+  --ink-42: rgba(242, 236, 223, .44);
+  --hair: rgba(242, 236, 223, .16);
+  --chalk: rgba(235, 228, 214, .84);
+  --violet: #9a8fff;
+  --violet-deep: #7f73ff;
+  --pencil: #a09585;
+  --pencil-soft: rgba(160, 149, 133, .10);
+  --sans: ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+  --handfont: "Bradley Hand", "Segoe Print", "Comic Sans MS", cursive;
+}
+
+* { box-sizing: border-box; }
+html, body { width: 100%; min-height: 100%; }
+body {
+  margin: 0;
+  color: var(--ink);
+  background: var(--board);
+  font-family: var(--sans);
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+.board-noise {
+  position: fixed;
+  inset: 0;
+  z-index: 0;
+  pointer-events: none;
+  mix-blend-mode: screen;
+  background-size: 100px 100px;
+  opacity: .58;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='100' height='100'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.8' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncG type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncB type='gamma' exponent='9' amplitude='0.2' offset='0'/%3E%3CfeFuncA type='discrete' tableValues='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");
+}
+
+.canvas {
+  position: relative;
+  z-index: 1;
+  width: 1600px;
+  height: 900px;
+  padding: 44px 56px 38px;
+}
+
+.topline {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 48px;
+}
+
+.brand {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+}
+
+.brand img {
+  width: 92px;
+  height: auto;
+  display: block;
+}
+
+.eyebrow {
+  margin: 1px 0 8px;
+  color: var(--pencil);
+  font-size: 12px;
+  font-weight: 750;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+}
+
+h1 {
+  margin: 0;
+  font-size: 37px;
+  line-height: 1.08;
+  letter-spacing: -.035em;
+  font-weight: 680;
+}
+
+.thesis {
+  width: 455px;
+  margin: 5px 0 0;
+  color: var(--ink-72);
+  font-size: 17px;
+  line-height: 1.45;
+}
+
+.system-map {
+  position: relative;
+  width: 1488px;
+  height: 690px;
+  margin-top: 35px;
+}
+
+.lane-label {
+  position: absolute;
+  top: 0;
+  font-size: 11px;
+  line-height: 1;
+  font-weight: 760;
+  letter-spacing: .16em;
+  text-transform: uppercase;
+  color: var(--ink-56);
+}
+
+.lane-label.local { left: 20px; }
+.lane-label.noam { left: 527px; color: var(--violet); }
+.lane-label.team { left: 1162px; color: var(--pencil); }
+
+.rbox, .rcircle { position: absolute; }
+.rbox > svg.rlayer, .rcircle > svg.rlayer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+.rbox > *:not(svg.rlayer), .rcircle > *:not(svg.rlayer) { position: relative; z-index: 1; }
+svg.rlayer path, svg.pxlayer path {
+  fill: none;
+  stroke: var(--rb, var(--chalk));
+  stroke-width: var(--rw, 1.15);
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+svg.pxlayer {
+  position: absolute;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 3;
+}
+[data-px] { position: relative; }
+.doodle { fill: none; stroke: var(--chalk); stroke-width: 1.6; stroke-linecap: round; stroke-linejoin: round; }
+.doodle.violet { stroke: var(--violet); }
+.doodle.pencil { stroke: var(--pencil); }
+.doodle.quiet { stroke: rgba(242, 236, 223, .36); }
+
+.card {
+  padding: 23px 24px;
+  background: linear-gradient(145deg, var(--panel), rgba(16, 16, 20, .32));
+  --rb: var(--hair);
+  --rw: 1.25;
+}
+
+.card h2, .node h3 {
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -.02em;
+}
+
+.card h2 { font-size: 22px; line-height: 1.2; }
+.card p { margin: 7px 0 0; color: var(--ink-72); font-size: 14px; line-height: 1.42; }
+
+.tag {
+  display: inline-block;
+  margin-bottom: 12px;
+  color: var(--ink-56);
+  font-size: 10px;
+  font-weight: 800;
+  letter-spacing: .13em;
+  text-transform: uppercase;
+}
+.tag.violet { color: var(--violet); }
+.tag.pencil { color: var(--pencil); }
+
+.tools { left: 20px; top: 53px; width: 365px; height: 145px; }
+.files { left: 20px; top: 245px; width: 365px; height: 170px; --rb: var(--violet); --rw: 1.8; }
+.index { left: 20px; top: 477px; width: 365px; height: 132px; }
+
+.files h2 { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: 29px; }
+.rbox.files > .truth {
+  position: absolute;
+  right: 21px;
+  top: 20px;
+  color: var(--violet);
+  font-size: 10px;
+  font-weight: 850;
+  letter-spacing: .14em;
+  text-transform: uppercase;
+}
+
+.desktop {
+  left: 510px;
+  top: 39px;
+  width: 520px;
+  height: 566px;
+  padding: 22px 28px 24px;
+  background: radial-gradient(circle at 50% 48%, rgba(127, 115, 255, .12), transparent 58%);
+  --rb: rgba(154, 143, 255, .72);
+  --rw: 1.9;
+}
+
+.desktop-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 20px;
+  margin-bottom: 17px;
+}
+.desktop-head h2 { font-size: 24px; }
+.desktop-head span { color: var(--ink-56); font-size: 11px; letter-spacing: .11em; text-transform: uppercase; }
+
+.core-flow { position: relative; height: 460px; }
+.node {
+  position: absolute;
+  left: 45px;
+  width: 375px;
+  padding: 18px 20px;
+  text-align: center;
+  background: rgba(16, 16, 20, .72);
+  --rb: rgba(242, 236, 223, .27);
+}
+.node h3 { font-size: 19px; }
+.node p { margin: 5px 0 0; color: var(--ink-72); font-size: 13px; }
+.editor { top: 2px; height: 99px; }
+.yjs { top: 174px; height: 119px; --rb: var(--pencil); --rw: 1.7; }
+.bridge { top: 365px; height: 95px; --rb: var(--violet); --rw: 1.7; }
+.node .truth { color: var(--pencil); font-size: 9px; font-weight: 850; letter-spacing: .14em; text-transform: uppercase; }
+
+.server {
+  left: 1156px;
+  top: 53px;
+  width: 312px;
+  height: 300px;
+  --rb: rgba(160, 149, 133, .82);
+  --rw: 1.7;
+}
+.server .stack { margin-top: 17px; display: grid; gap: 9px; }
+.stack-item {
+  padding: 8px 11px;
+  background: var(--pencil-soft);
+  color: var(--ink-72);
+  font-size: 12px;
+  line-height: 1.25;
+}
+.stack-item strong { color: var(--ink); font-weight: 700; }
+
+.teammate {
+  left: 1156px;
+  top: 432px;
+  width: 312px;
+  height: 173px;
+  --rb: rgba(242, 236, 223, .31);
+}
+.teammate .presence {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-top: 16px;
+  color: var(--ink-72);
+  font-size: 12px;
+}
+.dot { width: 9px; height: 9px; border-radius: 50%; background: var(--pencil); box-shadow: 0 0 14px rgba(160, 149, 133, .62); }
+
+.flow-label {
+  position: absolute;
+  z-index: 5;
+  padding: 3px 7px;
+  color: var(--ink-56);
+  background: var(--board);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .08em;
+  text-transform: uppercase;
+}
+.disk-label { left: 402px; top: 424px; transform: rotate(29deg); }
+.sync-label { left: 1035px; top: 262px; }
+.peer-label { left: 1262px; top: 387px; }
+
+.footer-rule {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 30px;
+  height: 1px;
+  background: rgba(242, 236, 223, .1);
+}
+
+.footer-copy {
+  position: absolute;
+  left: 20px;
+  right: 20px;
+  bottom: 0;
+  display: flex;
+  justify-content: space-between;
+  color: var(--ink-56);
+  font-size: 11px;
+}
+.footer-copy strong { color: var(--ink-72); font-weight: 680; }
+
+@media (prefers-reduced-motion: reduce) {
+  * { animation: none !important; transition: none !important; }
+}
+</style>
+<script src="noam-architecture-engine.js"></script>
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  Chalk.registerRenderer('core-flow', function (svg, el) {
+    var editor = el.querySelector('.editor');
+    var yjs = el.querySelector('.yjs');
+    var bridge = el.querySelector('.bridge');
+    var seed = Chalk.stableSeed(el);
+    Chalk.connect(svg, Chalk.rectIn(editor, el), Chalk.rectIn(yjs, el), seed + '|editor-yjs-a', -13, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(yjs, el), Chalk.rectIn(editor, el), seed + '|editor-yjs-b', -13, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(yjs, el), Chalk.rectIn(bridge, el), seed + '|yjs-bridge-a', 13, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(bridge, el), Chalk.rectIn(yjs, el), seed + '|yjs-bridge-b', 13, 'doodle violet sketch');
+  });
+
+  Chalk.registerRenderer('architecture', function (svg, el) {
+    var tools = el.querySelector('.tools');
+    var files = el.querySelector('.files');
+    var index = el.querySelector('.index');
+    var bridge = el.querySelector('.bridge');
+    var yjs = el.querySelector('.yjs');
+    var server = el.querySelector('.server');
+    var teammate = el.querySelector('.teammate');
+    var seed = Chalk.stableSeed(el);
+    Chalk.connect(svg, Chalk.rectIn(tools, el), Chalk.rectIn(files, el), seed + '|tools-files', 6, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(files, el), Chalk.rectIn(index, el), seed + '|files-index', -4, 'doodle quiet sketch');
+    Chalk.connect(svg, Chalk.rectIn(files, el), Chalk.rectIn(bridge, el), seed + '|files-bridge-a', -20, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(bridge, el), Chalk.rectIn(files, el), seed + '|files-bridge-b', -20, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(yjs, el), Chalk.rectIn(server, el), seed + '|yjs-server-a', -22, 'doodle violet sketch');
+    Chalk.connect(svg, Chalk.rectIn(server, el), Chalk.rectIn(yjs, el), seed + '|yjs-server-b', -22, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(server, el), Chalk.rectIn(teammate, el), seed + '|server-peer-a', 10, 'doodle pencil sketch');
+    Chalk.connect(svg, Chalk.rectIn(teammate, el), Chalk.rectIn(server, el), seed + '|server-peer-b', 10, 'doodle violet sketch');
+  });
+
+  Chalk.registerPx(document.querySelector('.core-flow'));
+  Chalk.registerPx(document.querySelector('.system-map'));
+  Chalk.redraw();
+});
+</script>
+</head>
+<body>
+<div class="board-noise" aria-hidden="true"></div>
+<main class="canvas">
+  <header class="topline">
+    <div class="brand">
+      <img src="../../app/apps/desktop/src/assets/noam-app-icon.svg" alt="Noam Paper and Ink Fan mark">
+      <div>
+        <p class="eyebrow">Architecture</p>
+        <h1>One note. One merge path.</h1>
+      </div>
+    </div>
+    <p class="thesis">Markdown remains the durable file on disk. Yjs becomes the live editing state. Noam keeps both convergent while every human and AI change follows the same permissioned path.</p>
+  </header>
+
+  <section class="system-map" data-px="architecture" aria-label="Local tools edit Markdown files on disk. Noam's Rust bridge converts file changes into Yjs operations and writes Yjs changes back to disk. CodeMirror edits the same Yjs document. The server checks permissions before relaying binary Yjs updates to a teammate, whose Noam app writes its own Markdown file.">
+    <span class="lane-label local">Your machine</span>
+    <span class="lane-label noam">Noam desktop</span>
+    <span class="lane-label team">Server and teammate</span>
+
+    <article class="rbox card tools">
+      <span class="tag pencil">Direct file access</span>
+      <h2>Local AI · Git · any editor</h2>
+      <p>No plugin or export step. They work with ordinary files.</p>
+    </article>
+
+    <article class="rbox card files">
+      <span class="truth">Durable truth</span>
+      <span class="tag violet">Portable by default</span>
+      <h2>.md files</h2>
+      <p>Your vault stays readable, diffable, and useful without Noam or its server.</p>
+    </article>
+
+    <article class="rbox card index">
+      <span class="tag">Derived locally</span>
+      <h2>SQLite index</h2>
+      <p>Search, backlinks, and tags can be rebuilt from the files.</p>
+    </article>
+
+    <section class="rbox desktop">
+      <div class="desktop-head">
+        <h2>Noam desktop</h2>
+        <span>Tauri + Rust + React</span>
+      </div>
+      <div class="core-flow" data-px="core-flow">
+        <article class="rbox node editor">
+          <h3>CodeMirror editor</h3>
+          <p>A person edits raw Markdown, not a hidden rich-text model.</p>
+        </article>
+        <article class="rbox node yjs">
+          <span class="truth">Live truth</span>
+          <h3>Yjs · Y.Text</h3>
+          <p>Concurrent human and AI changes merge as operations.</p>
+        </article>
+        <article class="rbox node bridge">
+          <h3>Rust watcher + two-way bridge</h3>
+          <p>Diffs inward. Atomic writes outward. Echoes suppressed.</p>
+        </article>
+      </div>
+    </section>
+
+    <article class="rbox card server">
+      <span class="tag pencil">Permissioned relay</span>
+      <h2>Sync and app server</h2>
+      <div class="stack">
+        <div class="stack-item"><strong>Hocuspocus</strong> · WebSocket sync</div>
+        <div class="stack-item"><strong>ACL gate</strong> · folder/file view, edit, or deny</div>
+        <div class="stack-item"><strong>MCP</strong> · cloud AI uses the same ACL</div>
+        <div class="stack-item"><strong>Postgres</strong> · binary Yjs updates and metadata</div>
+      </div>
+    </article>
+
+    <article class="rbox card teammate">
+      <span class="tag">Another Noam client</span>
+      <h2>Teammate</h2>
+      <p>Yjs updates become their local <code>.md</code> file. Awareness carries live cursors.</p>
+      <div class="presence"><span class="dot"></span> editing the same note now</div>
+    </article>
+
+    <span class="flow-label disk-label">file changes ↔ CRDT ops</span>
+    <span class="flow-label sync-label">WebSocket + short-lived JWT</span>
+    <span class="flow-label peer-label">binary updates</span>
+    <div class="footer-rule" aria-hidden="true"></div>
+    <div class="footer-copy">
+      <span><strong>Local-first:</strong> the vault works offline.</span>
+      <span><strong>Collaborative:</strong> every open copy converges.</span>
+      <span><strong>AI-native:</strong> agents use files or permissioned MCP.</span>
+    </div>
+  </section>
+</main>
+</body>
+</html>

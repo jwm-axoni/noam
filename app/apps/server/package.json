@@ -1,0 +1,53 @@
+{
+  "name": "server",
+  "private": true,
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "type": "module",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "tsx watch src/index.ts",
+    "build": "tsc -p tsconfig.json",
+    "start": "node dist/index.js",
+    "db:up": "docker compose up -d",
+    "db:down": "docker compose down",
+    "db:wait": "node scripts/wait-for-db.mjs",
+    "migrate": "tsx src/db/migrate.ts",
+    "migrate:deploy": "node dist/db/migrate.js",
+    "seed:demo": "tsx scripts/demo/seed-demo-org.ts",
+    "seed:demo:reset": "tsx scripts/demo/seed-demo-org.ts --reset",
+    "demo:activity": "tsx scripts/demo/simulate-activity.ts",
+    "demo": "tsx scripts/demo/seed-demo-org.ts --reset && tsx scripts/demo/simulate-activity.ts",
+    "set-password": "tsx src/scripts/set-password.ts",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@hocuspocus/extension-redis": "^4.4.0",
+    "@hocuspocus/server": "^4.4.0",
+    "@hono/node-server": "^2.0.10",
+    "@node-rs/argon2": "^2.0.2",
+    "@polar-sh/sdk": "^0.48.1",
+    "better-auth": "^1.6.23",
+    "dotenv": "^17.2.3",
+    "hono": "^4.12.30",
+    "ioredis": "^5.11.1",
+    "jose": "^6.2.3",
+    "kysely": "^0.29.3",
+    "nodemailer": "^7.0.13",
+    "pg": "^8.22.0",
+    "standardwebhooks": "^1.0.0",
+    "ws": "^8.21.0",
+    "yjs": "catalog:"
+  },
+  "devDependencies": {
+    "@hocuspocus/provider": "catalog:",
+    "@types/node": "^24.10.0",
+    "@types/nodemailer": "^8.0.1",
+    "@types/pg": "^8.15.6",
+    "@types/ws": "^8.18.1",
+    "tsx": "^4.20.6",
+    "typescript": "catalog:",
+    "vitest": "catalog:",
+    "y-protocols": "catalog:"
+  }
+}

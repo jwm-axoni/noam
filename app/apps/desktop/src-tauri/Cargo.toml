@@ -1,0 +1,74 @@
+[package]
+name = "desktop"
+version = "0.1.0"
+description = "Noam — local-first markdown app"
+authors = ["Noam"]
+edition = "2021"
+
+[lib]
+# The `_lib` suffix keeps the lib name unique so it doesn't conflict with the
+# bin name (an issue on Windows — see rust-lang/cargo#8519).
+name = "desktop_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "2", features = [] }
+
+[dependencies]
+tauri = { version = "2", features = ["protocol-asset"] }
+tauri-plugin-opener = "2"
+tauri-plugin-dialog = "2"
+tauri-plugin-fs = "2"
+tauri-plugin-process = "2"
+tauri-plugin-clipboard-manager = "2"
+# Frontend logging: `console.log` in a WKWebView never reaches the `tauri dev`
+# terminal, so the UI reports through this plugin's Stdout target instead.
+tauri-plugin-log = "2"
+log = "0.4"
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+serde_yaml = "0.9"
+rusqlite = { version = "0.32", features = ["bundled"] }
+notify = "8"
+uuid = { version = "1", features = ["v4"] }
+sha2 = "0.10"
+walkdir = "2"
+regex = "1"
+once_cell = "1"
+# Move a deleted local-workspace folder to the OS trash (recoverable) rather than
+# hard-deleting it — the on-disk `.md` files are the only copy of a local vault.
+trash = "5"
+# OS keychain for session tokens (spec 04 §7). apple-native uses the macOS
+# Security framework; swap/add features for other platforms later.
+keyring = { version = "3", features = ["apple-native"] }
+tauri-plugin-deep-link = "2.4.9"
+
+# The updater is desktop-only — gate it so mobile targets don't try to build it.
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-updater = "2"
+
+[target.'cfg(any(target_os = "macos", windows, target_os = "linux"))'.dependencies]
+tauri-plugin-single-instance = { version = "2.4.3", features = ["deep-link"] }
+
+[dev-dependencies]
+tempfile = "3"
+
+# There is no workspace Cargo.toml above this crate, so this is the only place a
+# release profile can go. Cargo's defaults build the shipped binary with no LTO
+# and 16 codegen units; `tauri build` (both release workflows) picks this up
+# automatically, no CI change.
+#
+# Deliberately NO `panic = "abort"`. This crate does `.lock().unwrap()`
+# throughout and the process holds CRDT updates the bridge has not egested yet,
+# so turning a poisoned-mutex panic into a process kill costs the user data;
+# `rusqlite` also relies on `catch_unwind` in the callback paths (inert today,
+# a landmine for whoever registers a custom collation or busy handler), and
+# `cargo test --release` would stop supporting `#[should_panic]`. The win from
+# abort is binary size, not startup latency.
+[profile.release]
+opt-level = 3
+# "thin" rather than "fat": most of the win at a fraction of the link time, and
+# a release links four targets. Measure before going fat.
+lto = "thin"
+codegen-units = 1
+strip = true
