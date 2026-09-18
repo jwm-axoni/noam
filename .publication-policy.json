@@ -1,5 +1,12 @@
 {
   "version": 1,
+  "cleanRootCommit": "ce6778f6fa6531a9f61ce91c203e75dcf66e3bab",
+  "allowedPushRepositories": [
+    "github.com/jwm-axoni/noam"
+  ],
+  "validationRemotes": [
+    "no-mistakes"
+  ],
   "ignoredDirectories": [
     ".git",
     ".lavish",

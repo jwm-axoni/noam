@@ -57,11 +57,27 @@ Run the relevant suites before opening a PR:
   `concurrent`, `rewrite`, `roundtrip`) gate correctness of the whole product.
 - Desktop Rust: `cargo test` in `src-tauri/`.
 
+## Repository publication guards
+
+Run `pnpm run setup:guards` from `app/` after cloning. `pnpm install` also runs
+this setup automatically. The local hooks then check the exact staged snapshot
+before every commit and the complete outgoing commit range before every push.
+
+The push guard only permits this repository's approved GitHub destination and
+requires every outgoing branch to descend from the clean public root commit.
+It also runs both the publication policy and gitleaks over history, so adding a
+private value and deleting it in a later commit still blocks the push.
+
+Git hooks can be skipped locally, so GitHub repeats the full checks in the
+required `publication-readiness` workflow. Do not merge while that check is
+missing or failing.
+
 ## Pull request checklist
 
 - [ ] Discussed non-trivial changes in an issue first.
 - [ ] Tests pass locally; new behavior has tests.
 - [ ] No secrets, credentials, or `.env` files committed.
+- [ ] The `publication-readiness` check passes.
 - [ ] Followed the existing code style of the files you touched.
 
 ## Reporting security issues

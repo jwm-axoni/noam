@@ -12,5 +12,6 @@
 - [ ] Tests pass locally (`pnpm test` / `cargo test` as relevant).
 - [ ] I added or updated tests for my change.
 - [ ] No secrets, credentials, or `.env` files are committed.
+- [ ] The required `publication-readiness` check passes.
 - [ ] I did not break the core invariants (doc_id identity, binary-only
       wire, `.context/` untouched, load-bearing debounce timings).

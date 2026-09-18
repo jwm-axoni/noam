@@ -1,0 +1,8 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(git rev-parse --show-toplevel)
+exec node "$repository_root/scripts/check-push.mjs" \
+  --root "$repository_root" \
+  --remote-name "$1" \
+  --remote-url "$2"

@@ -8,12 +8,16 @@ import { fileURLToPath } from "node:url";
 
 const scriptPath = fileURLToPath(import.meta.url);
 const defaultRoot = resolve(dirname(scriptPath), "..");
+const maximumTextBytes = 8 * 1024 * 1024;
 
 function parseArgs(argv) {
   const options = {
     root: defaultRoot,
     policy: resolve(defaultRoot, ".publication-policy.json"),
     scope: "tree",
+    source: "working",
+    range: null,
+    failOnReview: false,
     format: "text",
     output: null,
   };
@@ -23,27 +27,36 @@ function parseArgs(argv) {
     if (value === "--root") options.root = resolve(argv[++index]);
     else if (value === "--policy") options.policy = resolve(argv[++index]);
     else if (value === "--scope") options.scope = argv[++index];
+    else if (value === "--source") options.source = argv[++index];
+    else if (value === "--range") options.range = argv[++index];
+    else if (value === "--fail-on-review") options.failOnReview = true;
     else if (value === "--format") options.format = argv[++index];
     else if (value === "--output") options.output = resolve(argv[++index]);
     else if (value === "--help" || value === "-h") {
-      console.log("Usage: node scripts/check-publication.mjs [--root PATH] [--policy PATH] [--scope tree|history|remote|all] [--format text|json] [--output PATH]");
+      console.log("Usage: node scripts/check-publication.mjs [--root PATH] [--policy PATH] [--scope tree|history|range|remote|all] [--source working|index] [--range REVISION_RANGE] [--fail-on-review] [--format text|json] [--output PATH]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${value}`);
     }
   }
 
-  if (!["tree", "history", "remote", "all"].includes(options.scope)) {
+  if (!["tree", "history", "range", "remote", "all"].includes(options.scope)) {
     throw new Error(`Unsupported scope: ${options.scope}`);
+  }
+  if (!["working", "index"].includes(options.source)) {
+    throw new Error(`Unsupported source: ${options.source}`);
   }
   if (!["text", "json"].includes(options.format)) {
     throw new Error(`Unsupported format: ${options.format}`);
   }
+  if (options.scope === "range" && !options.range) {
+    throw new Error("--scope range requires --range REVISION_RANGE");
+  }
   return options;
 }
 
-function run(command, args, cwd) {
-  return spawnSync(command, args, { cwd, encoding: "utf8" });
+function run(command, args, cwd, encoding = "utf8") {
+  return spawnSync(command, args, { cwd, encoding, maxBuffer: 64 * 1024 * 1024 });
 }
 
 function sha256(value) {
@@ -54,7 +67,7 @@ function normalizePath(root, path) {
   return relative(root, path).split("\\").join("/");
 }
 
-function listFiles(root, ignoredDirectories) {
+function listWorkingFiles(root, ignoredDirectories) {
   const gitFiles = run("git", ["ls-files", "--cached", "--others", "--exclude-standard", "-z"], root);
   if (gitFiles.status === 0) {
     return gitFiles.stdout
@@ -76,6 +89,12 @@ function listFiles(root, ignoredDirectories) {
   };
   walk(root);
   return files;
+}
+
+function listIndexFiles(root) {
+  const result = run("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], root);
+  if (result.status !== 0) throw new Error(result.stderr.trim() || "Unable to read the Git index");
+  return result.stdout.split("\0").filter(Boolean);
 }
 
 function looksBinary(buffer) {
@@ -105,14 +124,14 @@ function redact(line, match) {
 }
 
 function createScanner(policy) {
-  const blockedHashes = new Map(policy.blockedTokenHashes.map((rule) => [rule.sha256, rule]));
-  const legalHashes = new Map(policy.legalOnlyTokenHashes.map((rule) => [rule.sha256, rule]));
-  const regexRules = policy.regexRules.map((rule) => ({
+  const blockedHashes = new Map((policy.blockedTokenHashes ?? []).map((rule) => [rule.sha256, rule]));
+  const legalHashes = new Map((policy.legalOnlyTokenHashes ?? []).map((rule) => [rule.sha256, rule]));
+  const regexRules = (policy.regexRules ?? []).map((rule) => ({
     ...rule,
     regex: new RegExp(rule.pattern, rule.flags),
   }));
 
-  return (text, path, scope = "tree") => {
+  return (text, path, scope = "tree", policyPath = path) => {
     const findings = [];
     const lines = text.split(/\r?\n/);
 
@@ -121,40 +140,22 @@ function createScanner(policy) {
         const digest = sha256(candidate);
         const blocked = blockedHashes.get(digest);
         if (blocked) {
-          findings.push({
-            severity: "blocker",
-            rule: blocked.id,
-            path,
-            line: index + 1,
-            evidence: "[redacted token]",
-          });
+          findings.push({ severity: "blocker", rule: blocked.id, path, line: index + 1, evidence: "[redacted token]" });
         }
 
         const legal = legalHashes.get(digest);
-        if (legal && !legal.allowedPaths.includes(path)) {
-          findings.push({
-            severity: "blocker",
-            rule: legal.id,
-            path,
-            line: index + 1,
-            evidence: "[third-party term outside legal notice]",
-          });
+        if (legal && !legal.allowedPaths.includes(policyPath)) {
+          findings.push({ severity: "blocker", rule: legal.id, path, line: index + 1, evidence: "[third-party term outside legal notice]" });
         }
       }
 
       for (const rule of regexRules) {
         if (rule.scopes && !rule.scopes.includes(scope)) continue;
-        if (rule.allowedPaths?.includes(path)) continue;
+        if (rule.allowedPaths?.includes(policyPath)) continue;
         rule.regex.lastIndex = 0;
         const match = rule.regex.exec(line);
         if (!match) continue;
-        findings.push({
-          severity: rule.severity,
-          rule: rule.id,
-          path,
-          line: index + 1,
-          evidence: redact(line, match[0]),
-        });
+        findings.push({ severity: rule.severity, rule: rule.id, path, line: index + 1, evidence: redact(line, match[0]) });
       }
     });
 
@@ -172,20 +173,43 @@ function uniqueFindings(findings) {
   });
 }
 
-function scanTree(root, policy, scanText) {
+function scanBuffer(buffer, path, scope, scanText, policyPath = path) {
+  if (looksBinary(buffer)) return { findings: [], scanned: false };
+  if (buffer.length > maximumTextBytes) {
+    return {
+      findings: [{ severity: "review", rule: "large-text-file", path, line: 1, evidence: `${buffer.length} bytes` }],
+      scanned: false,
+    };
+  }
+  return { findings: scanText(buffer.toString("utf8"), path, scope, policyPath), scanned: true };
+}
+
+function scanWorkingTree(root, policy, scanText) {
   const findings = [];
   let scannedFiles = 0;
 
-  for (const file of listFiles(root, policy.ignoredDirectories)) {
+  for (const file of listWorkingFiles(root, policy.ignoredDirectories ?? [])) {
     const path = normalizePath(root, file);
-    const buffer = readFileSync(file);
-    if (looksBinary(buffer)) continue;
-    if (buffer.length > 8 * 1024 * 1024) {
-      findings.push({ severity: "review", rule: "large-text-file", path, line: 1, evidence: `${buffer.length} bytes` });
+    const scanned = scanBuffer(readFileSync(file), path, "tree", scanText);
+    findings.push(...scanned.findings);
+    if (scanned.scanned) scannedFiles += 1;
+  }
+  return { findings, scannedFiles };
+}
+
+function scanIndex(root, scanText) {
+  const findings = [];
+  let scannedFiles = 0;
+
+  for (const path of listIndexFiles(root)) {
+    const result = run("git", ["show", `:${path}`], root, null);
+    if (result.status !== 0) {
+      findings.push({ severity: "review", rule: "index-entry-unavailable", path, line: 1, evidence: "Unable to read staged content" });
       continue;
     }
-    scannedFiles += 1;
-    findings.push(...scanText(buffer.toString("utf8"), path, "tree"));
+    const scanned = scanBuffer(result.stdout, path, "index", scanText);
+    findings.push(...scanned.findings);
+    if (scanned.scanned) scannedFiles += 1;
   }
   return { findings, scannedFiles };
 }
@@ -200,6 +224,47 @@ function scanHistory(root, scanText) {
   }
   const lines = result.stdout.trim() ? result.stdout.trim().split("\n") : [];
   return { findings: scanText(result.stdout, "git-history", "history"), scannedCommits: lines.length };
+}
+
+function scanRange(root, revisionRange, scanText) {
+  const revisions = run("git", ["rev-list", "--reverse", revisionRange], root);
+  if (revisions.status !== 0) {
+    return {
+      findings: [{ severity: "review", rule: "range-unavailable", path: "git-history", line: 1, evidence: "Unable to resolve revision range" }],
+      scannedFiles: 0,
+      scannedCommits: 0,
+    };
+  }
+
+  const commits = revisions.stdout.split("\n").filter(Boolean);
+  const findings = [];
+  let scannedFiles = 0;
+
+  for (const commit of commits) {
+    const metadata = run("git", ["show", "-s", "--format=%H%x09%an%x09%ae%x09%s", commit], root);
+    if (metadata.status === 0) findings.push(...scanText(metadata.stdout, `git-history/${commit}`, "history"));
+    else findings.push({ severity: "review", rule: "commit-metadata-unavailable", path: `git-history/${commit}`, line: 1, evidence: "Unable to read commit metadata" });
+
+    const pathsResult = run("git", ["diff-tree", "--root", "-m", "--no-commit-id", "--name-only", "--diff-filter=ACMR", "-r", "-z", commit], root);
+    if (pathsResult.status !== 0) {
+      findings.push({ severity: "review", rule: "commit-tree-unavailable", path: `git-history/${commit}`, line: 1, evidence: "Unable to read commit tree" });
+      continue;
+    }
+
+    for (const path of new Set(pathsResult.stdout.split("\0").filter(Boolean))) {
+      const blob = run("git", ["show", `${commit}:${path}`], root, null);
+      const findingPath = `git-history/${commit}/${path}`;
+      if (blob.status !== 0) {
+        findings.push({ severity: "review", rule: "commit-blob-unavailable", path: findingPath, line: 1, evidence: "Unable to read historical content" });
+        continue;
+      }
+      const scanned = scanBuffer(blob.stdout, findingPath, "range", scanText, path);
+      findings.push(...scanned.findings);
+      if (scanned.scanned) scannedFiles += 1;
+    }
+  }
+
+  return { findings, scannedFiles, scannedCommits: commits.length };
 }
 
 function scanRemote(root, scanText) {
@@ -231,19 +296,25 @@ let scannedCommits = 0;
 let scannedRemotes = 0;
 
 if (options.scope === "tree" || options.scope === "all") {
-  const tree = scanTree(options.root, policy, scanText);
+  const tree = options.source === "index" ? scanIndex(options.root, scanText) : scanWorkingTree(options.root, policy, scanText);
   findings.push(...tree.findings);
-  scannedFiles = tree.scannedFiles;
+  scannedFiles += tree.scannedFiles;
 }
 if (options.scope === "history" || options.scope === "all") {
   const history = scanHistory(options.root, scanText);
   findings.push(...history.findings);
-  scannedCommits = history.scannedCommits;
+  scannedCommits += history.scannedCommits;
+}
+if (options.scope === "range") {
+  const range = scanRange(options.root, options.range, scanText);
+  findings.push(...range.findings);
+  scannedFiles += range.scannedFiles;
+  scannedCommits += range.scannedCommits;
 }
 if (options.scope === "remote" || options.scope === "all") {
   const remote = scanRemote(options.root, scanText);
   findings.push(...remote.findings);
-  scannedRemotes = remote.scannedRemotes;
+  scannedRemotes += remote.scannedRemotes;
 }
 
 const finalFindings = uniqueFindings(findings);
@@ -251,6 +322,8 @@ const report = {
   version: 1,
   root: options.root,
   scope: options.scope,
+  source: options.source,
+  range: options.range,
   scannedFiles,
   scannedCommits,
   scannedRemotes,
@@ -263,4 +336,4 @@ if (options.output) writeFileSync(options.output, `${JSON.stringify(report, null
 if (options.format === "json") console.log(JSON.stringify(report, null, 2));
 else printText(report);
 
-process.exitCode = report.blockers > 0 ? 1 : 0;
+process.exitCode = report.blockers > 0 || (options.failOnReview && report.reviewItems > 0) ? 1 : 0;
