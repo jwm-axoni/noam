@@ -13,6 +13,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 ![AI: edits the same notes](https://img.shields.io/badge/AI-edits_the_same_notes-2b2724)
 ![Hosting: your server or ours](https://img.shields.io/badge/hosting-your_server_or_ours-7f73ff)
 ![Privacy: no telemetry, offline by default](https://img.shields.io/badge/privacy-no_telemetry-2b2724)
+![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-7f73ff)
 
 [Product overview](docs/Noam.md) · [Architecture specs](docs/specs/00-architecture-overview.md) · [Build status](docs/STATUS.md) · [Contributing](CONTRIBUTING.md)
 
@@ -207,15 +208,17 @@ docs/               Product notes, architecture specs, status, and operations
 
 ## Contributing
 
-Issue reports are welcome. Because Noam has not selected a public license or
-contribution agreement, arrange code contributions with the maintainers before
-opening a pull request. Start with the [architecture overview](docs/specs/00-architecture-overview.md),
-then read [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are welcome under the Apache License 2.0. Fork the repository and
+open a pull request against the `development` branch; changes are integrated and
+tested there before they are promoted to `main`. Start with the
+[architecture overview](docs/specs/00-architecture-overview.md), then read
+[CONTRIBUTING.md](CONTRIBUTING.md).
 
 Security reports belong in [SECURITY.md](SECURITY.md), not a public issue.
 
 ## License
 
-No public license has been selected for Noam's original work. See
-[LICENSING.md](LICENSING.md) for the current status and [NOTICE](NOTICE) for
-third-party attribution.
+Noam is licensed under the [Apache License 2.0](LICENSE). It is based on
+[Baalda](https://github.com/naveedharri/baalda) by Naveed Harri, also under
+Apache-2.0; see [NOTICE](NOTICE) for the required attribution. "Baalda" and
+"Context" are trademarks of that project, used here only to describe origin.

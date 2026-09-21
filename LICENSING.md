@@ -1,13 +1,9 @@
 # Licensing status
 
-No public license has been selected for Noam's original work. The presence of
-source code in this repository does not grant permission to use, copy, modify,
-or distribute that original work.
+Noam is licensed under the Apache License 2.0. See `LICENSE` for the full text.
 
-Some portions derive from third-party software and remain subject to their
-original licenses. See `NOTICE` and `LICENSES/` for the notices and license
-texts that apply to those portions.
-
-This is an interim statement while the project owner evaluates a permanent
-license. Do not infer a license for Noam from dependency metadata or retained
-third-party notices.
+Portions of this software derive from the
+[Baalda](https://github.com/naveedharri/baalda) project and remain under
+Apache-2.0; see `NOTICE` and `LICENSES/` for the notices and license texts that
+apply to those portions. "Baalda" and "Context" are trademarks of that project,
+used here only to describe origin.

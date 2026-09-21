@@ -21,7 +21,9 @@
       "id": "third-party-project-name",
       "sha256": "c5a95c14cb30e8ad8dc98a185b39bcb2a803c9a4f4a7b9a3d6201ec41b30928c",
       "allowedPaths": [
-        "NOTICE"
+        "NOTICE",
+        "README.md",
+        "LICENSING.md"
       ]
     }
   ],
