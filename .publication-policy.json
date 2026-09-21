@@ -13,7 +13,9 @@
     {
       "id": "third-party-project-name",
       "sha256": "c5a95c14cb30e8ad8dc98a185b39bcb2a803c9a4f4a7b9a3d6201ec41b30928c",
-      "allowedPaths": ["NOTICE"]
+      "allowedPaths": [
+        "NOTICE"
+      ]
     }
   ],
   "blockedTokenHashes": [],
@@ -23,28 +25,36 @@
       "severity": "blocker",
       "pattern": "[A-Z0-9._%+-]+@(gmail|icloud|outlook|hotmail|yahoo|protonmail|proton)\\.[A-Z]{2,}",
       "flags": "i",
-      "allowedPaths": ["scripts/check-publication.test.mjs"]
+      "allowedPaths": [
+        "scripts/check-publication.test.mjs"
+      ]
     },
     {
       "id": "macos-home-path",
       "severity": "blocker",
       "pattern": "/Users/(?!x(?:/|$)|user(?:/|$)|<me>(?:/|$))[^/\\s]+",
       "flags": "i",
-      "allowedPaths": [".publication-policy.json"]
+      "allowedPaths": [
+        ".publication-policy.json"
+      ]
     },
     {
       "id": "linux-home-path",
       "severity": "blocker",
       "pattern": "/home/(?!me(?:/|$)|user(?:/|$)|<me>(?:/|$))[^/\\s]+",
       "flags": "i",
-      "allowedPaths": [".publication-policy.json"]
+      "allowedPaths": [
+        ".publication-policy.json"
+      ]
     },
     {
       "id": "windows-home-path",
       "severity": "blocker",
       "pattern": "[A-Z]:\\\\Users\\\\(?!x(?:\\\\|$)|user(?:\\\\|$)|<me>(?:\\\\|$))[^\\\\\\s]+",
       "flags": "i",
-      "allowedPaths": [".publication-policy.json"]
+      "allowedPaths": [
+        ".publication-policy.json"
+      ]
     },
     {
       "id": "private-key",
@@ -75,7 +85,29 @@
       "severity": "review",
       "pattern": "\\S+",
       "flags": "",
-      "scopes": ["remote"]
+      "scopes": [
+        "remote"
+      ]
+    },
+    {
+      "id": "anthropic-key",
+      "severity": "blocker",
+      "pattern": "sk-ant-[A-Za-z0-9_-]{20,}",
+      "flags": "",
+      "allowedPaths": [
+        ".publication-policy.json",
+        "scripts/check-publication.test.mjs"
+      ]
+    },
+    {
+      "id": "tauri-updater-secret-key",
+      "severity": "blocker",
+      "pattern": "untrusted comment:.*(minisign|tauri).*secret key",
+      "flags": "i",
+      "allowedPaths": [
+        ".publication-policy.json",
+        "scripts/check-publication.test.mjs"
+      ]
     }
   ]
 }
