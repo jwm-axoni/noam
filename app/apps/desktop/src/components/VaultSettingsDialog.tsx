@@ -2490,6 +2490,9 @@ function UpdatesTab() {
   // When a policy locks the toggle, show the effective managed value, not the
   // user's stored preference.
   const autoCheckShown = managed.locked ? managed.enabled : autoCheck;
+  // A locked+disabled policy means the updater plugin was never registered, so
+  // a manual check/install would hit a missing plugin — suppress those actions.
+  const updaterSuppressed = managed.locked && !managed.enabled;
 
   const busy = update.phase === "checking" ||
     update.phase === "downloading" ||
@@ -2557,8 +2560,9 @@ function UpdatesTab() {
       <div className="update-actions">
         <button
           className="primary sm update-check-btn"
-          disabled={busy}
+          disabled={busy || updaterSuppressed}
           aria-busy={busy}
+          title={updaterSuppressed ? "Updates are managed by your organization" : undefined}
           onClick={() => void checkForUpdate()}
         >
           {busy && <span className="btn-spinner" aria-hidden="true" />}

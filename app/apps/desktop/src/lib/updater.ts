@@ -195,7 +195,11 @@ export async function backgroundUpdateCheck(): Promise<void> {
   // read (a dev build without the command), fall through to the historic check.
   try {
     const prefs = await getUpdatePreferences();
-    if (!prefs.autoCheckEnabled || (prefs.managed.locked && !prefs.managed.enabled)) {
+    // A locked policy wins in BOTH directions: locked+enabled forces checks on
+    // even if the user opted out; locked+disabled forces them off. The stored
+    // user preference is consulted only when the policy is unlocked.
+    const autoCheck = prefs.managed.locked ? prefs.managed.enabled : prefs.autoCheckEnabled;
+    if (!autoCheck) {
       return;
     }
   } catch {
