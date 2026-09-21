@@ -1,5 +1,5 @@
 import { afterAll, beforeEach, describe, expect, it } from "vitest";
-import { filterReadableBlobs } from "../src/permissions/http-gates.js";
+import { canReadAttachment, filterReadableBlobs } from "../src/permissions/http-gates.js";
 import { pool } from "../src/db/pool.js";
 import { resetDb } from "./helpers/db.js";
 import {
@@ -67,6 +67,29 @@ describe("filterReadableBlobs (attachment visibility)", () => {
     await seedIndex(vault, memberNote, "no attachments here");
     const out = await filterReadableBlobs(member, vault, [blob("attachments/orphan.png")]);
     expect(out).toEqual([]);
+  });
+
+  it("grants presentation assets only through a readable note's current index", async () => {
+    const icon = "attachments/noam/icons/shared.png";
+    const cover = "attachments/noam/covers/shared.webp";
+    const retainedSource = "attachments/noam/covers/shared-source.jpg";
+    const privateCover = "attachments/noam/covers/private.webp";
+    await seedIndex(vault, memberNote, [
+      "---", "noam_presentation_version: 1",
+      `noam_icon: \"asset:${icon}\"`, `noam_cover: ${cover}`,
+      `noam_cover_source: ${retainedSource}`, "---", "Shared note",
+    ].join("\n"));
+    await seedIndex(vault, ownerNote, `---\nnoam_cover: ${privateCover}\n---\nPrivate note`);
+    const candidates = [icon, cover, retainedSource, privateCover].map(blob);
+    expect((await filterReadableBlobs(member, vault, candidates)).map((entry) => entry.rel_path)).toEqual([icon, cover, retainedSource]);
+    expect(await canReadAttachment(member, vault, icon)).toBe(true);
+    expect(await canReadAttachment(member, vault, cover)).toBe(true);
+    expect(await canReadAttachment(member, vault, retainedSource)).toBe(true);
+    expect(await canReadAttachment(member, vault, privateCover)).toBe(false);
+
+    await pool.query("UPDATE note_index SET content = 'Presentation removed' WHERE doc_id = $1", [memberNote]);
+    expect(await filterReadableBlobs(member, vault, candidates)).toEqual([]);
+    expect(await canReadAttachment(member, vault, cover)).toBe(false);
   });
 
   it("hides a blob referenced only by a note the member cannot read", async () => {

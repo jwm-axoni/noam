@@ -12,9 +12,11 @@ import "@fontsource/radio-canada-big/700.css";
 import "@fontsource/jetbrains-mono/400.css";
 import "@fontsource/jetbrains-mono/600.css";
 import "./styles/tokens.css";
+import "./styles/theme-presets.css";
 
 import App from "./App";
 import { initPlatform } from "./lib/platform";
+import { initHeadingColor } from "./lib/prefs";
 import { initTheme } from "./lib/theme";
 import { mirrorConsoleToTerminal } from "./lib/devConsole";
 import * as perf from "./lib/perf";
@@ -23,6 +25,9 @@ import * as perf from "./lib/perf";
 perf.mark("script");
 // Paint the persisted (or system) theme before the first render.
 initTheme();
+// Heading ink is another first-paint preference: a saved Plain choice should
+// not flash the themed palette while React mounts.
+initHeadingColor();
 // Same deal for the platform flag: it sets the macOS traffic-light inset, and
 // applying it after the first paint would visibly shove the sidebar down.
 initPlatform();

@@ -46,4 +46,22 @@ describe("graph settings migration", () => {
     expect(loadSettings("panel:graph").minDegree).toBe(2);
     expect(DEFAULT_SETTINGS.colorMode).toBe("type");
   });
+
+  it("restores a saved local scope and clamps its depth", () => {
+    storage({
+      [`${SETTINGS_STORAGE_KEY}:panel:graph`]: JSON.stringify({
+        scope: "local",
+        localDepth: 2,
+      }),
+    });
+    expect(loadSettings("panel:graph")).toMatchObject({ scope: "local", localDepth: 2 });
+
+    storage({
+      [`${SETTINGS_STORAGE_KEY}:panel:graph`]: JSON.stringify({
+        scope: "unknown",
+        localDepth: 99,
+      }),
+    });
+    expect(loadSettings("panel:graph")).toMatchObject({ scope: "global", localDepth: 1 });
+  });
 });

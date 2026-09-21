@@ -178,6 +178,8 @@ export function formattingKeymap() {
     { key: "Mod-b", run: toggleInline("**"), preventDefault: true },
     { key: "Mod-i", run: toggleInline("*"), preventDefault: true },
     { key: "Mod-Shift-x", run: toggleInline("~~"), preventDefault: true },
+    // Keep the long-standing portable `==text==` shortcut. The colored-mark
+    // toolbar uses the richer transaction planner for the fixed HTML palette.
     { key: "Mod-Shift-h", run: toggleInline("=="), preventDefault: true },
     { key: "Mod-k", run: insertLink, preventDefault: true },
     // Shift-Enter is a distinct key name from Enter, so lang-markdown's

@@ -96,4 +96,19 @@ describe("livePreview block widgets (real EditorView)", () => {
     expect(view.dom.querySelector(".cm-md-html")).toBeNull();
     view.destroy();
   });
+
+  it("updates a media label when only the Markdown alt text changes", () => {
+    const source = "![Old label](song.mp3)";
+    const view = mount(source);
+    expect(view.dom.querySelector("audio")?.getAttribute("aria-label")).toBe("Old label");
+    view.dispatch({
+      changes: {
+        from: source.indexOf("Old label"),
+        to: source.indexOf("Old label") + 9,
+        insert: "New label",
+      },
+    });
+    expect(view.dom.querySelector("audio")?.getAttribute("aria-label")).toBe("New label");
+    view.destroy();
+  });
 });

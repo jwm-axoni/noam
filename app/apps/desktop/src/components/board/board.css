@@ -1,0 +1,133 @@
+/* The board view. Tokens only (`styles/tokens.css`), so light, dark and every
+   accent preset come for free. Lanes scroll HORIZONTALLY with a minimum width
+   instead of squeezing: a 220px window shows one lane and a hint of the next,
+   which is readable, where four 55px lanes are not. Nothing here touches the
+   window frame — the view fills whatever box the panel gives it. */
+
+.board-view {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+  gap: var(--sp-2);
+}
+
+.board-readonly {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--warning-soft);
+  color: var(--text-secondary);
+  font-size: var(--fs-sm);
+}
+
+.board-lanes {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-3);
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding-bottom: var(--sp-2);
+}
+
+.board-lane {
+  flex: 0 0 auto;
+  display: flex;
+  flex-direction: column;
+  min-width: 220px;
+  width: 272px;
+  max-width: 100%;
+  max-height: 100%;
+  min-height: 0;
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-2);
+}
+
+.board-lane.archive {
+  background: transparent;
+  border-style: dashed;
+}
+
+.board-lane-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+}
+
+.board-lane-title {
+  margin: 0;
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+  overflow-wrap: anywhere;
+}
+
+.board-lane-count {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.board-lane-cards {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  overflow-y: auto;
+  min-height: 0;
+}
+
+.board-card-row {
+  margin: 0;
+}
+
+.board-card {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-2);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+  cursor: default;
+}
+
+.board-card:hover {
+  background: var(--bg-hover);
+}
+
+.board-card:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.board-card.done .board-card-text {
+  color: var(--text-tertiary);
+  text-decoration: line-through;
+}
+
+.board-card-check {
+  margin: 0;
+  align-self: start;
+}
+
+.board-card-text {
+  overflow-wrap: anywhere;
+}
+
+.board-card-body {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}

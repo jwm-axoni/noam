@@ -40,18 +40,18 @@ describe("note-doubling: seed vs. pull", () => {
     });
     expect(bridge.serialize()).toBe("");
 
-    // Race the pull into the seed's `await readFile` — exactly the window the
-    // bug lived in. Wrapping the harness's readFile is the only timing control
-    // needed: the remote update is applied while the seed is suspended on it.
+    // Race the pull into the seed's atomic file snapshot read, exactly the
+    // window the bug lived in. The remote update lands while the seed is
+    // suspended on that read.
     const racing: BridgeIO = {
       ...io,
-      readFile: async (p) => {
-        const text = await fs.readFile(p);
+      readFileSnapshot: async (p) => {
+        const snapshot = await fs.readFileSnapshot(p);
         // The server's canonical state arrives, as a remote update would.
         const remote = new Y.Doc();
         remote.getText("content").insert(0, SERVER_TEXT);
         Y.applyUpdate(bridge.doc, Y.encodeStateAsUpdate(remote), ORIGIN_REMOTE);
-        return text;
+        return snapshot;
       },
     };
     // eslint-disable-next-line @typescript-eslint/no-explicit-any

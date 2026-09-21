@@ -102,13 +102,13 @@ export function SidebarHeader() {
 
 /**
  * Shorten an absolute vault path for display by dropping the home directory —
- * `/Documents/Noam Vaults/notes` rather than the full `$HOME` prefix,
+ * `/Documents/Noam Vaults/notes` rather than the full home-directory prefix,
  * which is the same on every line and tells you nothing. The full path stays
  * in the tooltip.
  *
  * The home prefix is inferred from the path itself rather than asked of the
- * OS — this is a synchronous label, and long home-relative paths are
- * recognizable on every supported platform.
+ * OS — this is a synchronous label, and `/Users/<me>/…` (macOS), `/home/<me>/…`
+ * (Linux) and `C:\Users\<me>\…` (Windows) are all recognizable on sight.
  */
 function displayPath(path: string): string {
   const home = /^(\/Users\/[^/]+|\/home\/[^/]+|[A-Za-z]:[\\/]Users[\\/][^\\/]+)/.exec(path);

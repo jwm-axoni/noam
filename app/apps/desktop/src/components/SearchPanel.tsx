@@ -1,10 +1,15 @@
 import { useEffect, useRef, useState } from "react";
+import { resolveVaultAsset } from "../lib/fileTypes/assetResolver";
 import type { SearchResult } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import { noteLabel } from "../lib/notePath";
 import type { PanelBodyProps } from "../layout/panelRegistry";
 import { useStore } from "../store";
 import { consumeSearchInputFocus } from "./searchFocus";
+import { itemColorValue } from "../lib/appearance";
+import { parsePresentationIcon } from "../lib/presentation/types";
+import { PresentationIcon } from "./PresentationIcon";
+import "./presentation.css";
 
 /** Persistent dock body: query, results, cursor, and scroll survive tab swaps. */
 export function SearchPanel({ vaultKey, vaultEpoch, visible, onOpenNote }: PanelBodyProps) {
@@ -16,6 +21,7 @@ export function SearchPanel({ vaultKey, vaultEpoch, visible, onOpenNote }: Panel
   const generation = useRef(0);
   const inputRef = useRef<HTMLInputElement | null>(null);
   const listRef = useRef<HTMLUListElement | null>(null);
+  const vaultPath = useStore((state) => state.vault?.path ?? null);
 
   useEffect(() => {
     // Only steal focus on an explicit user-initiated open (activity bar, ⌘F),
@@ -96,21 +102,34 @@ export function SearchPanel({ vaultKey, vaultEpoch, visible, onOpenNote }: Panel
       </div>
       <ul className="search-results" ref={listRef} aria-busy={pending || undefined}>
         {query.trim() && !pending && results.length === 0 && <li className="search-none">No matches</li>}
-        {results.map((result, index) => (
-          <li key={result.id}>
-            <button
-              type="button"
-              data-idx={index}
-              className={`search-result${index === active ? " active" : ""}`}
-              onMouseEnter={() => setActive(index)}
-              onClick={() => open(result.path)}
-              title={result.path}
-            >
-              <span className="search-title">{noteLabel(result.path)}</span>
-              <span className="search-snippet" dangerouslySetInnerHTML={{ __html: result.snippet }} />
-            </button>
-          </li>
-        ))}
+        {results.map((result, index) => {
+          const icon = parsePresentationIcon(result.icon);
+          const assetUrl = icon?.kind === "asset" && vaultPath
+            ? resolveVaultAsset({ vaultPath, documentPath: "", source: icon.path, sourceKind: "path" })
+            : null;
+          return (
+            <li key={result.id}>
+              <button
+                type="button"
+                data-idx={index}
+                className={`search-result${index === active ? " active" : ""}`}
+                onMouseEnter={() => setActive(index)}
+                onClick={() => open(result.path)}
+                title={result.path}
+              >
+                <span className="search-title">
+                  {icon && (
+                    <span style={icon.kind === "lucide" ? { color: itemColorValue(result.iconColor ?? undefined) } : undefined}>
+                      <PresentationIcon icon={icon} assetUrl={assetUrl} className="search-note-icon" />
+                    </span>
+                  )}
+                  {noteLabel(result.path)}
+                </span>
+                <span className="search-snippet" dangerouslySetInnerHTML={{ __html: result.snippet }} />
+              </button>
+            </li>
+          );
+        })}
       </ul>
     </div>
   );

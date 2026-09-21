@@ -113,6 +113,14 @@ function renderInline(escaped: string, opts: RenderOptions): string {
   s = s.replace(/(^|\W)_([^_\n]+)_(?=\W|$)/g, "$1<em>$2</em>");
   s = s.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
 
+  // Only this exact, fixed-palette mark syntax becomes HTML. Other tags and
+  // attributes stay escaped; code spans and links are already protected.
+  s = s.replace(
+    /&#60;mark data-noam-color=&#34;(yellow|green|blue|pink|purple)&#34;&#62;([^\n]*?)&#60;\/mark&#62;/g,
+    '<mark data-noam-color="$1">$2</mark>',
+  );
+  s = s.replace(/==([^=\n]+)==/g, '<mark data-noam-color="yellow">$1</mark>');
+
   return s.replace(/\u0000(\d+)\u0000/g, (_m, i: string) => stash[Number(i)] ?? "");
 }
 

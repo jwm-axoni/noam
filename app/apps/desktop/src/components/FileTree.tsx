@@ -18,6 +18,7 @@ import {
   type TreeApi,
 } from "react-arborist";
 import { getCurrentWebview } from "@tauri-apps/api/webview";
+import { resolveVaultAsset } from "../lib/fileTypes/assetResolver";
 import type { TreeNode } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
 import { ITEM_COLORS, itemColorValue } from "../lib/appearance";
@@ -25,15 +26,19 @@ import {
   applyOrder,
   childrenAt,
   clearOrderAt,
-  computeReorder,
-  moveSubtreeOrder,
-  narrowPins,
   removeFromOrder,
   renameInOrder,
 } from "../lib/ordering";
 import { pinModified, sortTree, TREE_SORTS } from "../lib/tree/sort";
 import { isBlankTreeTarget } from "../lib/tree/blankTarget";
-import { LOCK_TITLES, lockScopesByPath, type LockScope } from "../lib/locks";
+import {
+  effectiveLockForPath,
+  LOCK_TITLES,
+  lockScopesByPath,
+  restrictionRowsForUser,
+  resourceLockedForUser,
+  type LockScope,
+} from "../lib/locks";
 import { previewKind } from "../lib/preview";
 import { ancestorPaths } from "../lib/accessTree";
 import { nodeAt } from "../lib/tree/lazyTree";
@@ -45,6 +50,16 @@ import {
   type TreeSyncIndex,
 } from "../lib/syncRollup";
 import { embedDroppedFile } from "../lib/attachments";
+import {
+  savePresentationAsset,
+  type PresentationAssetTarget,
+} from "../lib/presentation/assets";
+import {
+  planConditionalPresentationUndo,
+  planPresentationPatch,
+  presentationSnapshot,
+  type PresentationSnapshot,
+} from "../lib/presentation/edit";
 import { toast } from "../lib/toast";
 import { deletePaths } from "../lib/vault/mutatePaths";
 import { AsyncButton } from "./AsyncButton";
@@ -52,6 +67,7 @@ import { Spinner } from "./Spinner";
 import {
   activeNoteEditable,
   insertIntoActiveNote,
+  setActiveNotePresentation,
 } from "../lib/editor/activeView";
 import { useStore } from "../store";
 import { shareResourceId } from "../lib/api";
@@ -77,7 +93,33 @@ import "./file-tree.css";
 const ShareDialog = lazy(() =>
   import("./ShareDialog").then((m) => ({ default: m.ShareDialog })),
 );
+const IconPicker = lazy(() =>
+  import("./IconPicker").then((module) => ({ default: module.IconPicker })),
+);
 import { placeMenu, type Placement } from "../lib/menuPlacement";
+import {
+  fileTreeErrorReason,
+  hasRenameCollision,
+  moveFailureMessage,
+  moveFileTreeItem,
+  moveFileTreeItems,
+  renameCollisionMessage,
+} from "./fileTreeFailures";
+import { PresentationIcon } from "./PresentationIcon";
+import { ViewportMenu } from "./ViewportMenu";
+import {
+  FOLDER_PRESENTATION_KIND,
+  DEFAULT_COVER_HEIGHT,
+  ICON_COLOR_IDS,
+  PRESENTATION_KEYS,
+  PRESENTATION_VERSION,
+  folderPathForCompanion,
+  folderPresentationPath,
+  iconFromIndexed,
+  serializePresentationIcon,
+  type IndexedPresentation,
+  type PresentationIcon as PresentationIconValue,
+} from "../lib/presentation/types";
 
 /** Tooltip on every root-create affordance while the vault's root is frozen. */
 const ROOT_FROZEN_HINT =
@@ -103,13 +145,30 @@ function useDimensions(): [React.RefObject<HTMLDivElement | null>, Dimensions] {
   return [ref, dim];
 }
 
+function treeRowFocusTarget(root: HTMLElement | null, path: string): HTMLElement | null {
+  if (!root) return null;
+  const row = Array.from(root.querySelectorAll<HTMLElement>(".tree-row[data-tree-path]"))
+    .find((candidate) => candidate.dataset.treePath === path);
+  return row?.querySelector<HTMLButtonElement>(".tree-more") ?? row ?? null;
+}
+
 function parentDir(path: string): string {
   const idx = path.lastIndexOf("/");
   return idx === -1 ? "" : path.slice(0, idx);
 }
 
 function basename(path: string): string {
-  return path.split("/").pop() ?? path;
+  return path.split(/[\\/]/).pop() ?? path;
+}
+
+function withoutFolderCompanions(nodes: TreeNode[], hidden: ReadonlySet<string>): TreeNode[] {
+  return nodes
+    .filter((node) => !hidden.has(node.path))
+    .map((node) =>
+      node.children
+        ? { ...node, children: withoutFolderCompanions(node.children, hidden) }
+        : node,
+    );
 }
 
 /** Files the in-app editor can render: markdown notes and HTML pages. */
@@ -155,6 +214,22 @@ interface MenuState {
   /** Bottom edge to use if the menu has to open upward — see `placeMenu`. */
   flipY?: number;
   node: NodeApi<TreeNode> | null;
+}
+
+interface IconTarget {
+  path: string;
+  isDir: boolean;
+  x: number;
+  y: number;
+  vaultEpoch: number;
+}
+
+interface FolderPresentationUndo {
+  path: string;
+  docId: string;
+  previous: PresentationSnapshot;
+  expected: PresentationSnapshot;
+  localColor?: { previous: string | null; expected: string | null };
 }
 
 /** How long a revealed row wears `.revealed`: the `tree-reveal` animation in
@@ -238,14 +313,55 @@ export function FileTree() {
   const docSyncState = useStore((s) => s.docSyncState);
   const docIdByPath = useStore((s) => s.docIdByPath);
   const titles = useStore((s) => s.titles);
+  const presentationByPath = useMemo(() => {
+    const map = new Map<string, IndexedPresentation>();
+    for (const title of titles) {
+      if (title.kind === FOLDER_PRESENTATION_KIND) {
+        const folder = folderPathForCompanion(title.path);
+        if (folder != null) map.set(folder, title);
+      } else {
+        map.set(title.path, title);
+      }
+    }
+    return map;
+  }, [titles]);
+  const hiddenCompanions = useMemo(
+    () =>
+      new Set(
+        titles
+          .filter((title) => title.kind === FOLDER_PRESENTATION_KIND)
+          .map((title) => title.path),
+      ),
+    [titles],
+  );
   const [containerRef, dim] = useDimensions();
   const treeRef = useRef<TreeApi<TreeNode> | null>(null);
   const [menu, setMenu] = useState<MenuState | null>(null);
+  const [iconTarget, setIconTarget] = useState<IconTarget | null>(null);
+  // Sticky on purpose — never cleared on close. An upload started from the
+  // picker outlives the picker, and that icon still belongs to the row it was
+  // opened for; a ref that followed the open state dropped the target out from
+  // under the in-flight save. Only opening the picker for another row replaces
+  // it.
+  const iconTargetRef = useRef(iconTarget);
+  if (iconTarget) iconTargetRef.current = iconTarget;
+  const returnFocusToIconTarget = useCallback(() => {
+    const target = iconTargetRef.current;
+    return target ? treeRowFocusTarget(containerRef.current, target.path) : null;
+  }, [containerRef]);
+  const [folderPresentationUndo, setFolderPresentationUndo] =
+    useState<FolderPresentationUndo | null>(null);
+  const [showMetadata, setShowMetadata] = useState(false);
   // Resolved once the menu has been measured; null means "not placed yet", which
   // is also what keeps it invisible for that one frame.
   const menuRef = useRef<HTMLUListElement | null>(null);
   const [menuPos, setMenuPos] = useState<Placement | null>(null);
   const [shareTarget, setShareTarget] = useState<ShareTarget | null>(null);
+  const [renameFailure, setRenameFailure] = useState<{
+    path: string;
+    draft: string;
+    message: string;
+  } | null>(null);
   // Which way the fold toggle points: false → "collapse all", true → "expand all".
   // Folders start closed (`openByDefault={false}` on the Tree), so the toggle
   // starts out offering "expand". Kept in step with the real tree on every
@@ -255,6 +371,9 @@ export function FileTree() {
     treeRef.current?.visibleNodes.some((n) => n.isInternal && n.isOpen) ?? false;
   // The sort popover under the toolbar's sort button.
   const [sortOpen, setSortOpen] = useState(false);
+  const sortButtonRef = useRef<HTMLButtonElement | null>(null);
+  const sortMenuRef = useRef<HTMLUListElement | null>(null);
+  const iconMenuRef = useRef<HTMLDivElement | null>(null);
   // True while an OS drag hovers the tree, for the drop-target highlight.
   const [dropActive, setDropActive] = useState(false);
   // True while the user is dragging a ROW of this tree (react-arborist's own
@@ -308,6 +427,7 @@ export function FileTree() {
   // from another vault's folders says nothing about this one's.
   const wavesRef = useRef(new FolderWaveTracker());
   const vaultPath = useStore((s) => s.vault?.path ?? null);
+  useEffect(() => setFolderPresentationUndo(null), [vaultPath]);
   const lastWaveKeyRef = useRef<string | null>(null);
   // Split out so a progress emission doesn't rebuild it: `docSyncState` changes
   // ~10×/second for the length of a bulk run, while `titles` changes only when
@@ -422,7 +542,10 @@ export function FileTree() {
   // everything untouched — including that folder's own contents — follows the
   // sort. Flipping these two would make every sort change wipe the arrangement.
   const data = useMemo<TreeNode[]>(() => {
-    const level = tree?.children ?? [];
+    const level = withoutFolderCompanions(
+      tree?.children ?? [],
+      showMetadata ? new Set<string>() : hiddenCompanions,
+    );
     if (!orderPinned) {
       pinnedMtimes.current.clear();
       return applyOrder(sortTree(level, treeSort), "", itemOrder);
@@ -432,7 +555,7 @@ export function FileTree() {
       "",
       itemOrder,
     );
-  }, [tree, itemOrder, treeSort, orderPinned]);
+  }, [tree, itemOrder, treeSort, orderPinned, hiddenCompanions, showMetadata]);
 
   // Flatten the (arranged) tree so bulk actions can resolve any path — even a
   // collapsed one — to its node, and so "Select all" knows every path.
@@ -549,6 +672,7 @@ export function FileTree() {
         await store.createLock(target.resourceType, target.resourceId, null);
       } catch (e) {
         console.error("bulk lock failed", p, e);
+        toast(`Couldn't lock "${p}" — ${fileTreeErrorReason(e)}`, "error");
       }
     }
     exitSelect();
@@ -567,6 +691,7 @@ export function FileTree() {
         await store.removeLock(lock.id);
       } catch (e) {
         console.error("bulk unlock failed", p, e);
+        toast(`Couldn't unlock "${p}" — ${fileTreeErrorReason(e)}`, "error");
       }
     }
     exitSelect();
@@ -662,7 +787,10 @@ export function FileTree() {
       s.files > 0
         ? `Imported ${s.files} file${s.files === 1 ? "" : "s"}`
         : "Nothing imported";
-    const text = s.skipped > 0 ? `${files} · ${s.skipped} skipped` : files;
+    const details = [];
+    if (s.skipped > 0) details.push(`${s.skipped} skipped`);
+    if (s.localOnly > 0) details.push(`${s.localOnly} local-only asset${s.localOnly === 1 ? "" : "s"}`);
+    const text = details.length > 0 ? `${files} · ${details.join(" · ")}` : files;
     flashStatus(text, s.files > 0 ? "success" : "neutral");
   }
 
@@ -731,6 +859,74 @@ export function FileTree() {
           setDropActive(false);
           if (!p.paths?.length) return;
           const pt = insideTree(p.position.x, p.position.y);
+          const scale = window.devicePixelRatio || 1;
+          const clientX = p.position.x / scale;
+          const clientY = p.position.y / scale;
+          const overCover = document
+            .elementFromPoint(clientX, clientY)
+            ?.closest("[data-cover-drop]");
+          if (!pt && overCover && activeNoteEditable()) {
+            const state = useStore.getState();
+            const targetNote = state.openNote;
+            const targetEpoch = state.vault?.epoch;
+            if (!targetNote || targetEpoch == null) return;
+            const targetPath = targetNote.path;
+            const targetId = targetNote.id;
+            const target: PresentationAssetTarget = {
+              vaultEpoch: targetEpoch,
+              vaultScope: state.vault?.path ?? "",
+              isCurrent: () => {
+                const current = useStore.getState();
+                return (
+                  current.vault?.epoch === targetEpoch &&
+                  current.openNote?.path === targetPath &&
+                  current.openNote.id === targetId
+                );
+              },
+            };
+            try {
+              const path = p.paths[0]!;
+              const bytes = await ipc.readExternalFile(path);
+              if (
+                !target.isCurrent() ||
+                !activeNoteEditable()
+              ) {
+                return;
+              }
+              const saved = await savePresentationAsset(
+                basename(path),
+                bytes,
+                "cover",
+                target,
+              );
+              if ("error" in saved) {
+                flashStatus(saved.error, "error");
+                return;
+              }
+              if (
+                !target.isCurrent() ||
+                !activeNoteEditable() ||
+                !setActiveNotePresentation(targetPath, {
+                  [PRESENTATION_KEYS.cover]: { kind: "text", value: saved.path },
+                  [PRESENTATION_KEYS.coverSource]: saved.sourcePath
+                    ? { kind: "text", value: saved.sourcePath }
+                    : null,
+                  [PRESENTATION_KEYS.coverX]: { kind: "number", value: 50 },
+                  [PRESENTATION_KEYS.coverY]: { kind: "number", value: 50 },
+                  [PRESENTATION_KEYS.coverHeight]: {
+                    kind: "number",
+                    value: DEFAULT_COVER_HEIGHT,
+                  },
+                })
+              ) {
+                flashStatus("This note's cover could not be changed.", "error");
+              }
+            } catch (error) {
+              console.error("cover drop failed", error);
+              flashStatus("Couldn't add that cover", "error");
+            }
+            return;
+          }
           // Dropped onto the open note (outside the tree, an editable editor is
           // live) → attach the files INTO that note's content rather than
           // importing them as sidebar entries.
@@ -928,17 +1124,35 @@ export function FileTree() {
     }
     const newPath = dir ? `${dir}/${newName}` : newName;
     if (newPath === oldPath) return;
+    const refuse = (message: string, path = oldPath) => {
+      setRenameFailure({ path, draft: name, message });
+      // Arborist exits edit mode after this async handler returns. Re-enter on
+      // the next task so the rejected draft and its explanation stay in place.
+      window.setTimeout(() => treeRef.current?.edit(path), 0);
+    };
+    if (hasRenameCollision(nodeByPath.keys(), oldPath, newPath)) {
+      refuse(
+        renameCollisionMessage(
+          displayName(newName, node.data.isDir),
+          node.data.isDir,
+        ),
+      );
+      return;
+    }
+    const result = await moveFileTreeItem(
+      oldPath,
+      newPath,
+      useStore.getState().vault?.epoch,
+      {
+        renameDisk: ipc.renamePath,
+        renameServer: (from, to) => syncManager.registry.renamePath(from, to),
+      },
+    );
+    if (!result.ok && !result.diskChanged) {
+      refuse(result.reason);
+      return;
+    }
     try {
-      // Epoch-pinned like the bulk move below: this runs across awaits, so a vault
-      // switch mid-rename must be refused by Rust rather than applied over there.
-      await ipc.renamePath(oldPath, newPath, useStore.getState().vault?.epoch);
-      // Propagate the rename/move to the server (folder subtree or single note;
-      // doc_ids are preserved) so teammates see it live.
-      try {
-        await syncManager.registry.renamePath(oldPath, newPath);
-      } catch (e) {
-        console.warn("[sync] renamePath failed", oldPath, e);
-      }
       // Keep the item's rank (and its subtree's arrangement) across the rename.
       const store = useStore.getState();
       store.setItemOrder(renameInOrder(store.itemOrder, oldPath, newPath));
@@ -951,8 +1165,17 @@ export function FileTree() {
         await useStore.getState().openNoteByPath(updated);
       }
       await refreshAll();
+      // A failed rollback leaves the rename on disk. Keep the refusal attached
+      // to that destination after reconciling the local ordering and tabs.
+      if (result.ok) setRenameFailure(null);
+      else refuse(result.reason, newPath);
     } catch (e) {
-      console.error("rename failed", e);
+      refuse(
+        result.ok
+          ? fileTreeErrorReason(e)
+          : `${result.reason}. ${fileTreeErrorReason(e)}`,
+        newPath,
+      );
     }
     void id;
   };
@@ -979,9 +1202,7 @@ export function FileTree() {
       return dest;
     });
 
-    // 1) Persist the arrangement first so a same-folder reorder feels instant
-    //    (no disk change, no round-trip). Cross-folder drops snap into place
-    //    after the tree refresh below re-materializes the moved paths.
+    // Plan the arrangement using the destination's displayed children.
     const store = useStore.getState();
     const destChildren = childrenAt(data, destDir);
     const siblings = destChildren.map((n) => n.path);
@@ -993,50 +1214,44 @@ export function FileTree() {
       ...from.flatMap((p, i) => (nodeByPath.get(p)?.isDir ? [to[i]] : [])),
     ]);
     const isDir = (p: string) => dirPaths.has(p);
-    let order = store.itemOrder;
-    for (let i = 0; i < from.length; i++) {
-      if (from[i] !== to[i]) order = moveSubtreeOrder(order, from[i], to[i]);
-    }
-    order = {
-      ...order,
-      [destDir]: narrowPins(
-        computeReorder(siblings, from, to, index),
-        isDir,
-        to,
-        store.itemOrder[destDir],
-      ),
-    };
-    store.setItemOrder(order);
-
-    // 2) Apply cross-folder moves on disk (a pure reorder has from === to).
+    // Apply cross-folder moves on disk (a pure reorder has from === to).
     // Epoch-pinned for the same reason as `bulkDelete` — this is a loop of writes
     // across awaits, so it must stay bound to the vault the drop happened in.
-    const moveEpoch = store.vault?.epoch;
-    let movedOnDisk = false;
-    for (let i = 0; i < from.length; i++) {
-      if (from[i] === to[i]) continue;
-      try {
-        await ipc.renamePath(from[i], to[i], moveEpoch);
-        try {
-          await syncManager.registry.renamePath(from[i], to[i]);
-        } catch (e) {
-          console.warn("[sync] move propagate failed", from[i], e);
-        }
-        movedOnDisk = true;
-        useStore.getState().remapTabs(from[i], to[i]);
-        if (
-          openNote &&
-          (openNote.path === from[i] || openNote.path.startsWith(from[i] + "/"))
-        ) {
-          await useStore
-            .getState()
-            .openNoteByPath(openNote.path.replace(from[i], to[i]));
-        }
-      } catch (e) {
-        console.error("move failed", e);
-      }
-    }
-    if (movedOnDisk) await refreshAll();
+    const { movedOnDisk, refused } = await moveFileTreeItems(
+      from,
+      to,
+      {
+        epoch: store.vault?.epoch,
+        destDir,
+        siblings,
+        index,
+        isDir,
+        order: store.itemOrder,
+      },
+      {
+        renameDisk: ipc.renamePath,
+        renameServer: (oldPath, newPath) =>
+          syncManager.registry.renamePath(oldPath, newPath),
+        setOrder: store.setItemOrder,
+        onFailure: (path, result) => {
+          if (!result.alreadyNotified) {
+            toast(moveFailureMessage(path, result.reason), "error");
+          }
+        },
+        onMoved: async (oldPath, newPath) => {
+          useStore.getState().remapTabs(oldPath, newPath);
+          if (
+            openNote &&
+            (openNote.path === oldPath || openNote.path.startsWith(oldPath + "/"))
+          ) {
+            await useStore
+              .getState()
+              .openNoteByPath(openNote.path.replace(oldPath, newPath));
+          }
+        },
+      },
+    );
+    if (movedOnDisk || refused) await refreshAll();
   };
 
   // ---- Reordering by hand (a pointer drag, deliberately not HTML5 DnD) ------
@@ -1464,6 +1679,10 @@ export function FileTree() {
         .createLock(target.resourceType, target.resourceId, null);
     } catch (e) {
       console.error("lock failed", e);
+      toast(
+        `Couldn't lock "${target.title}" — ${fileTreeErrorReason(e)}`,
+        "error",
+      );
     }
   }
 
@@ -1472,6 +1691,330 @@ export function FileTree() {
       await useStore.getState().removeLock(shareId);
     } catch (e) {
       console.error("unlock failed", e);
+      toast(`Couldn't unlock item — ${fileTreeErrorReason(e)}`, "error");
+    }
+  }
+
+  /**
+   * Is a presentation write refused RIGHT NOW? Read from live state, not from
+   * the render that armed the edit: the guard runs again inside the background
+   * transaction, after the bridge wait. `resourceId` is the doc the bytes land
+   * in — a folder's companion, or the note itself.
+   */
+  function presentationWriteBlocked(path: string, resourceId?: string): boolean {
+    const current = useStore.getState();
+    const currentUserId = current.session?.user.id;
+    const currentLocks = current.syncEnabled
+      ? lockScopesByPath(
+          current.tree,
+          [...current.locks, ...restrictionRowsForUser(current.denies, currentUserId)],
+          currentUserId,
+          current.lifts,
+        )
+      : new Map<string, LockScope>();
+    if (effectiveLockForPath(currentLocks, path) != null) return true;
+    if (!resourceId) return false;
+    return resourceLockedForUser(current.locks, resourceId, currentUserId, current.denies);
+  }
+
+  async function setTreeIcon(
+    icon: PresentationIconValue | null,
+    targetOverride?: IconTarget,
+    colorOverride?: { kind: "text"; value: string } | null,
+    localColorUndo?: FolderPresentationUndo["localColor"],
+  ): Promise<boolean> {
+    const target = targetOverride ?? iconTarget;
+    if (!target) return false;
+    const rollbackLocalColor = () => {
+      if (
+        localColorUndo &&
+        (useStore.getState().itemColors[target.path] ?? null) === localColorUndo.expected
+      ) {
+        useStore.getState().setItemColor(target.path, localColorUndo.previous);
+      }
+    };
+    const epoch = target.vaultEpoch;
+    const epochIsCurrent = () => useStore.getState().vault?.epoch === epoch;
+    if (!epochIsCurrent()) {
+      rollbackLocalColor();
+      return false;
+    }
+    if (!icon && !presentationByPath.get(target.path)?.icon) {
+      return true;
+    }
+    if (effectiveLockForPath(lockByPath, target.path) != null) {
+      rollbackLocalColor();
+      toast("This item is read-only. Its icon was not changed.", "error");
+      return false;
+    }
+    const value = icon
+      ? { kind: "text" as const, value: serializePresentationIcon(icon) }
+      : null;
+    const legacyColor = itemColors[target.path];
+    const adoptedColor = colorOverride !== undefined
+      ? colorOverride
+      : icon?.kind === "lucide" &&
+          ICON_COLOR_IDS.includes(legacyColor as (typeof ICON_COLOR_IDS)[number])
+        ? { kind: "text" as const, value: legacyColor! }
+        : undefined;
+    const patch = {
+      [PRESENTATION_KEYS.icon]: value,
+      [PRESENTATION_KEYS.iconColor]: adoptedColor,
+    };
+    if (!target.isDir) {
+      // The note already on screen takes the edit through its live editor, so
+      // the change joins that note's undo history.
+      if (setActiveNotePresentation(target.path, patch)) return true;
+      // Every other note is patched in the background, exactly like a folder's
+      // companion. Choosing an icon is not a reason to NAVIGATE: this used to
+      // open the note and then wait up to 60 frames for its editor to register
+      // as the active one, which the first change after launch lost — the note
+      // opened in the editor and the icon never landed.
+      // `titles` is a snapshot; the index is live. A note the tree listed
+      // before its index row landed is still a note we can write.
+      const noteId =
+        titles.find((title) => title.path === target.path)?.id ??
+        useStore.getState().docIdByPath[target.path] ??
+        (await ipc.getNoteMeta(target.path, epoch))?.id;
+      if (!noteId) {
+        toast("This note's icon could not be changed.", "error");
+        return false;
+      }
+      const { EditorState } = await import("@codemirror/state");
+      if (!epochIsCurrent()) return false;
+      const result = await syncManager.mutateBackgroundText(
+        target.path,
+        noteId,
+        epoch,
+        (source) => {
+          const plan = planPresentationPatch(EditorState.create({ doc: source }).doc, patch);
+          return plan.ok ? plan : { ok: false, reason: "unsupported-yaml" as const };
+        },
+        () => epochIsCurrent() && !presentationWriteBlocked(target.path, noteId),
+      );
+      if (!result.ok) {
+        toast(
+          result.reason === "forbidden"
+            ? "This note became read-only. Its icon was not changed."
+            : result.reason === "unsupported-yaml"
+              ? "Edit this note's frontmatter YAML source before changing its icon."
+              : "This note's icon could not be saved.",
+          "error",
+        );
+        return false;
+      }
+      return true;
+    }
+
+    const companion = folderPresentationPath(target.path);
+    const indexed = titles.find((title) => title.path === companion);
+    if (!indexed) {
+      const exists = await ipc.noteExists(companion, epoch);
+      if (!epochIsCurrent()) {
+        rollbackLocalColor();
+        return false;
+      }
+      if (exists) {
+        rollbackLocalColor();
+        toast(`${companion} already exists and is not Noam folder metadata.`, "error");
+        return false;
+      }
+      const iconLine = icon
+        ? `noam_icon: ${serializePresentationIcon(icon)}\n`
+        : "";
+      const colorLine = adoptedColor
+        ? `noam_icon_color: ${adoptedColor.value}\n`
+        : "";
+      const previous = `---\nnoam_kind: ${FOLDER_PRESENTATION_KIND}\nnoam_presentation_version: ${PRESENTATION_VERSION}\n---\n`;
+      const next = `---\nnoam_kind: ${FOLDER_PRESENTATION_KIND}\nnoam_presentation_version: ${PRESENTATION_VERSION}\n${iconLine}${colorLine}---\n`;
+      if (presentationWriteBlocked(target.path)) {
+        rollbackLocalColor();
+        toast("This folder is read-only. Its icon was not changed.", "error");
+        return false;
+      }
+      let created = false;
+      try {
+        created = await ipc.writeNoteIfMissing(companion, next, epoch);
+      } catch (error) {
+        rollbackLocalColor();
+        console.error("folder presentation create failed", error);
+        toast("The folder appearance could not be saved.", "error");
+        return false;
+      }
+      if (!epochIsCurrent()) {
+        rollbackLocalColor();
+        return false;
+      }
+      if (!created) {
+        rollbackLocalColor();
+        toast(`${companion} appeared before Noam could create it. Nothing was overwritten.`, "error");
+        return false;
+      }
+      let EditorState: typeof import("@codemirror/state").EditorState;
+      let meta: Awaited<ReturnType<typeof ipc.getNoteMeta>>;
+      try {
+        [{ EditorState }, meta] = await Promise.all([
+          import("@codemirror/state"),
+          ipc.getNoteMeta(companion, epoch),
+        ]);
+      } catch (error) {
+        console.error("folder presentation metadata lookup failed", error);
+        toast("Folder appearance saved, but Undo is unavailable for this change.", "error");
+        return true;
+      }
+      if (!epochIsCurrent()) return false;
+      const keys = [PRESENTATION_KEYS.icon, PRESENTATION_KEYS.iconColor];
+      const expected = presentationSnapshot(EditorState.create({ doc: next }).doc, keys);
+      const previousValues = presentationSnapshot(EditorState.create({ doc: previous }).doc, keys);
+      if (meta && expected && previousValues) {
+        setFolderPresentationUndo({
+          path: companion,
+          docId: meta.id,
+          previous: previousValues,
+          expected,
+          localColor: localColorUndo,
+        });
+      }
+      return true;
+    }
+    if (indexed.kind !== FOLDER_PRESENTATION_KIND) {
+      rollbackLocalColor();
+      toast(`${companion} is not Noam folder metadata. Nothing was overwritten.`, "error");
+      return false;
+    }
+    if (presentationWriteBlocked(target.path, indexed.id)) {
+      rollbackLocalColor();
+      toast("This folder metadata is read-only. Its icon was not changed.", "error");
+      return false;
+    }
+    const { EditorState } = await import("@codemirror/state");
+    if (!epochIsCurrent()) {
+      rollbackLocalColor();
+      return false;
+    }
+    const keys = [PRESENTATION_KEYS.icon, PRESENTATION_KEYS.iconColor];
+    let previousValues: PresentationSnapshot | null = null;
+    let expectedValues: PresentationSnapshot | null = null;
+    const result = await syncManager.mutateBackgroundText(
+      companion,
+      indexed.id,
+      epoch,
+      (source) => {
+        const state = EditorState.create({ doc: source });
+        previousValues = presentationSnapshot(state.doc, keys);
+        const plan = planPresentationPatch(state.doc, patch);
+        if (!plan.ok) return { ok: false, reason: "unsupported-yaml" as const };
+        const next = state.update({ changes: plan.changes }).state.doc;
+        expectedValues = presentationSnapshot(next, keys);
+        return plan;
+      },
+      () => epochIsCurrent() && !presentationWriteBlocked(target.path, indexed.id),
+    );
+    if (!result.ok) {
+      rollbackLocalColor();
+      toast(
+        result.reason === "forbidden"
+          ? "This folder metadata became read-only. Its icon was not changed."
+          : result.reason === "unsupported-yaml"
+            ? "Edit the folder metadata YAML source before changing its icon."
+            : "The folder appearance could not be saved.",
+        "error",
+      );
+      return false;
+    }
+    if (previousValues && expectedValues) {
+      setFolderPresentationUndo({
+        path: companion,
+        docId: indexed.id,
+        previous: previousValues,
+        expected: expectedValues,
+        localColor: localColorUndo,
+      });
+    }
+    return true;
+  }
+
+  async function setTreeColor(target: TreeNode, color: string | null) {
+    const icon = iconFromIndexed(presentationByPath.get(target.path));
+    if (
+      icon?.kind === "lucide" &&
+      effectiveLockForPath(lockByPath, target.path) != null
+    ) {
+      toast("This item is read-only. Its icon color was not changed.", "error");
+      setMenu(null);
+      return;
+    }
+    const previousLocalColor = itemColors[target.path] ?? null;
+    useStore.getState().setItemColor(target.path, color);
+    setMenu(null);
+    if (icon?.kind !== "lucide") return;
+    const vaultEpoch = useStore.getState().vault?.epoch;
+    if (vaultEpoch == null) return;
+    await setTreeIcon(
+      icon,
+      { path: target.path, isDir: target.isDir, x: 0, y: 0, vaultEpoch },
+      color == null ? null : { kind: "text", value: color },
+      target.isDir
+        ? { previous: previousLocalColor, expected: color }
+        : undefined,
+    );
+  }
+
+  async function undoFolderPresentation() {
+    const pending = folderPresentationUndo;
+    if (!pending) return;
+    const folder = folderPathForCompanion(pending.path);
+    if (folder == null || presentationWriteBlocked(folder, pending.docId)) {
+      toast("This folder is read-only. Its appearance was not restored.", "error");
+      return;
+    }
+    if (
+      pending.localColor &&
+      (itemColors[folder] ?? null) !== pending.localColor.expected
+    ) {
+      setFolderPresentationUndo(null);
+      toast(
+        "Folder color changed after this action. Undo did not overwrite it.",
+        "error",
+      );
+      return;
+    }
+    try {
+      const epoch = useStore.getState().vault?.epoch;
+      if (epoch == null) return;
+      const { EditorState } = await import("@codemirror/state");
+      const result = await syncManager.mutateBackgroundText(
+        pending.path,
+        pending.docId,
+        epoch,
+        (source) => planConditionalPresentationUndo(
+          EditorState.create({ doc: source }).doc,
+          pending.expected,
+          pending.previous,
+        ),
+        () => !presentationWriteBlocked(folder, pending.docId),
+      );
+      if (!result.ok) {
+        setFolderPresentationUndo(null);
+        toast(
+          result.reason === "forbidden"
+            ? "This folder metadata became read-only. Its appearance was not restored."
+            : "Folder appearance changed after this action. Undo did not overwrite it.",
+          "error",
+        );
+        return;
+      }
+      if (pending.localColor) {
+        useStore
+          .getState()
+          .setItemColor(folder, pending.localColor.previous);
+      }
+      setFolderPresentationUndo(null);
+      await refreshAll();
+      toast("Folder appearance restored", "success");
+    } catch (error) {
+      console.error("folder presentation undo failed", error);
+      toast("Folder appearance could not be restored.", "error");
     }
   }
 
@@ -1493,6 +2036,8 @@ export function FileTree() {
       syncIndex,
       presenceByDoc,
       itemColors,
+      presentationByPath,
+      vaultPath,
       onMenu: onRowMenu,
       selectMode,
       selected,
@@ -1500,6 +2045,8 @@ export function FileTree() {
       onDragProbe: beginProbe,
       dragPath,
       dropInto,
+      renameFailure,
+      clearRenameFailure: () => setRenameFailure(null),
     }),
     [
       selectedPath,
@@ -1507,6 +2054,8 @@ export function FileTree() {
       syncIndex,
       presenceByDoc,
       itemColors,
+      presentationByPath,
+      vaultPath,
       onRowMenu,
       selectMode,
       selected,
@@ -1514,6 +2063,7 @@ export function FileTree() {
       beginProbe,
       dragPath,
       dropInto,
+      renameFailure,
     ],
   );
 
@@ -1603,6 +2153,7 @@ export function FileTree() {
               choice is vault-wide and belongs to the header, not to a row. */}
           <div className="tree-sort-wrap" onClick={(e) => e.stopPropagation()}>
             <button
+              ref={sortButtonRef}
               className={`tree-tool${sortOpen ? " on" : ""}`}
               title={`Sort: ${TREE_SORTS.find((s) => s.id === treeSort)?.label}`}
               aria-label="Sort notes"
@@ -1619,7 +2170,15 @@ export function FileTree() {
               {ICON_SORT}
             </button>
             {sortOpen && (
-              <ul className="context-menu tree-sort-menu" role="menu">
+              <ViewportMenu
+                as="ul"
+                anchorRef={sortButtonRef}
+                menuRef={sortMenuRef}
+                align="start"
+                className="context-menu tree-sort-menu menu-portal"
+                role="menu"
+                onClick={(event) => event.stopPropagation()}
+              >
                 <li className="menu-heading">Sort notes by</li>
                 {TREE_SORTS.map((s) => (
                   <li
@@ -1646,7 +2205,7 @@ export function FileTree() {
                   Folders and notes you've dragged into place keep their
                   position.
                 </li>
-              </ul>
+              </ViewportMenu>
             )}
           </div>
           <span className="tool-divider" aria-hidden="true" />
@@ -1839,6 +2398,16 @@ export function FileTree() {
               {ipc.openVaultLabel()}
             </li>
           )}
+          {!menu.node && (
+            <li
+              role="menuitemcheckbox"
+              aria-checked={showMetadata}
+              onClick={() => setShowMetadata((value) => !value)}
+            >
+              <span className="menu-tick" aria-hidden="true">{showMetadata ? "✓" : ""}</span>
+              Show metadata files
+            </li>
+          )}
           {menu.node && (
             <li onClick={() => void exportNode(menu.node!)}>Export…</li>
           )}
@@ -1848,6 +2417,39 @@ export function FileTree() {
             </li>
           )}
           {menu.node && <li onClick={() => menu.node!.edit()}>Rename</li>}
+          {menu.node &&
+            (menu.node.data.isDir ||
+              menu.node.data.path.toLowerCase().endsWith(".md")) && (
+            <li
+              className={
+                effectiveLockForPath(lockByPath, menu.node.data.path) != null
+                  ? "disabled"
+                  : undefined
+              }
+              aria-disabled={
+                effectiveLockForPath(lockByPath, menu.node.data.path) != null
+              }
+              onClick={() => {
+                if (
+                  effectiveLockForPath(lockByPath, menu.node!.data.path) != null
+                ) {
+                  return;
+                }
+                const vaultEpoch = useStore.getState().vault?.epoch;
+                if (vaultEpoch == null) return;
+                setIconTarget({
+                  path: menu.node!.data.path,
+                  isDir: menu.node!.data.isDir,
+                  x: menu.x,
+                  y: menu.y,
+                  vaultEpoch,
+                });
+                setMenu(null);
+              }}
+            >
+              Change icon…
+            </li>
+          )}
           {/* The same vault-wide sort as the header button. A per-folder sort
               would be a third arrangement layer fighting the other two, so
               there is one setting and it is reachable from both places. */}
@@ -1921,10 +2523,7 @@ export function FileTree() {
               <span
                 className="swatch clear"
                 title="Default color"
-                onClick={() => {
-                  useStore.getState().setItemColor(menu.node!.data.path, null);
-                  setMenu(null);
-                }}
+                onClick={() => void setTreeColor(menu.node!.data, null)}
               />
               {ITEM_COLORS.map((c) => (
                 <span
@@ -1932,12 +2531,7 @@ export function FileTree() {
                   className={`swatch${itemColors[menu.node!.data.path] === c.id ? " on" : ""}`}
                   style={{ backgroundColor: c.value }}
                   title={c.label}
-                  onClick={() => {
-                    useStore
-                      .getState()
-                      .setItemColor(menu.node!.data.path, c.id);
-                    setMenu(null);
-                  }}
+                  onClick={() => void setTreeColor(menu.node!.data, c.id)}
                 />
               ))}
             </li>
@@ -1957,6 +2551,70 @@ export function FileTree() {
             onClose={() => setShareTarget(null)}
           />
         </Suspense>
+      )}
+      {iconTarget && (
+        <ViewportMenu
+          anchorPoint={{ x: iconTarget.x, y: iconTarget.y }}
+          menuRef={iconMenuRef}
+          className="tree-icon-picker-host"
+        >
+          <Suspense fallback={null}>
+            <IconPicker
+              captureAssetTarget={() => {
+                const target = iconTargetRef.current;
+                if (!target) return null;
+                const noteId = target.isDir
+                  ? null
+                  : (useStore.getState().docIdByPath[target.path] ?? null);
+                return {
+                  vaultEpoch: target.vaultEpoch,
+                  vaultScope: vaultPath ?? "",
+                  // Measured against the target CAPTURED here, never against
+                  // whatever the picker points at now: the upload belongs to
+                  // this row, and dismissing the picker mid-save is not a
+                  // reason to throw the image away.
+                  isCurrent: () => {
+                    const current = useStore.getState();
+                    return (
+                      current.vault?.epoch === target.vaultEpoch &&
+                      (target.isDir ||
+                        (current.docIdByPath[target.path] ?? null) === noteId)
+                    );
+                  },
+                };
+              }}
+              vaultScope={vaultPath ?? ""}
+              assetExists={(assetPath) => {
+                const target = iconTargetRef.current;
+                return target && useStore.getState().vault?.epoch === target.vaultEpoch
+                  ? ipc.noteExists(assetPath, target.vaultEpoch)
+                  : Promise.resolve(false);
+              }}
+              onChoose={(icon) => setTreeIcon(icon)}
+              resolveAsset={(assetPath, sourceKind = "path") =>
+                vaultPath
+                  ? resolveVaultAsset({
+                    vaultPath,
+                    documentPath: "",
+                    source: assetPath,
+                    sourceKind,
+                  })
+                  : null
+              }
+              onReset={() => setTreeIcon(null)}
+              onClose={() => setIconTarget(null)}
+              returnFocus={returnFocusToIconTarget}
+            />
+          </Suspense>
+        </ViewportMenu>
+      )}
+      {folderPresentationUndo && (
+        <div className="folder-presentation-undo" role="status">
+          <span>Folder appearance changed.</span>
+          <button type="button" onClick={() => void undoFolderPresentation()}>
+            Undo
+          </button>
+        </div>
       )}
     </div>
   );
@@ -1994,6 +2652,8 @@ interface RowShared {
   presenceByDoc: Map<string, VaultPeer[]>;
   /** Item color ids (vault-local preference) — tint the type glyph. */
   itemColors: Record<string, string | undefined>;
+  presentationByPath: Map<string, IndexedPresentation>;
+  vaultPath: string | null;
   onMenu: (
     x: number,
     y: number,
@@ -2010,6 +2670,8 @@ interface RowShared {
   dragPath: string | null;
   /** The folder a drop would land inside, if the pointer is over one. */
   dropInto: string | null;
+  renameFailure: { path: string; draft: string; message: string } | null;
+  clearRenameFailure: () => void;
 }
 
 const RowSharedContext = createContext<RowShared | null>(null);
@@ -2027,6 +2689,8 @@ function TreeRow(props: NodeRendererProps<TreeNode>) {
       syncIndex={shared.syncIndex}
       presenceByDoc={shared.presenceByDoc}
       color={shared.itemColors[path]}
+      presentation={shared.presentationByPath.get(path)}
+      vaultPath={shared.vaultPath}
       onMenu={shared.onMenu}
       selectMode={shared.selectMode}
       checked={shared.selected.has(path)}
@@ -2034,6 +2698,10 @@ function TreeRow(props: NodeRendererProps<TreeNode>) {
       onDragProbe={shared.onDragProbe}
       dragging={shared.dragPath === path}
       dropInto={shared.dropInto}
+      renameFailure={
+        shared.renameFailure?.path === path ? shared.renameFailure : null
+      }
+      clearRenameFailure={shared.clearRenameFailure}
     />
   );
 }
@@ -2047,6 +2715,8 @@ interface NodeExtra {
   presenceByDoc: Map<string, VaultPeer[]>;
   /** Item color id (vault-local preference) — tints the type glyph. */
   color: string | undefined;
+  presentation: IndexedPresentation | undefined;
+  vaultPath: string | null;
   onMenu: (
     x: number,
     y: number,
@@ -2063,6 +2733,8 @@ interface NodeExtra {
   dragging: boolean;
   /** The folder a drop would land inside, if the pointer is over one. */
   dropInto: string | null;
+  renameFailure: { path: string; draft: string; message: string } | null;
+  clearRenameFailure: () => void;
 }
 
 function TreeSvg({ children }: { children: React.ReactNode }) {
@@ -2266,6 +2938,8 @@ function Node({
   syncIndex,
   presenceByDoc,
   color,
+  presentation,
+  vaultPath,
   onMenu,
   selectMode,
   checked,
@@ -2273,6 +2947,8 @@ function Node({
   onDragProbe,
   dragging,
   dropInto,
+  renameFailure,
+  clearRenameFailure,
 }: NodeRendererProps<TreeNode> & NodeExtra) {
   const isDir = node.data.isDir;
   // Only a folder we have actually listed can be called empty. An unexpanded one
@@ -2291,14 +2967,23 @@ function Node({
   // revealed must not re-render the other 6,000.
   const isRevealed = useStore((s) => s.revealedPath === node.data.path);
   const colorValue = itemColorValue(color);
+  const customIcon = iconFromIndexed(presentation);
+  const portableColor = itemColorValue(presentation?.iconColor ?? undefined);
+  const iconColor = customIcon?.kind === "lucide" ? (portableColor ?? colorValue) : undefined;
+  const iconAsset =
+    customIcon?.kind === "asset" && vaultPath
+      ? resolveVaultAsset({ vaultPath, documentPath: "", source: customIcon.path, sourceKind: "path" })
+      : null;
   const peers = peersForNode(node, presenceByDoc);
   // Compose arborist's per-level indent with the row's base inset so every
   // glyph on a level shares one left edge (no chevron column to misalign).
-  // 20 = 12 base + 8 compensating the tree's full-bleed negative margin.
+  // 28 = 20 visible inset + 8 compensating the tree's full-bleed negative
+  // margin. The extra breathing room keeps root glyphs clear of the pane frame
+  // at narrow widths and enlarged text without changing edge-to-edge row fills.
   const indent = typeof style.paddingLeft === "number" ? style.paddingLeft : 0;
   return (
     <div
-      style={{ ...style, paddingLeft: indent + 20 }}
+      style={{ ...style, paddingLeft: indent + 28 }}
       data-tree-dir={isDir ? node.data.path : parentDir(node.data.path)}
       // Read back by `planDrop`, which hit-tests rows through the DOM: the
       // list is virtualized and scrolled, so the DOM is the only thing that
@@ -2380,9 +3065,12 @@ function Node({
           {checked && ICON_CHECK}
         </span>
       )}
+      {isDir && customIcon && (
+        <span className={`tree-disclosure${node.isOpen ? " open" : ""}`} aria-hidden="true">›</span>
+      )}
       <span
         className={`tree-glyph${isEmpty ? " is-empty" : ""}${colorValue ? " colored" : ""}`}
-        style={colorValue ? { color: colorValue } : undefined}
+        style={iconColor || colorValue ? { color: iconColor ?? colorValue } : undefined}
         aria-hidden="true"
       >
         {/* The glyph slot is the row's own status light: while a note is being
@@ -2390,6 +3078,8 @@ function Node({
             keeps the label from shifting sideways as the state changes. */}
         {isOpening ? (
           <Spinner size="xs" tone="accent" />
+        ) : customIcon ? (
+          <PresentationIcon icon={customIcon} assetUrl={iconAsset} className="presentation-icon" />
         ) : isDir ? (
           node.isOpen && !isEmpty ? (
             ICON_FOLDER_OPEN
@@ -2403,25 +3093,44 @@ function Node({
         )}
       </span>
       {node.isEditing ? (
-        <input
-          className="tree-rename-input"
-          autoFocus
-          defaultValue={displayName(node.data.name, isDir)}
-          onFocus={(e) => e.currentTarget.select()}
-          onClick={(e) => e.stopPropagation()}
-          onDoubleClick={(e) => e.stopPropagation()}
-          // Clicking away commits the rename (Finder-style) rather than
-          // discarding it. Guard on isEditing so the blur that fires when
-          // Enter/Escape unmounts the input doesn't submit a second time
-          // (or override an Escape-cancel).
-          onBlur={(e) => {
-            if (node.isEditing) node.submit(e.currentTarget.value);
-          }}
-          onKeyDown={(e) => {
-            if (e.key === "Escape") node.reset();
-            if (e.key === "Enter") node.submit(e.currentTarget.value);
-          }}
-        />
+        <span className="tree-rename-wrap">
+          <input
+            className="tree-rename-input"
+            autoFocus
+            defaultValue={
+              renameFailure?.draft ?? displayName(node.data.name, isDir)
+            }
+            aria-invalid={renameFailure ? true : undefined}
+            aria-describedby={renameFailure ? "tree-rename-error" : undefined}
+            onFocus={(e) => e.currentTarget.select()}
+            onChange={() => clearRenameFailure()}
+            onClick={(e) => e.stopPropagation()}
+            onDoubleClick={(e) => e.stopPropagation()}
+            // Clicking away commits the rename (Finder-style) rather than
+            // discarding it. Guard on isEditing so the blur that fires when
+            // Enter/Escape unmounts the input doesn't submit a second time
+            // (or override an Escape-cancel).
+            onBlur={(e) => {
+              if (node.isEditing) node.submit(e.currentTarget.value);
+            }}
+            onKeyDown={(e) => {
+              if (e.key === "Escape") {
+                clearRenameFailure();
+                node.reset();
+              }
+              if (e.key === "Enter") node.submit(e.currentTarget.value);
+            }}
+          />
+          {renameFailure && (
+            <span
+              className="tree-rename-error"
+              id="tree-rename-error"
+              role="alert"
+            >
+              {renameFailure.message}
+            </span>
+          )}
+        </span>
       ) : (
         <>
           <span className="tree-label">

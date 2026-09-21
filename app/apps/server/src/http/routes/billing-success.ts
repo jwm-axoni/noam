@@ -1,6 +1,6 @@
 import {
-  WORDMARK_DARK_DATA_URI as WORDMARK_SILVER_URI,
-  WORDMARK_LIGHT_DATA_URI as WORDMARK_INK_URI,
+  BRAND_MARK_DARK_DATA_URI as BRAND_MARK_DARK_URI,
+  BRAND_MARK_LIGHT_DATA_URI as BRAND_MARK_LIGHT_URI,
 } from "../../brand-assets.js";
 
 /**
@@ -127,12 +127,18 @@ export function successPageHtml({ deepLink }: { deepLink: string }): string {
   }
 
   /* Noam Fan mark — Paper & Ink light/dark variants (mirrors Logo.tsx) */
-  .wordmark { display: block; margin: 0 auto 30px; line-height: 0; }
-  .wordmark img { width: 180px; height: auto; display: inline-block; }
-  .wordmark img.wm-silver { display: none; }
+  .wordmark {
+    display: flex; align-items: center; justify-content: center; gap: 11px;
+    margin: 0 auto 30px; color: #2b2724;
+    font-family: "Radio Canada Big", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 40px; font-weight: 700; letter-spacing: -0.025em; line-height: 1;
+  }
+  .wordmark img { width: 46px; height: 46px; display: inline-block; flex: none; }
+  .wordmark img.mark-dark { display: none; }
   @media (prefers-color-scheme: dark) {
-    .wordmark img.wm-ink { display: none; }
-    .wordmark img.wm-silver { display: inline-block; }
+    .wordmark { color: #ebe4d6; }
+    .wordmark img.mark-light { display: none; }
+    .wordmark img.mark-dark { display: inline-block; }
   }
 
   .eyebrow {
@@ -220,8 +226,9 @@ export function successPageHtml({ deepLink }: { deepLink: string }): string {
       <svg viewBox="0 0 24 24"><path d="M5 12.5 10 17.5 19 7"/></svg>
     </div>
     <span class="wordmark reveal d2" role="img" aria-label="Noam">
-      <img class="wm-ink" src="${WORDMARK_INK_URI}" alt="" width="180" height="32">
-      <img class="wm-silver" src="${WORDMARK_SILVER_URI}" alt="" width="180" height="32">
+      <img class="mark-light" src="${BRAND_MARK_LIGHT_URI}" alt="" width="46" height="46">
+      <img class="mark-dark" src="${BRAND_MARK_DARK_URI}" alt="" width="46" height="46">
+      <span aria-hidden="true">noam</span>
     </span>
     <p class="eyebrow reveal d3">Payment confirmed</p>
     <h1 class="reveal d4">You&rsquo;re on Pro</h1>

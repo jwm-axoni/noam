@@ -101,6 +101,15 @@ interface HotEntry {
   touch: number;
   /** Pinned by `promote({ pin: true })` — never LRU-evicted while pinned. */
   pinned: boolean;
+  /** Short-lived users that must not lose this bridge across an await. */
+  leases: number;
+  /** Tear the bridge down once its last short-lived lease is released. */
+  retireWhenIdle: boolean;
+}
+
+export interface ResidentBridgeLease {
+  bridge: NoteBridge;
+  release: () => Promise<void>;
 }
 
 export class VaultDocStore implements DocUpdateSink {
@@ -114,6 +123,8 @@ export class VaultDocStore implements DocUpdateSink {
   private readonly clearT: (h: ReturnType<typeof setTimeout>) => void;
 
   private readonly hot = new Map<string, HotEntry>();
+  /** One in-flight lease-owned open per doc; prevents duplicate Yjs seeding. */
+  private readonly leaseOpens = new Map<string, Promise<HotEntry>>();
   /** Last-known state vector per doc we've synced — powers a cheap manifest so
    *  reconnects only pull deltas. Kept even after a hot doc is evicted, and
    *  persisted (coalesced) so a RELAUNCH is incremental too. */
@@ -275,7 +286,10 @@ export class VaultDocStore implements DocUpdateSink {
     const existing = this.hot.get(docId);
     if (existing) {
       existing.touch = ++this.touchSeq;
-      if (opts.pin) existing.pinned = true;
+      if (opts.pin) {
+        existing.pinned = true;
+        existing.retireWhenIdle = false;
+      }
       if (markRecent) this.markRecent(docId);
       return existing.bridge;
     }
@@ -289,11 +303,79 @@ export class VaultDocStore implements DocUpdateSink {
       bridge,
       touch: ++this.touchSeq,
       pinned: opts.pin ?? false,
+      leases: 0,
+      retireWhenIdle: false,
     });
     this.rememberSv(docId, Y.encodeStateVector(bridge.doc));
     if (markRecent) this.markRecent(docId);
     this.evictIfNeeded();
     return bridge;
+  }
+
+  /**
+   * Hold one resident bridge across async work without permanently pinning it.
+   * A newly opened bridge is retired when its last lease ends; a bridge that was
+   * already resident returns to ordinary LRU ownership.
+   */
+  async acquireLease(
+    docId: string,
+    path: string,
+    opts: { seedFromFile?: boolean; markRecent?: boolean } = {},
+  ): Promise<ResidentBridgeLease> {
+    const markRecent = opts.markRecent ?? true;
+    let entry = this.hot.get(docId);
+    if (entry) {
+      entry.touch = ++this.touchSeq;
+    } else {
+      let opening = this.leaseOpens.get(docId);
+      if (!opening) {
+        opening = (async () => {
+          const bridge = await NoteBridge.open(this.io, {
+            docId,
+            path,
+            seedFromFile: opts.seedFromFile ?? false,
+          });
+          const opened: HotEntry = {
+            path,
+            bridge,
+            touch: ++this.touchSeq,
+            pinned: false,
+            leases: 0,
+            retireWhenIdle: true,
+          };
+          this.hot.set(docId, opened);
+          this.rememberSv(docId, Y.encodeStateVector(bridge.doc));
+          return opened;
+        })();
+        this.leaseOpens.set(docId, opening);
+      }
+      try {
+        entry = await opening;
+      } finally {
+        if (this.leaseOpens.get(docId) === opening) this.leaseOpens.delete(docId);
+      }
+    }
+    entry.leases += 1;
+    if (markRecent) this.markRecent(docId);
+    this.evictIfNeeded();
+
+    const bridge = entry.bridge;
+    let released = false;
+    return {
+      bridge,
+      release: async () => {
+        if (released) return;
+        released = true;
+        const current = this.hot.get(docId);
+        if (!current || current.bridge !== bridge) return;
+        current.leases = Math.max(0, current.leases - 1);
+        if (current.leases === 0 && current.retireWhenIdle) {
+          await this.demote(docId);
+          return;
+        }
+        this.evictIfNeeded();
+      },
+    };
   }
 
   /**
@@ -307,6 +389,11 @@ export class VaultDocStore implements DocUpdateSink {
   async demote(docId: string): Promise<void> {
     const entry = this.hot.get(docId);
     if (!entry) return;
+    if (entry.leases > 0) {
+      entry.pinned = false;
+      entry.retireWhenIdle = true;
+      return;
+    }
     this.hot.delete(docId);
     this.rememberSv(docId, Y.encodeStateVector(entry.bridge.doc));
     await this.retire(entry.bridge);
@@ -526,7 +613,7 @@ export class VaultDocStore implements DocUpdateSink {
       let lruId: string | null = null;
       let lruTouch = Infinity;
       for (const [id, e] of this.hot) {
-        if (e.pinned) continue; // in-flight upload — evicting it would kill its provider's doc
+        if (e.pinned || e.leases > 0) continue;
         if (e.touch < lruTouch) {
           lruTouch = e.touch;
           lruId = id;

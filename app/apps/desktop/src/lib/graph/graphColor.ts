@@ -157,32 +157,31 @@ function assignByFolder(nodes: GraphNode[]): ColorResult {
   return { colorById, legend };
 }
 
-/**
- * The degree ramp: four samples of **plasma**, the perceptually-uniform
- * colormap that data-viz guidance singles out (with inferno) as the sequential
- * scale built for dark backgrounds — it never touches a dark end, so no tier
- * sinks into the void.
- *
- * It replaces a ramp that ran deep-slate → accent → warm white. Everything below
- * the top tier came out a dim blue-grey barely separable from the background:
- * on a heavy-tailed vault that is 99% of the graph, so the graph read as dull
- * and flat *because the colouring made it dull and flat*. Plasma spends its
- * whole range on saturated hue AND rising lightness, so degree is legible twice
- * over — by colour and by brightness — and every node is unmistakably lit.
- */
-// Truncated at both ends: plasma's own floor (#0d0887, a near-black indigo)
-// would put the lowest tier straight back into the void, and its ceiling
-// (#f0f921) is a green-yellow that fights the amber in the folder palette.
-// Every entry clears 3:1 against the backdrop — see the contrast test.
-const DEGREE_RAMP = [
-  "#b12a90", // plasma 0.40 — magenta
-  "#d8576b", // plasma 0.50 — rose
-  "#ed7953", // plasma 0.65 — orange
-  "#fdca26", // plasma 0.85 — gold
-];
+export type GraphSurface = "light" | "dark";
 
-function assignByDegree(nodes: GraphNode[]): ColorResult {
-  const shades = DEGREE_RAMP;
+/**
+ * Build a four-step sequential ramp from the active accent. The first step is
+ * pulled slightly toward the canvas, while the upper steps move away from it.
+ * This keeps every tier in the selected colour world without flattening dark
+ * accents such as Ink or losing pale accents against the dark graph.
+ */
+export function degreeRamp(accent: string, surface: GraphSurface): string[] {
+  const canvas = surface === "dark" ? "#000000" : "#ffffff";
+  const contrast = surface === "dark" ? "#ffffff" : "#000000";
+  return [
+    lerpHex(accent, canvas, 0.18),
+    lerpHex(accent, accent, 0),
+    lerpHex(accent, contrast, 0.22),
+    lerpHex(accent, contrast, 0.45),
+  ];
+}
+
+function assignByDegree(
+  nodes: GraphNode[],
+  accent: string,
+  surface: GraphSurface,
+): ColorResult {
+  const shades = degreeRamp(accent, surface);
 
   const maxDeg = nodes.reduce((m, n) => Math.max(m, n.linkCount), 0);
 
@@ -237,6 +236,7 @@ export function assignColors(
   nodes: GraphNode[],
   mode: ColorMode,
   accent: string,
+  surface: GraphSurface = "dark",
 ): ColorResult {
   switch (mode) {
     case "type":
@@ -244,7 +244,7 @@ export function assignColors(
     case "folder":
       return assignByFolder(nodes);
     case "degree":
-      return assignByDegree(nodes);
+      return assignByDegree(nodes, accent, surface);
     case "uniform":
     default: {
       const colorById = new Map<string, string>();

@@ -1,0 +1,62 @@
+/* The board surface: the segmented control that swaps it for the text editor,
+   and the host's own notice line. The board itself is styled by board.css. */
+
+.editor-surface {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  height: 100%;
+}
+
+.editor-surface-switch {
+  display: flex;
+  gap: 2px;
+  align-self: flex-end;
+  margin: 4px 12px 0;
+}
+
+.surface-tab {
+  font-size: 11px;
+  padding: 2px 10px;
+  color: var(--text-muted, var(--text));
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  cursor: pointer;
+}
+
+.surface-tab:first-child {
+  border-radius: 999px 0 0 999px;
+}
+
+.surface-tab:last-child {
+  border-radius: 0 999px 999px 0;
+}
+
+.surface-tab.active {
+  color: var(--text);
+  background: var(--bg-3, var(--bg-2));
+  font-weight: 600;
+}
+
+.board-host {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  flex: 1 1 auto;
+}
+
+.board-notice {
+  margin: 6px 12px;
+  padding: 5px 8px;
+  font-size: 12px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.board-loading {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-muted, var(--text));
+}

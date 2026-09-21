@@ -264,6 +264,10 @@ export interface RegistryFailure {
   code: string | null;
 }
 
+export type RegistryRenameResult =
+  | { ok: true }
+  | { ok: false; failure: RegistryFailure };
+
 /** Paths already toasted about a frozen-root refusal — reconcile re-runs and
  *  retry clicks re-hit the same 403, and one sticky explanation is enough. */
 const frozenRootNotified = new Set<string>();
@@ -2278,11 +2282,13 @@ export class VaultRegistry {
    * Propagate a local rename/move to the server. Handles both a folder (with its
    * whole subtree of paths) and a single note. doc_ids never change — only the
    * path columns move — so open docs and backlinks survive (spec invariant).
+   * Return this operation's refusal as well as recording it: another sync pass
+   * can replace the shared failure list while the caller awaits the move.
    */
-  async renamePath(oldPath: string, newPath: string): Promise<void> {
-    if (this.stale()) return;
+  async renamePath(oldPath: string, newPath: string): Promise<RegistryRenameResult> {
+    if (this.stale()) return { ok: true };
     const vaultId = this.serverVaultId;
-    if (!vaultId) return;
+    if (!vaultId) return { ok: true };
     const folderId = this.folderByPath.get(oldPath);
     if (folderId) {
       // Folder move: rewrite the server subtree, then the local prefix maps.
@@ -2297,24 +2303,25 @@ export class VaultRegistry {
         // swallowing the refusal left the two sides disagreeing with nothing
         // said. `recordFailure` owns the one-toast-per-path explanation.
         console.error("[registry] updateFolder failed", oldPath, e);
-        this.recordFailure({
+        const failure: RegistryFailure = {
           kind: "folder",
           path: newPath,
           docId: null,
           reason: reasonOf(e),
           code: errorCode(e),
-        });
-        return;
+        };
+        this.recordFailure(failure);
+        return { ok: false, failure };
       }
       // The maps may belong to a different vault by now — remapping them would
       // rewrite that vault's paths with this one's move.
-      if (this.stale() || this.serverVaultId !== vaultId) return;
+      if (this.stale() || this.serverVaultId !== vaultId) return { ok: true };
       this.folderByPath = remapPrefix(this.folderByPath, oldPath, newPath);
       this.byPath = remapPrefix(this.byPath, oldPath, newPath);
       this.rebuildByDocId();
       this.persist();
       this.notifyMapChanged();
-      return;
+      return { ok: true };
     }
     const mapping = this.byPath.get(oldPath);
     if (mapping) {
@@ -2329,22 +2336,24 @@ export class VaultRegistry {
         // with the note quietly back in its old folder and not a word to the
         // user about why.
         console.error("[registry] updateNote failed", oldPath, e);
-        this.recordFailure({
+        const failure: RegistryFailure = {
           kind: "note",
           path: newPath,
           docId: mapping.docId,
           reason: reasonOf(e),
           code: errorCode(e),
-        });
-        return;
+        };
+        this.recordFailure(failure);
+        return { ok: false, failure };
       }
-      if (this.stale() || this.serverVaultId !== vaultId) return;
+      if (this.stale() || this.serverVaultId !== vaultId) return { ok: true };
       this.byPath.delete(oldPath);
       this.byPath.set(newPath, mapping);
       this.byDocId.set(mapping.docId, newPath);
       this.persist();
       this.notifyMapChanged();
     }
+    return { ok: true };
   }
 
   /**

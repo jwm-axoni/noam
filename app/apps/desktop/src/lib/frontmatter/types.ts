@@ -1,12 +1,10 @@
 /**
- * The per-vault property type registry, cached in memory.
+ * The per-vault fallback property type registry, cached in memory.
  *
- * Lives in `.context/types.json` beside the doc-id map, so it travels with the
- * vault folder and never enters the `.md` file, the CRDT or the server — the
- * CLAUDE.md rule for per-vault UI config. The consequence, worth knowing: a
- * teammate on another machine infers types from the YAML's shape until they set
- * their own. That is what Obsidian does too, and it is called out in the release
- * notes rather than hidden.
+ * Portable definitions from `_Noam/Knowledge schema.md` take precedence. For a
+ * key without a portable definition, this registry lives in
+ * `.context/types.json` beside the doc-id map. It stays device-local and never
+ * enters the `.md` file, the CRDT or the server.
  *
  * Writes are rare (an explicit type change) so a short debounce is enough; no
  * checkpoint machinery. Reads are served from the cache, which every open panel
@@ -17,6 +15,7 @@ import * as ipc from "../ipc";
 import type { PropertyType } from "./infer";
 import { inferType, isFixedType } from "./infer";
 import type { PropValue } from "./parse";
+import { propertyDefinitionForKey } from "../knowledge/catalogStore";
 
 interface TypesFile {
   version: 1;
@@ -109,6 +108,23 @@ export function resetTypes(): void {
  */
 export function typeFor(key: string, value: PropValue): PropertyType {
   if (isFixedType(key)) return "tags";
+  const shared = propertyDefinitionForKey(key);
+  if (shared) {
+    if (shared.type.cardinality === "many") {
+      if (shared.type.kind === "tag") return "tags";
+      if (shared.type.kind === "alias") return "aliases";
+      return "list";
+    }
+    if (
+      shared.type.kind === "number" ||
+      shared.type.kind === "checkbox" ||
+      shared.type.kind === "date" ||
+      shared.type.kind === "datetime"
+    ) {
+      return shared.type.kind;
+    }
+    return "text";
+  }
   const set = cache[key];
   return set ?? inferType(key, value);
 }
@@ -122,6 +138,9 @@ export function hasExplicitType(key: string): boolean {
  *  therefore the panel) updates now, the file catches up. */
 export function setType(key: string, type: PropertyType, epoch?: number): void {
   if (isFixedType(key)) return;
+  // A portable definition is authoritative. Changing it is a catalog edit,
+  // never a device-local `.context/types.json` write.
+  if (propertyDefinitionForKey(key)) return;
   if (cache[key] === type) return;
   cache = { ...cache, [key]: type };
   announce();

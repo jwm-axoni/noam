@@ -2,7 +2,10 @@
 //! rejection) and the rules for what the note pipeline ignores.
 
 use crate::error::{AppError, AppResult};
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::path::{Component, Path, PathBuf};
+use std::sync::LazyLock;
 
 /// Names that are never walked into the note pipeline (spec 02 §2 hard rule).
 /// `.context` holds the derived index and CRDT store; it must never fork into
@@ -15,32 +18,48 @@ pub const IGNORED_DIRS: &[&str] = &[".context", ".git"];
 /// variants like `.next`/`.cache`/`.venv` are already covered by the dotfile rule.
 pub const DENIED_DIRS: &[&str] = &["node_modules", "dist", "build", "target", "vendor", "__pycache__", "venv"];
 
-/// Allowlist of file extensions the vault surfaces + syncs (lowercase, no dot).
-/// Everything else — source code, lockfiles, binaries — is ignored, so importing
-/// a real project directory can't dump junk into the vault.
-pub const ALLOWED_EXTS: &[&str] = &[
-    // notes / text
-    "md", "markdown", "mdx", "txt", "html", "htm", "canvas",
-    // images
-    "png", "jpg", "jpeg", "gif", "webp", "svg", "avif",
-    // documents
-    "pdf",
-];
+#[derive(Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct FileTypeContract {
+    extensions: Vec<String>,
+    import_rule: String,
+}
+
+/// Parsed from the same declarative contract the TypeScript viewer imports.
+static FILE_TYPES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
+    let definitions: Vec<FileTypeContract> = serde_json::from_str(include_str!("../../file-types.json"))
+        .expect("file-types.json must be valid");
+    definitions
+        .into_iter()
+        .flat_map(|definition| {
+            definition
+                .extensions
+                .into_iter()
+                .map(move |extension| (extension, definition.import_rule.clone()))
+        })
+        .collect()
+});
 
 /// True if a directory/file name should be skipped by the tree walk & watcher.
 pub fn is_ignored_name(name: &str) -> bool {
     name.starts_with('.') || IGNORED_DIRS.contains(&name) || DENIED_DIRS.contains(&name)
 }
 
-/// True if a file (by name) is an allowed, surfaceable type per `ALLOWED_EXTS`.
+/// True if a file is surfaced by the shared file-type contract.
 /// Files with no extension, or an extension not on the list, are not surfaced.
 pub fn is_allowed_file(name: &str) -> bool {
     match name.rsplit_once('.') {
         Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => {
-            ALLOWED_EXTS.contains(&ext.to_ascii_lowercase().as_str())
+            FILE_TYPES.contains_key(&ext.to_ascii_lowercase())
         }
         _ => false,
     }
+}
+
+/// Import behavior from the shared contract, keyed by lowercase extension.
+pub fn import_rule(name: &str) -> Option<&'static str> {
+    let (_, ext) = name.rsplit_once('.')?;
+    FILE_TYPES.get(&ext.to_ascii_lowercase()).map(String::as_str)
 }
 
 /// True if `dir` already looks like a vault: it has our `.context/` index, or it
@@ -182,13 +201,15 @@ mod tests {
     }
 
     #[test]
-    fn allowlist_accepts_notes_images_pdf_only() {
-        for ok in ["note.md", "a.markdown", "b.MDX", "readme.txt", "page.html", "img.png", "p.JPG", "doc.pdf"] {
+    fn shared_contract_accepts_every_release_one_family() {
+        for ok in ["note.md", "a.markdown", "b.MDX", "readme.txt", "page.html", "img.png", "p.JPG", "doc.pdf", "song.mp3", "clip.webm", "data.json", "sheet.csv", "brief.docx"] {
             assert!(is_allowed_file(ok), "{ok} should be allowed");
         }
-        for no in ["script.js", "types.d.ts", "styles.css", "data.json", "Makefile", "LICENSE", "bundle.min.js"] {
+        for no in ["script.js", "types.d.ts", "styles.css", "Makefile", "LICENSE", "bundle.min.js"] {
             assert!(!is_allowed_file(no), "{no} should be rejected");
         }
+        assert_eq!(import_rule("photo.AVIF"), Some("asset"));
+        assert_eq!(import_rule("note.md"), Some("note"));
     }
 
     #[test]

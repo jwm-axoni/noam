@@ -2533,6 +2533,7 @@ function UpdatesTab() {
 function importSummaryText(s: ipc.ImportSummary): string {
   const parts = [`Imported ${s.files} file${s.files === 1 ? "" : "s"}`];
   if (s.skipped > 0) parts.push(`${s.skipped} skipped`);
+  if (s.localOnly > 0) parts.push(`${s.localOnly} local-only asset${s.localOnly === 1 ? "" : "s"}`);
   return parts.join(" · ") + ".";
 }
 

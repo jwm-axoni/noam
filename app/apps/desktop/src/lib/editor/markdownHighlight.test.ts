@@ -32,6 +32,5 @@ describe("markdownHighlight", () => {
 
   it("keeps body-weight text on the primary tier", () => {
     expect(ruleFor(t.strong)?.color).toBe("var(--text-primary)");
-    expect(ruleFor(t.heading1)?.color).toBe("var(--text-primary)");
   });
 });

@@ -41,6 +41,7 @@ import * as ipc from "../../ipc";
 import type { TreeNode } from "../../ipc";
 import { VaultRegistry } from "../registry";
 import { reconcileWithTree } from "./helpers/reconcile";
+import { moveFileTreeItem } from "../../../components/fileTreeFailures";
 
 const ORG = "org-1";
 const VAULT = "v-1";
@@ -121,6 +122,36 @@ beforeEach(() => {
 });
 
 describe("VaultRegistry.renamePath — a refused move is reported, not swallowed", () => {
+  it.each(["note", "folder"])("rolls back a refused %s move when reconcile replaces failures during the rename", async (kind) => {
+    const { reg, updateNote, updateFolder } = await registered(rootFrozen);
+    reg.recordFailure({ kind: "note", path: "old-failure.md", docId: null, reason: "Earlier failure", code: null });
+    let rejectRename!: (error: Error) => void;
+    let entered!: () => void;
+    const started = new Promise<void>((resolve) => { entered = resolve; });
+    const update = kind === "note" ? updateNote : updateFolder;
+    update.mockImplementationOnce(() => new Promise<never>((_resolve, reject) => {
+      rejectRename = reject;
+      entered();
+    }));
+    const from = kind === "note" ? "Docs/a.md" : "Docs/Specs";
+    const to = kind === "note" ? "a.md" : "Specs";
+    const renameDisk = vi.fn(async () => {});
+    const pending = moveFileTreeItem(from, to, 7, {
+      renameDisk,
+      renameServer: (oldPath, newPath) => reg.renamePath(oldPath, newPath),
+    });
+    await started;
+    await reconcileWithTree(reg, { organizationId: ORG, vaultName: "v" }, tree());
+    expect(reg.failures()).toEqual([]);
+    rejectRename(rootFrozen());
+    expect(await pending).toEqual({
+      ok: false,
+      reason: `403: ${rootFrozen().message}`,
+      diskChanged: false,
+      alreadyNotified: true,
+    });
+    expect(renameDisk.mock.calls).toEqual([[from, to, 7], [to, from, 7]]);
+  });
   it("reports a note the server refused to move out to a frozen root", async () => {
     const { reg, updateNote } = await registered(rootFrozen);
     expect(reg.getMapping("Docs/a.md")).toEqual({ vaultId: VAULT, docId: "srv-Docs/a.md" });

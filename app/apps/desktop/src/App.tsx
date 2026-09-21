@@ -16,6 +16,8 @@ import { BRAND_NAME } from "./lib/brand";
 import * as ipc from "./lib/ipc";
 import * as perf from "./lib/perf";
 import { implicatedFolders } from "./lib/tree/lazyTree";
+import { reloadKnowledgeCatalog } from "./lib/knowledge/catalogStore";
+import { KNOWLEDGE_SCHEMA_PATH } from "./lib/knowledge/types";
 import { syncManager } from "./lib/sync/docSession";
 import {
   backgroundUpdateCheck,
@@ -37,7 +39,28 @@ import { requestOpenVault, useStore } from "./store";
 import { clearPendingNoteLink } from "./lib/noteLinkFlow";
 import { prefetchAfterPaint } from "./lib/prefetch";
 import { revealWindowOnce } from "./lib/windowReveal";
-import { nextViewMode, type ViewMode } from "./lib/editor/viewMode";
+import type { ViewMode } from "./lib/editor/viewMode";
+import { createViewModeShortcutHandler } from "./lib/editor/viewModeShortcut";
+import { matchGlobalShortcut } from "./lib/globalShortcuts";
+import { platformClass } from "./lib/platform";
+import { setSlashWorkflowSource } from "./lib/editor/slash";
+import {
+  batchTouchesWorkflows,
+  closeWorkflowService,
+  openWorkflowService,
+  refreshWorkflows,
+  workflowsSnapshot,
+} from "./components/workflows/service";
+import {
+  batchTouchesTasks,
+  closeTaskService,
+  openTaskService,
+  refreshTasks,
+} from "./components/tasks/service";
+import { BoardSurface } from "./components/board/BoardSurface";
+import { requestWorkflowRun, WorkflowRunHost } from "./components/workflows/runWorkflow";
+import { currentEditorContext } from "./components/workflows/editorContext";
+import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
 import { findPanelTab } from "./layout/operations";
 import { useLayoutStore } from "./layout/store";
 import { navigationHistory } from "./layout/navigationHistory";
@@ -56,10 +79,13 @@ const VaultPicker = lazy(() =>
 const AuthDialog = lazy(() =>
   import("./components/AuthDialog").then((m) => ({ default: m.AuthDialog })),
 );
+const ActionPicker = lazy(() =>
+  import("./components/workflows/ActionPicker").then((m) => ({ default: m.ActionPicker })),
+);
 
 const VIEW_MODE_LABELS: ReadonlyArray<{ mode: ViewMode; label: string }> = [
   { mode: "live", label: "Live" },
-  { mode: "source", label: "Source" },
+  { mode: "source", label: "Raw" },
   { mode: "reading", label: "Reading" },
 ];
 
@@ -73,6 +99,7 @@ function ViewModeSelector() {
       className="segmented view-mode-selector"
       role="group"
       aria-label="Markdown view mode"
+      aria-keyshortcuts="Meta+E Control+E"
     >
       {VIEW_MODE_LABELS.map((option) => (
         <button
@@ -719,6 +746,9 @@ export default function App() {
   // session restore + sync reconcile too, which is why launch showed "Loading…"
   // for seconds on a big vault: the sidebar was ready long before auth was.
   const [openingLastVault, setOpeningLastVault] = useState(true);
+  // ⌘⇧P. Owned here rather than by a module bus because the picker is a plain
+  // overlay with no callers outside this shortcut.
+  const [actionPickerOpen, setActionPickerOpen] = useState(false);
   // Guards the launch auto-reopen against StrictMode's double-invoke (dev).
   const didAutoReopenRef = useRef(false);
 
@@ -732,6 +762,43 @@ export default function App() {
     revealWindowOnce();
     prefetchAfterPaint();
   }, []);
+
+  // The vault's workflow registry. One service per vault (its list IS a scan of
+  // that vault), built when a folder opens and torn down when it closes — and
+  // the slash menu is pointed at it for exactly that long. The first `refresh`
+  // is what makes a workflow survive a relaunch: nothing is cached, the notes
+  // on disk are re-read.
+  useEffect(() => {
+    if (!vault) {
+      setSlashWorkflowSource(null);
+      closeWorkflowService();
+      closeTaskService();
+      return;
+    }
+    openWorkflowService(vault.path);
+    // The task list is a query against THIS vault's derived index, so it opens
+    // and closes with the vault exactly like the workflow registry.
+    openTaskService(vault.path);
+    setSlashWorkflowSource({
+      list: () =>
+        workflowsSnapshot().map((entry) => ({
+          id: entry.id,
+          name: entry.definition?.name ?? entry.path,
+          ...(entry.definition?.description ? { description: entry.definition.description } : {}),
+          ...(entry.definition?.slash === false ? { slash: false } : {}),
+          runnable: entry.runnable,
+        })),
+      run: (id, ctx) => requestWorkflowRun(id, ctx, null),
+      currentPath: () => currentEditorContext().currentPath ?? null,
+    });
+    void refreshWorkflows();
+    void refreshTasks();
+    return () => {
+      setSlashWorkflowSource(null);
+      closeWorkflowService();
+      closeTaskService();
+    };
+  }, [vault?.path]);
 
   // History follows the loaded note. A persisted history tab is hydrated before
   // the first note opens, then its data is loaded as soon as a server doc id is
@@ -872,6 +939,10 @@ export default function App() {
     // The file changes themselves (last kind per path), for the titles patch.
     let pendingChanges = new Map<string, "modified" | "removed">();
     const scheduleRefresh = (changes: ipc.FileChanged[]) => {
+      if (changes.some((change) => change.path === KNOWLEDGE_SCHEMA_PATH)) {
+        const epoch = useStore.getState().vault?.epoch;
+        if (epoch != null) void reloadKnowledgeCatalog(epoch);
+      }
       if (pendingFolders) {
         const dirs = implicatedFolders(changes);
         if (dirs) for (const d of dirs) pendingFolders.add(d);
@@ -891,6 +962,13 @@ export default function App() {
         if (folders) void store.patchTitles(fileChanges);
         else void store.refreshTitles();
         void store.refreshBacklinks();
+        // A workflow definition IS a `.md` note, so any Markdown change can
+        // add, break or remove a command. Re-scan on the same coalesced beat.
+        if (batchTouchesWorkflows(fileChanges)) void refreshWorkflows();
+        // A task line IS a `.md` line: the same coalesced beat re-queries the
+        // index, so an external edit reaches the Tasks panel and the calendar
+        // badges without anyone opening the note.
+        if (batchTouchesTasks(fileChanges)) void refreshTasks();
       }, 120);
     };
     (async () => {
@@ -995,8 +1073,45 @@ export default function App() {
       window.location.reload();
     };
 
+    const onViewModeKey = createViewModeShortcutHandler(() => {
+      const state = useStore.getState();
+      const layout = useLayoutStore.getState().layout;
+      const noteGroup = layout.groups[CENTER_NOTE_GROUP_ID];
+      const activeSurface = layout.focusedGroupId === CENTER_NOTE_GROUP_ID
+        ? noteGroup?.tabs.find((tab) => tab.id === noteGroup.activeTabId)
+        : null;
+      return {
+        openNotePath: state.openNote?.path ?? null,
+        activeCenterSurfaceKind: activeSurface?.kind ?? null,
+        modalOpen: document.querySelector(".modal-backdrop") != null,
+        viewMode: state.viewMode,
+        setViewMode: state.setViewMode,
+      };
+    });
+
     const onKey = async (e: KeyboardEvent) => {
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "n") {
+      const globalShortcut = matchGlobalShortcut(e);
+      if (globalShortcut === "action-picker") {
+        e.preventDefault();
+        setActionPickerOpen((open) => !open);
+        return;
+      }
+      // A workflow's own `shortcut`. Built-ins are matched FIRST and reserved
+      // combinations never bind (see `components/workflows/shortcuts.ts`), so a
+      // vault full of downloaded workflows cannot take ⌘S away from anyone.
+      if (allowsShortcutTarget(e.target)) {
+        const bound = findShortcutWorkflow(
+          workflowsSnapshot(),
+          e,
+          platformClass() === "macos",
+        );
+        if (bound) {
+          e.preventDefault();
+          requestWorkflowRun(bound.id, currentEditorContext(), null);
+          return;
+        }
+      }
+      if (globalShortcut === "new-note") {
         e.preventDefault();
         // One shared create path with the sidebar's New-note button and the tab
         // strip's `+`: the same `Untitled` / `Untitled N` naming, the same root
@@ -1035,28 +1150,12 @@ export default function App() {
         else if (next) useLayoutStore.getState().dispatch({ type: "activate-tab", groupId: group.id, tabId: next.id });
         return;
       }
-      if (
-        (e.metaKey || e.ctrlKey) &&
-        !e.altKey &&
-        !e.shiftKey &&
-        e.key.toLowerCase() === "e"
-      ) {
-        const layout = useLayoutStore.getState().layout;
-        const noteGroup = layout.groups[CENTER_NOTE_GROUP_ID];
-        const activeSurface = noteGroup?.tabs.find((tab) => tab.id === noteGroup.activeTabId);
-        if (activeSurface?.kind !== "note") return;
-        const state = useStore.getState();
-        if (!state.openNote?.path.toLowerCase().endsWith(".md")) return;
-        e.preventDefault();
-        state.setViewMode(nextViewMode(state.viewMode));
-        return;
-      }
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "s") {
         e.preventDefault();
         // The bridge autosaves; ⌘S just flushes any pending debounced write.
         void bridgeManager.currentBridge()?.flushEgest();
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "g") {
+      if (globalShortcut === "graph") {
         e.preventDefault();
         useLayoutStore.getState().dispatch({
           type: "open-panel",
@@ -1120,8 +1219,15 @@ export default function App() {
         return;
       }
     };
+    // Capture only the view-mode shortcut. Editor widgets and WebKit editing
+    // commands can own keydown during the bubble phase, while the rest of the
+    // app's shortcuts keep their existing ordering.
+    window.addEventListener("keydown", onViewModeKey, true);
     window.addEventListener("keydown", onKey);
-    return () => window.removeEventListener("keydown", onKey);
+    return () => {
+      window.removeEventListener("keydown", onViewModeKey, true);
+      window.removeEventListener("keydown", onKey);
+    };
   }, []);
 
   // Only while we still don't know WHICH folder to show. `setVault` lands
@@ -1157,6 +1263,13 @@ export default function App() {
       <UpdateGate />
       <VaultSwitchOverlay />
       <PromptedAuthDialog />
+      {/* One run flow for every entry point: slash menu, picker, shortcut, view. */}
+      <WorkflowRunHost />
+      {actionPickerOpen && (
+        <Suspense fallback={null}>
+          <ActionPicker onClose={() => setActionPickerOpen(false)} />
+        </Suspense>
+      )}
       <div className="app">
         <WorkspaceShell
           vaultKey={vault.path}
@@ -1209,23 +1322,25 @@ export default function App() {
           <DeletedByTeammateBanner />
           <div className="editor-wrap">
             {openNote ? (
-              <Suspense
-                fallback={
-                  // The column the editor will use, not the default one:
-                  // without this the bars sat at 88ch and jumped sideways when
-                  // the real note landed. (The other half of that match is the
-                  // skeleton's own font-size — `--editor-measure` is a `ch`
-                  // length, so it resolves against whatever font the element
-                  // using it has; see `components/editor.css`.)
-                  <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
-                    <div className="editor-host-wrap" />
-                    <StatusBar stats={null} />
-                    <EditorSkeleton />
-                  </div>
-                }
-              >
-                <Editor />
-              </Suspense>
+              <BoardSurface path={openNote.path}>
+                <Suspense
+                  fallback={
+                    // The column the editor will use, not the default one:
+                    // without this the bars sat at 88ch and jumped sideways when
+                    // the real note landed. (The other half of that match is the
+                    // skeleton's own font-size — `--editor-measure` is a `ch`
+                    // length, so it resolves against whatever font the element
+                    // using it has; see `components/editor.css`.)
+                    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+                      <div className="editor-host-wrap" />
+                      <StatusBar stats={null} />
+                      <EditorSkeleton />
+                    </div>
+                  }
+                >
+                  <Editor />
+                </Suspense>
+              </BoardSurface>
             ) : (
               <EditorEmpty />
             )}

@@ -4,7 +4,8 @@
 // de-dupe) and referenced from the note by a vault-root markdown `src`.
 
 import * as ipc from "./ipc";
-import { previewKind } from "./preview";
+import type { VaultEpoch } from "./ipc";
+import { canEmbed } from "./preview";
 
 // Formats the app understands but that don't render in an <img> on every
 // platform (Linux WebKitGTK can't decode HEIC/TIFF). We transcode them to PNG
@@ -53,7 +54,11 @@ async function transcodeToPng(bytes: Uint8Array, mime: string): Promise<Uint8Arr
  * markdown `src` (e.g. `/attachments/ab12cd34.png`). `makeResolveAsset` turns
  * that back into a loadable `asset:` URL for rendering.
  */
-export async function saveAttachment(bytes: Uint8Array, ext: string): Promise<string> {
+export async function saveAttachment(
+  bytes: Uint8Array,
+  ext: string,
+  expectedEpoch?: VaultEpoch,
+): Promise<string> {
   // Non-portable image formats (HEIC/TIFF) → PNG so they render everywhere. If
   // the decode fails, fall back to storing the original untouched.
   const sourceMime = TRANSCODE_TO_PNG[ext.toLowerCase()];
@@ -71,7 +76,7 @@ export async function saveAttachment(bytes: Uint8Array, ext: string): Promise<st
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
   const rel = `attachments/${hash}.${ext}`;
-  await ipc.writeBinaryFile(rel, bytes);
+  await ipc.writeBinaryFile(rel, bytes, expectedEpoch);
   return `/${rel}`;
 }
 
@@ -89,5 +94,5 @@ export async function embedDroppedFile(path: string): Promise<string> {
   const bytes = await ipc.readExternalFile(path);
   const src = await saveAttachment(bytes, ext);
   const label = dot > 0 ? name.slice(0, dot) : name;
-  return previewKind(name) != null ? `![${label}](${src})` : `[${name}](${src})`;
+  return canEmbed(src) ? `![${label}](${src})` : `[${name}](${src})`;
 }

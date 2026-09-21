@@ -1,9 +1,15 @@
 [package]
 name = "desktop"
-version = "0.1.0"
+version = "0.1.59"
 description = "Noam — local-first markdown app"
 authors = ["Noam"]
 edition = "2021"
+
+[[bin]]
+# macOS uses the executable name for the Dock label in development builds.
+# Keep it aligned with the user-facing product name from tauri.conf.json.
+name = "Noam"
+path = "src/main.rs"
 
 [lib]
 # The `_lib` suffix keeps the lib name unique so it doesn't conflict with the

@@ -13,9 +13,26 @@
   height: 100%;
   min-width: 0;
   min-height: 0;
+  position: relative;
   overflow: hidden;
   background: var(--workspace-canvas);
   transition: grid-template-columns var(--workspace-dock-transition) var(--ease);
+}
+
+/* macOS overlays its traffic lights on the webview. Reserve one shared strip
+   above every workspace column so the active top-left surface cannot change
+   what sits underneath them when a dock opens, collapses, or moves. */
+:root[data-platform="macos"] .workspace-shell {
+  padding-top: var(--titlebar-inset);
+}
+
+.workspace-titlebar-drag {
+  position: absolute;
+  z-index: 20;
+  top: 0;
+  right: 0;
+  left: 0;
+  height: var(--titlebar-inset);
 }
 
 .workspace-status-bar {
@@ -362,8 +379,10 @@ body[data-pane-resizing] .workspace-shell {
 .version-row.active .version-revert { opacity: 1; }
 .version-revert:disabled { opacity: 0.45; }
 
-:root[data-platform="macos"] .workspace-dock-left .sidebar-header {
-  padding-left: 44px;
+/* The workspace shell owns the macOS inset. Do not add the sidebar header's
+   legacy per-row inset a second time inside the dock. */
+:root[data-platform="macos"] .workspace-shell .sidebar-header {
+  padding-top: var(--sp-4);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -643,6 +662,16 @@ body[data-pane-resizing] .workspace-shell {
 }
 .tab-list-wrap,
 .tiling-menu-wrap { position: relative; display: flex; align-items: center; }
+/* Pinned to the header's right edge independent of the tab strip's own
+   flex-grow: a wide tab strip already pushes trailing controls right, but a
+   short one (few tabs, or one scrolled to a short remainder) must not let
+   this float mid-header — `margin-left: auto` claims the leftover space
+   itself, and `flex: 0 0 auto` keeps it from being squeezed when the strip
+   overflows and shrinks. */
+.tiling-menu-wrap {
+  margin-left: auto;
+  flex: 0 0 auto;
+}
 .tab-list-button,
 .tiling-menu-button {
   width: 30px;
@@ -668,7 +697,7 @@ body[data-pane-resizing] .workspace-shell {
   top: calc(100% + 4px);
   right: 0;
   min-width: 210px;
-  max-height: min(420px, 70vh);
+  max-height: min(420px, 70vh, var(--viewport-menu-max-height, 100vh));
   overflow: auto;
   padding: var(--sp-1);
   border: 1px solid var(--border-strong);
@@ -676,8 +705,7 @@ body[data-pane-resizing] .workspace-shell {
   background: var(--bg-surface);
   box-shadow: var(--shadow-md);
 }
-/* The context menu is positioned at the cursor via inline style (see TabBar);
-   it must not be pinned to a fixed corner. */
+/* The context menu is portalled and anchored at the cursor by ViewportMenu. */
 .tab-list-menu button,
 .tiling-menu button,
 .tab-context-menu button {
@@ -722,15 +750,6 @@ body[data-pane-resizing] .workspace-shell {
   user-select: none;
 }
 .workspace-panel-header:active { cursor: grabbing; }
-.workspace-panel-subtitle {
-  flex: 1;
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  font-size: var(--type-chrome-size);
-  color: var(--text-tertiary);
-}
 .workspace-panel-body {
   flex: 1;
   min-height: 0;
@@ -784,6 +803,8 @@ body[data-pane-resizing] .workspace-shell {
   display: inline-flex;
   align-items: center;
   gap: 6px;
+  flex: none;
+  min-width: 0;
   max-width: 148px;
   height: 28px;
   padding: 0 var(--sp-2);
@@ -820,9 +841,16 @@ body[data-pane-resizing] .workspace-shell {
   stroke-linejoin: round;
 }
 .workspace-dock-tab-label {
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.workspace-dock-tabs.has-overflow .workspace-dock-tab:not(.active) { display: none; }
+.workspace-dock-tabs.has-overflow .workspace-dock-tab.active {
+  flex: 0 1 auto;
+  max-width: 100%;
+}
+.workspace-dock-tab-list-wrap { flex: none; }
 
 /* ---- Panel move menu (keyboard move/split) ---- */
 .panel-move-menu { position: relative; }
@@ -845,6 +873,8 @@ body[data-pane-resizing] .workspace-shell {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  max-height: var(--viewport-menu-max-height, 100vh);
+  overflow-y: auto;
 }
 .panel-move-heading {
   font-size: var(--fs-xs);

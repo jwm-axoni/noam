@@ -55,9 +55,12 @@ static H1_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"(?m)^#\s+(.+?)\s*$").unwra
 /// Returns `(Some(yaml), body)` or `(None, whole_content)`.
 fn split_frontmatter(content: &str) -> (Option<&str>, &str) {
     // Frontmatter must be the very first thing in the file.
-    let rest = match content.strip_prefix("---\n") {
+    // UTF-8 BOM is an encoding marker, not Markdown content. Keep accepting it
+    // here because the identity writer preserves existing BOMs byte-for-byte.
+    let frontmatter_content = content.strip_prefix('\u{feff}').unwrap_or(content);
+    let rest = match frontmatter_content.strip_prefix("---\n") {
         Some(r) => r,
-        None => match content.strip_prefix("---\r\n") {
+        None => match frontmatter_content.strip_prefix("---\r\n") {
             Some(r) => r,
             None => return (None, content),
         },
@@ -306,6 +309,24 @@ mod tests {
         let (fm, body) = split_frontmatter("just body\nmore");
         assert!(fm.is_none());
         assert_eq!(body, "just body\nmore");
+    }
+
+    #[test]
+    fn utf8_bom_before_frontmatter_is_an_encoding_marker() {
+        let parsed = parse_note(
+            "\u{feff}---\r\nnoam_document_id: doc-a\r\ntitle: Ada\r\n---\r\nBody",
+            "fallback",
+        );
+        assert_eq!(parsed.title, "Ada");
+        assert_eq!(parsed.body, "Body");
+        assert_eq!(
+            parsed.frontmatter_json.as_deref().and_then(|raw| {
+                serde_json::from_str::<serde_json::Value>(raw)
+                    .ok()
+                    .and_then(|value| value["noam_document_id"].as_str().map(str::to_string))
+            }),
+            Some("doc-a".to_string())
+        );
     }
 
     #[test]

@@ -21,6 +21,8 @@ import {
   type SimLink,
 } from "../lib/graph/simulation";
 import { assignColors, type LegendEntry } from "../lib/graph/graphColor";
+import { createEntrance, type Entrance } from "../lib/graph/entrance";
+import { selectLabels, type LabelNode } from "../lib/graph/labels";
 import {
   loadSettings,
   saveSettings,
@@ -30,7 +32,17 @@ import {
 import { useGraphData } from "../lib/graph/useGraphData";
 import { WebGLGraphRenderer, type RenderNode } from "../lib/graph/webglRenderer";
 import { SimClient } from "../lib/graph/simClient";
+import {
+  neighborhoodIds,
+  selectLocalSubgraph,
+} from "../lib/graph/localSubgraph";
+import {
+  filterGraphNodes,
+  localGraphEmptyReason,
+  shouldShowGraphEmptyState,
+} from "../lib/graph/graphFilters";
 import { useStore } from "../store";
+import { observeThemeChanges } from "../lib/theme";
 import { GraphControls } from "./GraphControls";
 import { Spinner } from "./Spinner";
 import "./graph.css";
@@ -47,8 +59,6 @@ import "./graph.css";
 const MIN_SCALE = 0.08;
 const MAX_SCALE = 6;
 const CLICK_DRAG_THRESHOLD = 4; // px moved before a pointerdown counts as a drag
-const LABEL_FADE_START = 1.5; // camera.k at which labels begin to appear (labelScale 1)
-const LABEL_FADE_END = 2.4; // camera.k at which labels are fully opaque (labelScale 1)
 const DEFAULT_FONT_FAMILY = "sans-serif";
 const FALLBACK_ACCENT = "#7f73ff";
 
@@ -92,12 +102,38 @@ const WEBGL_ENABLED = true;
 const WORKER_THRESHOLD = 8000;
 
 
+// ---- Persistent labels ----------------------------------------------------
+// Names are readable at rest, not only on hover. Which names survive is decided
+// in screen space by lib/graph/labels.ts: priority (open note > hovered >
+// search match > degree > id) with collision removal, so a dense field thins
+// itself instead of becoming a wall of text, and zooming in reveals more.
+const LABEL_FONT_PX = 11; // on-screen size, identical on both render paths
+const LABEL_LINE_PX = 13; // line box used for the collision rects
+const LABEL_OFFSET_PX = 3; // gap between a node's rim and its label
+// The "Labels" slider is a DENSITY control: it sets how much clear space each
+// label demands, so turning it up packs more names in. 0 keeps only the pinned
+// ones (open note, hover, search matches), which is what it has always meant.
+const LABEL_GAP_MIN = 2;
+const LABEL_GAP_MAX = 10;
+// Ceiling on drawn labels. Collisions almost always bind first; this only stops
+// a heavily zoomed-out vault from paying for thousands of fillText calls.
+const LABEL_BUDGET = 500;
+// The selection is recomputed when the camera/hover/search changes, and at most
+// this often while the layout drifts. Re-running it every frame would put a
+// sort + collision sweep of the visible set on the animation budget.
+const LABEL_RESELECT_MS = 150;
+
 // Flat-dot node rendering. Nodes are simple solid discs in their type color,
 // matching the reference look (Obsidian's graph): no 3D lighting, no baked
 // shading sprites, no contact shadows, no ambient glow.
 
-// Edges are quiet connective threads (source-over).
-const EDGE_REST = "rgba(128,146,196,1)";
+// The WebGL diagnostic stays off unless a developer explicitly opts in from
+// DevTools with `localStorage.context.graphDiag = "1"` and reloads the app.
+// Keep the dev-build gate so production builds never expose it.
+const GRAPH_DIAGNOSTICS_ENABLED =
+  import.meta.env.DEV &&
+  typeof localStorage !== "undefined" &&
+  localStorage.getItem("context.graphDiag") === "1";
 
 /** Parse "#rgb"/"#rrggbb" or "rgb()/rgba()" into [r,g,b] 0–255; grey on failure. */
 function parseColor(c: string): [number, number, number] {
@@ -142,6 +178,7 @@ interface Colors {
   edgeHighlight: string;
   nodeFallback: string;
   accent: string;
+  surface: "light" | "dark";
   label: string;
   labelActive: string;
 }
@@ -158,10 +195,11 @@ function readColors(el: Element): Colors {
   // tones would vanish on the light surface and vice versa.
   const dark = document.documentElement.dataset.theme === "dark";
   return {
-    edge: get("--border-strong") || "rgba(120,120,140,0.25)",
+    edge: get("--graph-link-rest") || "rgb(128, 133, 153)",
     edgeHighlight: get("--accent") || FALLBACK_ACCENT,
     nodeFallback: get("--text-tertiary") || "#9a9aa5",
     accent: get("--accent") || FALLBACK_ACCENT,
+    surface: dark ? "dark" : "light",
     // Resting labels stay muted; the open/hover label brightens to full.
     label: dark ? "rgba(205, 210, 224, 0.6)" : "rgba(43, 46, 64, 0.62)",
     labelActive: dark ? "#f2f4fb" : "#20232f",
@@ -252,47 +290,6 @@ function buildSimNodes(graph: Graph, previous: Map<string, SimNode>): SimNode[] 
   });
 }
 
-// Undirected adjacency (node id -> neighbor ids), memoized per Graph instance so
-// navigating between notes doesn't rebuild it from the full edge list each time.
-const adjacencyCache = new WeakMap<Graph, Map<string, string[]>>();
-function adjacencyOf(graph: Graph): Map<string, string[]> {
-  const cached = adjacencyCache.get(graph);
-  if (cached) return cached;
-  const adj = new Map<string, string[]>();
-  const link = (a: string, b: string) => {
-    const list = adj.get(a);
-    if (list) list.push(b);
-    else adj.set(a, [b]);
-  };
-  for (const e of graph.edges) {
-    link(e.source, e.target);
-    link(e.target, e.source);
-  }
-  adjacencyCache.set(graph, adj);
-  return adj;
-}
-
-/** Ids within `depth` link-hops of `startId` (inclusive), following links in
- *  both directions — the node set of the local graph. */
-function neighborhoodIds(graph: Graph, startId: string, depth: number): Set<string> {
-  const adj = adjacencyOf(graph);
-  const seen = new Set<string>([startId]);
-  let frontier = [startId];
-  for (let d = 0; d < depth && frontier.length; d++) {
-    const next: string[] = [];
-    for (const id of frontier) {
-      for (const nb of adj.get(id) ?? []) {
-        if (!seen.has(nb)) {
-          seen.add(nb);
-          next.push(nb);
-        }
-      }
-    }
-    frontier = next;
-  }
-  return seen;
-}
-
 export interface GraphViewProps {
   instanceId: string;
   visible: boolean;
@@ -335,6 +332,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   // Separate GPU canvas for the global scope (a canvas can hold only one context
   // type, so WebGL gets its own; the 2D canvas keeps the local view).
   const webglCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  // 2D overlay stacked on top of the GPU canvas, carrying nothing but the node
+  // names. Text on the GPU would mean a glyph atlas for a few hundred strings;
+  // a 2D canvas drawn from the same camera is simpler and crisper at any dpr.
+  const labelCanvasRef = useRef<HTMLCanvasElement | null>(null);
   // Whether the GPU renderer initialized. Read imperatively by `rebuild` to
   // decide the global fallback; mirrored to state (`webglError`) for the UI.
   const webglOkRef = useRef(false);
@@ -355,6 +356,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   // One-shot: fit the WebGL camera to the graph on (re)entry, then the user's
   // pan/zoom (shared `S.camera`) takes over.
   const webglNeedsFitRef = useRef(true);
+  const localNeedsFitRef = useRef(true);
 
   const { graph, loading, error, refresh } = useGraphData();
   // Only the Web Worker path (8k+ nodes) can set this. Inline layouts are
@@ -368,8 +370,27 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   const settingsRef = useRef<GraphSettings>(loadSettings(instanceId));
   const [settings, setSettings] = useState<GraphSettings>(settingsRef.current);
 
+  // `prefers-reduced-motion`, read once and kept current by a subscription
+  // below. The entrance consults it at the moment it starts.
+  const reducedMotionRef = useRef<boolean | null>(null);
+  if (reducedMotionRef.current === null) {
+    reducedMotionRef.current =
+      window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+  }
+  useEffect(() => {
+    const query = window.matchMedia?.("(prefers-reduced-motion: reduce)");
+    if (!query) return;
+    const onChange = (e: MediaQueryListEvent) => {
+      reducedMotionRef.current = e.matches;
+    };
+    query.addEventListener("change", onChange);
+    return () => query.removeEventListener("change", onChange);
+  }, []);
+
   const [legend, setLegend] = useState<LegendEntry[]>([]);
   const [counts, setCounts] = useState({ nodes: 0, edges: 0, total: 0 });
+  const [localCurrentNoteFound, setLocalCurrentNoteFound] = useState(false);
+  const [localPreFilterEdgeCount, setLocalPreFilterEdgeCount] = useState(0);
 
   useEffect(() => onStatusChange?.(counts), [counts, onStatusChange]);
   useImperativeHandle(ref, () => ({ refresh }), [refresh]);
@@ -421,11 +442,26 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     hasBuilt: false,
     inlineSettling: false,
     inlineSettleTicks: 0,
+    // The whole entrance is this ONE object: a scene-level progress function
+    // the draw code samples with the current frame time. No per-node timers and
+    // no React state — it interpolates the RENDERED scene only, so the layout
+    // and the camera are exactly what they were before it started.
+    entrance: null as Entrance | null,
+    // Label selection (see lib/graph/labels.ts). `labelIds` is what the 2D path
+    // tests per node; `labelDraw` is the chosen nodes in draw order, so the GPU
+    // path's overlay iterates hundreds instead of tens of thousands. `labelPool`
+    // is reused across selections to keep this off the GC's plate.
+    labelIds: new Set<string>(),
+    labelDraw: [] as SimNode[],
+    labelPool: [] as LabelNode[],
+    labelKey: "",
+    labelAt: 0,
     colors: {
       edge: "rgba(120,120,140,0.25)",
       edgeHighlight: FALLBACK_ACCENT,
       nodeFallback: "#9a9aa5",
       accent: FALLBACK_ACCENT,
+      surface: "dark",
       label: "rgba(205, 210, 224, 0.6)",
       labelActive: "#f2f4fb",
     } as Colors,
@@ -438,6 +474,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   // Recomputes per-node colors from the current visible set + accent, and pushes
   // the legend to React state. Also set by the canvas effect (needs S.accent).
   const recolorRef = useRef<() => void>(() => {});
+  // Starts the entrance. Set by the canvas effect (it owns the frame clock).
+  const beginEntranceRef = useRef<() => void>(() => {});
 
   // Force-layout Web Worker for large global graphs. Created once, lives for the
   // component's whole life (like simRef). Its streamed positions are written
@@ -466,7 +504,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           S.workerActive = false;
           S.needsDraw = true;
           setSettling(false);
-          requestDrawRef.current();
+          // Same reveal moment as the inline path, one thread later: the big
+          // graph was hidden while the worker arranged it, so this is where it
+          // gets its entrance.
+          beginEntranceRef.current();
         },
       );
     } catch {
@@ -492,24 +533,33 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
 
     // Local scope: draw only the open note's neighborhood (a handful of nodes,
     // so it stays smooth on any vault and re-centers as you move between notes).
-    // Falls back to the global overview when nothing is open.
-    const openNode =
-      s.scope === "local"
-        ? all.find((n) => n.path === openNotePathRef.current)
-        : undefined;
+    // With no open note, the local graph stays empty and explains how to enable it.
+    const localGraph =
+      s.scope === "local" && openNotePathRef.current
+        ? selectLocalSubgraph(g, openNotePathRef.current, s.localDepth)
+        : null;
+    setLocalCurrentNoteFound(s.scope === "local" && localGraph != null);
+    setLocalPreFilterEdgeCount(localGraph?.edges.length ?? 0);
+    const localIds = localGraph
+      ? new Set(localGraph.nodes.map((node) => node.id))
+      : null;
+    const openNodeId = localGraph?.nodes.find(
+      (node) => node.path.toLowerCase() === openNotePathRef.current?.toLowerCase(),
+    )?.id;
+    const openNode = all.find((node) => node.id === openNodeId);
 
-    let visNodes: SimNode[];
-    if (openNode) {
-      const keep = neighborhoodIds(g, openNode.id, Math.max(1, s.localDepth));
-      visNodes = all.filter((n) => keep.has(n.id));
-    } else {
+    const candidates =
+      s.scope === "local"
+        ? localIds
+          ? all.filter((node) => localIds.has(node.id))
+          : []
+        : all;
+    let visNodes = filterGraphNodes(candidates, s);
+    if (s.scope === "global") {
       // Global overview: HIDE by degree/orphans (search DIMS at draw-time). With
       // the GPU renderer we draw the whole set; without it (WebGL unavailable) we
       // fall back to the 2D canvas and cap to the most-connected nodes so it
       // stays smooth. The header reports the full total, so the cap is visible.
-      visNodes = all.filter(
-        (n) => !(s.hideOrphans && n.linkCount === 0) && n.linkCount >= s.minDegree,
-      );
       if (!webglOkRef.current && visNodes.length > GLOBAL_2D_CAP) {
         visNodes = [...visNodes]
           .sort((a, b) => b.linkCount - a.linkCount)
@@ -527,7 +577,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       }
     }
     const visible = new Set(visNodes.map((n) => n.id));
-    const links: SimLink[] = g.edges
+    const visibleEdges = localGraph?.edges ?? g.edges;
+    const links: SimLink[] = visibleEdges
       .filter((e) => visible.has(e.source) && visible.has(e.target))
       .map((e) => ({ source: e.source, target: e.target }));
 
@@ -573,6 +624,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     const worker = workerRef.current;
     const useWorker =
       !openNode && worker !== null && visNodes.length > WORKER_THRESHOLD;
+    const wasUsingWorker = S.useWorker;
     S.useWorker = useWorker;
     if (useWorker && worker) {
       S.indexById = new Map(visNodes.map((n, i) => [n.id, i]));
@@ -609,10 +661,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       // Switched to local or a small enough set: park the worker.
       worker.stop();
       S.workerActive = false;
+      if (wasUsingWorker && !S.inlineSettling) setSettling(false);
     }
 
     const accent = S.colors.accent || FALLBACK_ACCENT;
-    const { colorById, legend: lg } = assignColors(visNodes, s.colorMode, accent);
+    const { colorById, legend: lg } = assignColors(
+      visNodes,
+      s.colorMode,
+      accent,
+      S.colors.surface,
+    );
     S.colorById = colorById;
     setLegend(lg);
     setCounts({ nodes: visNodes.length, edges: links.length, total: g.nodes.length });
@@ -649,6 +707,13 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       );
 
       if (touchesFilter) {
+        if (patch.scope === "global") {
+          webglNeedsFitRef.current = true;
+          S.cleared2d = false;
+        }
+        if (patch.scope === "local" || patch.localDepth != null) {
+          localNeedsFitRef.current = true;
+        }
         // Fewer/more nodes: rebuild the sim data and let it re-settle.
         rebuild();
         return;
@@ -678,6 +743,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   const onReset = useCallback(() => {
     const next = { ...DEFAULT_SETTINGS };
     settingsRef.current = next;
+    webglNeedsFitRef.current = true;
+    S.cleared2d = false;
     saveSettings(next, instanceId);
     setSettings(next);
     const sim = simRef.current;
@@ -691,7 +758,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   useEffect(() => {
     graphRef.current = graph;
     if (graph) {
-      webglNeedsFitRef.current = true; // re-fit the WebGL camera to new data
+      if (settingsRef.current.scope === "global") webglNeedsFitRef.current = true;
+      else localNeedsFitRef.current = true;
       rebuild();
     }
   }, [graph, rebuild]);
@@ -704,13 +772,16 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
   // Re-center the local graph when the open note changes (no-op in global scope,
   // where the view doesn't depend on which note is open).
   useEffect(() => {
-    if (settingsRef.current.scope === "local" && graphRef.current) rebuild();
-  }, [openNotePath, rebuild]);
+    if (settingsRef.current.scope === "local" && graphRef.current) {
+      localNeedsFitRef.current = true;
+      rebuild();
+    }
+  }, [openNotePath, rebuild, S]);
 
   // Sample the imperative WebGL diagnostic into state a couple times a second
   // (diagnostic HUD only; avoids a per-frame setState).
   useEffect(() => {
-    if (!WEBGL_ENABLED || !visible) return;
+    if (!GRAPH_DIAGNOSTICS_ENABLED || !WEBGL_ENABLED || !visible) return;
     const id = setInterval(() => setDiag(diagRef.current), 500);
     return () => clearInterval(id);
   }, [visible]);
@@ -746,6 +817,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     if (!ctx) return;
     const sim = simRef.current!;
 
+    // Label overlay for the GPU path. Its own 2D context, sized alongside the
+    // others in resize().
+    const labelCtx = labelCanvasRef.current?.getContext("2d") ?? null;
+
     // GPU renderer for the global scope (best-effort; if WebGL2 is unavailable
     // we simply never switch to it). Its own canvas — a canvas can hold only one
     // context type.
@@ -770,6 +845,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       if (!webgl) return;
       const bd = readBackdropColors(wrap!);
       webgl.setBackdropColors(bd.core, bd.mid, bd.rim);
+      const [edgeR, edgeG, edgeB] = parseColor(readColors(wrap!).edge);
+      webgl.setEdgeColor([edgeR / 255, edgeG / 255, edgeB / 255]);
       webgl.setLightMode(
         document.documentElement.dataset.theme !== "dark",
       );
@@ -816,6 +893,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       dpr = window.devicePixelRatio || 1;
       canvas!.width = Math.max(1, Math.floor(width * dpr));
       canvas!.height = Math.max(1, Math.floor(height * dpr));
+      const labelCanvas = labelCanvasRef.current;
+      if (labelCanvas) {
+        labelCanvas.width = canvas!.width;
+        labelCanvas.height = canvas!.height;
+      }
       if (webgl) webgl.resize(width, height, dpr);
       if (visibleRef.current) workerRef.current?.resume();
       requestDraw();
@@ -834,24 +916,21 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         S.visNodes,
         s.colorMode,
         accent,
+        S.colors.surface,
       );
       S.colorById = colorById;
       setLegend(lg);
     }
     recolorRef.current = recolor;
 
-    // Re-read colors when the light/dark toggle flips data-theme, then recolor
-    // (accent-derived palettes must follow the theme). The GPU backdrop and
-    // edge tint follow too, so the whole canvas repaints into the new theme.
-    const themeObserver = new MutationObserver(() => {
+    // Re-read colors when the display mode, palette, or accent changes, then
+    // recolor (accent-derived palettes must follow the theme). The GPU backdrop
+    // and edge tint follow too, so the whole canvas repaints into the new theme.
+    const stopObservingTheme = observeThemeChanges(() => {
       S.colors = readColors(wrap!);
       applyThemeToWebgl();
       recolor();
       requestDraw();
-    });
-    themeObserver.observe(document.documentElement, {
-      attributes: true,
-      attributeFilter: ["data-theme"],
     });
 
     function screenToWorld(sx: number, sy: number) {
@@ -879,10 +958,137 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       return best;
     }
 
+    // ---- Entrance --------------------------------------------------------
+    // One clock for the whole frame: `loop` stamps it, both draw paths sample
+    // the same value, so nodes, edges and labels agree on how far along the
+    // bloom is. Hit-testing deliberately ignores it and keeps using the settled
+    // positions — the layout never moved, only the painting of it, and a
+    // 340ms-long disagreement between the cursor and the dots is a worse bug
+    // than the one it would fix. Any pan/zoom/press ends the entrance outright.
+    let frameNow = 0;
+
+    function makeEntrance(now: number) {
+      if (S.visNodes.length === 0) return;
+      S.entrance = createEntrance({
+        now,
+        reducedMotion: reducedMotionRef.current === true,
+      });
+    }
+
+    /** Start the entrance from OUTSIDE the frame loop (never from inside it —
+     *  requestDraw would schedule a second, parallel rAF chain). */
+    function beginEntrance() {
+      makeEntrance(performance.now());
+      requestDraw();
+    }
+    beginEntranceRef.current = beginEntrance;
+
+    /** World point the entrance blooms out of: the centre of what is on screen,
+     *  which the auto-fit has already parked on the centre of the graph. */
+    function entranceCenter() {
+      const k = S.camera.k || 1;
+      return { x: -S.camera.x / k, y: -S.camera.y / k };
+    }
+
+    // ---- Labels ----------------------------------------------------------
+    // Text metrics in SCREEN px (labels are drawn at a constant on-screen size
+    // on both paths, so one measurement per distinct title lasts for the life
+    // of the view).
+    const labelWidths = new Map<string, number>();
+    function measureLabel(node: LabelNode): number {
+      let w = labelWidths.get(node.title);
+      if (w === undefined) {
+        ctx!.font = `${LABEL_FONT_PX}px ${S.fontFamily}`;
+        w = ctx!.measureText(node.title).width;
+        labelWidths.set(node.title, w);
+      }
+      return w;
+    }
+
+    /**
+     * Refresh which nodes are labelled. Cheap to call every frame: it re-runs
+     * only when something that changes the answer changed (camera, hover,
+     * search, density, node count) or the layout has drifted for a while.
+     * `radiusScale` is the path's own multiplier on a node's world radius, so
+     * the label clears the disc it belongs to at whatever size it is drawn.
+     */
+    function refreshLabels(radiusScale: number) {
+      const s = settingsRef.current;
+      const cam = S.camera;
+      const key =
+        `${cam.k}|${cam.x}|${cam.y}|${width}|${height}|${S.hoveredId ?? ""}|` +
+        `${s.search}|${s.labelScale}|${radiusScale}|${S.visNodes.length}`;
+      if (key === S.labelKey && frameNow - S.labelAt < LABEL_RESELECT_MS) return;
+      S.labelKey = key;
+      S.labelAt = frameNow;
+
+      const search = s.search.trim().toLowerCase();
+      const matchIds = search === "" ? null : new Set<string>();
+      const pool = S.labelPool;
+      pool.length = S.visNodes.length;
+      let openId: string | null = null;
+      for (let i = 0; i < S.visNodes.length; i++) {
+        const n = S.visNodes[i];
+        let entry = pool[i];
+        if (!entry) {
+          entry = { id: "", x: 0, y: 0, degree: 0, radius: 0, title: "" };
+          pool[i] = entry;
+        }
+        entry.id = n.id;
+        entry.x = n.x;
+        entry.y = n.y;
+        entry.degree = n.linkCount;
+        entry.radius = n.radius * radiusScale;
+        entry.title = n.title;
+        if (n.path === openNotePathRef.current) openId = n.id;
+        if (matchIds && n.title.toLowerCase().includes(search)) matchIds.add(n.id);
+      }
+
+      const density = clamp(s.labelScale, 0, 1);
+      const ids = selectLabels(pool, {
+        transform: { k: cam.k, x: cam.x, y: cam.y, width, height },
+        measure: measureLabel,
+        lineHeight: LABEL_LINE_PX,
+        gap: LABEL_GAP_MAX - (LABEL_GAP_MAX - LABEL_GAP_MIN) * density,
+        openId,
+        hoveredId: S.hoveredId,
+        searchMatchIds: matchIds,
+        maxLabels: s.labelScale <= 0 ? 0 : LABEL_BUDGET,
+      });
+      S.labelIds = ids;
+      S.labelDraw.length = 0;
+      for (const n of S.visNodes) if (ids.has(n.id)) S.labelDraw.push(n);
+    }
+
     // ---- Drawing ----
     function draw() {
       ctx!.setTransform(dpr, 0, 0, dpr, 0, 0);
       ctx!.clearRect(0, 0, width, height); // transparent → CSS backdrop shows through
+      const scope = settingsRef.current.scope;
+      const needsFit =
+        (scope === "local" && localNeedsFitRef.current) ||
+        (scope === "global" && webgl === null && webglNeedsFitRef.current);
+      if (needsFit && S.visNodes.length > 0) {
+        let minX = Infinity;
+        let minY = Infinity;
+        let maxX = -Infinity;
+        let maxY = -Infinity;
+        for (const node of S.visNodes) {
+          minX = Math.min(minX, node.x);
+          minY = Math.min(minY, node.y);
+          maxX = Math.max(maxX, node.x);
+          maxY = Math.max(maxY, node.y);
+        }
+        const boundsWidth = Math.max(40, maxX - minX);
+        const boundsHeight = Math.max(40, maxY - minY);
+        S.camera.k = clamp(
+          Math.min((width - 80) / boundsWidth, (height - 80) / boundsHeight),
+          MIN_SCALE,
+          2.4,
+        );
+        S.camera.x = -((minX + maxX) / 2) * S.camera.k;
+        S.camera.y = -((minY + maxY) / 2) * S.camera.k;
+      }
       ctx!.save();
       ctx!.translate(width / 2 + S.camera.x, height / 2 + S.camera.y);
       ctx!.scale(S.camera.k, S.camera.k);
@@ -909,45 +1115,55 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       const matches = (n: SimNode) =>
         search === "" || n.title.toLowerCase().includes(search);
 
-      // Label fade threshold scales inversely with labelScale — a higher
-      // "Labels" setting reveals labels at lower zoom; 0 hides all but hover/open.
-      const ls = s.labelScale;
-      const start = LABEL_FADE_START / Math.max(ls, 0.0001);
-      const end = LABEL_FADE_END / Math.max(ls, 0.0001);
-      const zoomLabelAlpha =
-        ls <= 0 ? 0 : clamp((k - start) / (end - start), 0, 1);
-
       const nodeScale = s.nodeSize;
+      refreshLabels(nodeScale);
+
+      // Entrance: the scene is painted somewhere between the visual centre and
+      // the settled layout. `rendered` is the identity once it is over (and
+      // while there is no entrance at all), so the steady state allocates
+      // nothing and the settled frame is bit-for-bit what it always was.
+      const entrance = S.entrance;
+      const center = entranceCenter();
+      const nodeAlpha = entrance ? entrance.nodeAlpha(frameNow) : 1;
+      const edgeAlpha = entrance ? entrance.edgeAlpha(frameNow) : 1;
+      const entranceScale = entrance ? entrance.nodeScale(frameNow) : 1;
+      const rendered = (n: SimNode): { x: number; y: number } =>
+        entrance ? entrance.positionFor(n, center, frameNow) : n;
+
       const drawNodes = S.drawOrder;
       // ---- Edges: quiet connective threads (source-over, batched) ----
       ctx!.globalCompositeOperation = "source-over";
       const edgeWidth = s.edgeThickness / k;
-      ctx!.strokeStyle = EDGE_REST;
+      ctx!.strokeStyle = colors.edge;
       // Close to the GPU path's resting edge alpha so the WebGL-unavailable
       // fallback doesn't look like a different, dimmer product.
-      ctx!.globalAlpha = hovered ? 0.06 : 0.28;
+      ctx!.globalAlpha = (hovered ? 0.06 : 0.28) * edgeAlpha;
       ctx!.lineWidth = edgeWidth;
       ctx!.beginPath();
       for (const e of S.visEdges) {
         const src = e.source as SimNode;
         const tgt = e.target as SimNode;
         if (hovered && (src.id === hovered.id || tgt.id === hovered.id)) continue;
-        ctx!.moveTo(src.x, src.y);
-        ctx!.lineTo(tgt.x, tgt.y);
+        const a = rendered(src);
+        const b = rendered(tgt);
+        ctx!.moveTo(a.x, a.y);
+        ctx!.lineTo(b.x, b.y);
       }
       ctx!.stroke();
       if (hovered) {
         // The hovered node's own links light up with the accent, drawn on top.
         ctx!.strokeStyle = colors.edgeHighlight;
-        ctx!.globalAlpha = 0.85;
+        ctx!.globalAlpha = 0.85 * edgeAlpha;
         ctx!.lineWidth = edgeWidth * 1.8;
         ctx!.beginPath();
         for (const e of S.visEdges) {
           const src = e.source as SimNode;
           const tgt = e.target as SimNode;
           if (src.id !== hovered.id && tgt.id !== hovered.id) continue;
-          ctx!.moveTo(src.x, src.y);
-          ctx!.lineTo(tgt.x, tgt.y);
+          const a = rendered(src);
+          const b = rendered(tgt);
+          ctx!.moveTo(a.x, a.y);
+          ctx!.lineTo(b.x, b.y);
         }
         ctx!.stroke();
       }
@@ -961,17 +1177,18 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         const dimBySearch = !matches(node);
         const dimmed = dimByHover || dimBySearch;
 
-        const base = node.radius * nodeScale;
+        const base = node.radius * nodeScale * entranceScale;
         const r = isHovered ? base * 1.32 : base;
         const color = isOpen
           ? colors.accent
           : S.colorById.get(node.id) ?? colors.nodeFallback;
+        const at = rendered(node);
 
         // Flat solid disc in the node's color — no shading, no gloss.
-        ctx!.globalAlpha = dimmed ? 0.24 : 1;
+        ctx!.globalAlpha = (dimmed ? 0.24 : 1) * nodeAlpha;
         ctx!.fillStyle = color;
         ctx!.beginPath();
-        ctx!.arc(node.x, node.y, r, 0, Math.PI * 2);
+        ctx!.arc(at.x, at.y, r, 0, Math.PI * 2);
         ctx!.fill();
 
         // The open note gets an accent ring so it's findable at a glance; the
@@ -979,34 +1196,76 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         if (isOpen || isHovered) {
           ctx!.lineWidth = (isOpen ? 2 : 1.25) / k;
           ctx!.strokeStyle = colors.accent;
-          ctx!.globalAlpha = dimmed ? 0.4 : isOpen ? 1 : 0.6;
+          ctx!.globalAlpha = (dimmed ? 0.4 : isOpen ? 1 : 0.6) * nodeAlpha;
           ctx!.beginPath();
-          ctx!.arc(node.x, node.y, r + 3 / k, 0, Math.PI * 2);
+          ctx!.arc(at.x, at.y, r + 3 / k, 0, Math.PI * 2);
           ctx!.stroke();
         }
 
-        // Labels: fade in with zoom, always shown on hover and for the open note.
-        const wantLabel = isHovered || isOpen || zoomLabelAlpha > 0.01;
+        // Labels: on at rest for whatever fits (selectLabels decided that above,
+        // in screen space), plus the hovered node and the open note always.
+        // During the entrance they arrive with the edges, after the nodes.
+        const wantLabel = isHovered || isOpen || S.labelIds.has(node.id);
         if (wantLabel) {
-          let alpha = isHovered || isOpen ? 1 : zoomLabelAlpha;
+          let alpha = edgeAlpha;
           if (dimBySearch && !isHovered) alpha *= 0.2;
           else if (dimByHover) alpha *= 0.25;
           if (alpha > 0.01) {
             ctx!.globalAlpha = alpha;
-            ctx!.fillStyle = isOpen ? colors.labelActive : colors.label;
-            ctx!.font = `${11 / k}px ${S.fontFamily}`;
+            ctx!.fillStyle = isOpen || isHovered ? colors.labelActive : colors.label;
+            ctx!.font = `${LABEL_FONT_PX / k}px ${S.fontFamily}`;
             ctx!.textAlign = "center";
             ctx!.textBaseline = "top";
-            ctx!.fillText(node.title, node.x, node.y + r + 3 / k);
+            ctx!.fillText(node.title, at.x, at.y + r + LABEL_OFFSET_PX / k);
           }
         }
       }
       ctx!.globalAlpha = 1;
       ctx!.globalCompositeOperation = "source-over";
       ctx!.restore();
+    }
 
-      // The entrance is the wrapper's fade (`.graph-intro`), and that is
-      // deliberately all.
+    /**
+     * Persistent names for the GPU path, painted on a 2D canvas stacked over
+     * the WebGL one and driven by the SAME camera, so the two layers cannot
+     * drift apart. Only the nodes `selectLabels` chose are visited (hundreds at
+     * most), so this stays a rounding error next to the GPU passes even on a
+     * 50k-node vault. `factor` interpolates around the screen centre during the
+     * entrance — the affine equivalent of moving the nodes in world space.
+     */
+    function drawLabelOverlay(factor: number, alpha: number, radiusScale: number) {
+      if (!labelCtx) return;
+      labelCtx.setTransform(dpr, 0, 0, dpr, 0, 0);
+      labelCtx.clearRect(0, 0, width, height);
+      if (alpha <= 0.01 || S.labelDraw.length === 0) return;
+      const cam = S.camera;
+      labelCtx.font = `${LABEL_FONT_PX}px ${S.fontFamily}`;
+      labelCtx.textAlign = "center";
+      labelCtx.textBaseline = "top";
+      labelCtx.globalAlpha = alpha;
+      // A soft counter-shadow in the backdrop's own direction is what keeps a
+      // name legible where it crosses a bright node or a knot of links, in
+      // either theme, without boxing every label in a plate.
+      labelCtx.shadowColor =
+        S.colors.surface === "dark" ? "rgba(0,0,0,0.65)" : "rgba(255,255,255,0.75)";
+      labelCtx.shadowBlur = 3;
+      for (const n of S.labelDraw) {
+        const active = n.path === openNotePathRef.current || n.id === S.hoveredId;
+        let sx = width / 2 + cam.x + n.x * cam.k;
+        let sy = height / 2 + cam.y + n.y * cam.k;
+        if (factor !== 1) {
+          sx = width / 2 + (sx - width / 2) * factor;
+          sy = height / 2 + (sy - height / 2) * factor;
+        }
+        labelCtx.fillStyle = active ? S.colors.labelActive : S.colors.label;
+        labelCtx.fillText(
+          n.title,
+          sx,
+          sy + n.radius * radiusScale * cam.k + LABEL_OFFSET_PX,
+        );
+      }
+      labelCtx.shadowBlur = 0;
+      labelCtx.globalAlpha = 1;
     }
 
     // Global scope: draw every node on the GPU. The instance buffer is rebuilt
@@ -1069,6 +1328,36 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         if (n.x > maxX) maxX = n.x;
         if (n.y > maxY) maxY = n.y;
       }
+
+      // One-shot: fit the shared camera to the graph. After that the user's
+      // pan/zoom (which mutates S.camera via the 2D handlers) drives the view.
+      // Measured on the SETTLED bounds above, before the entrance touches
+      // anything, so the bloom can never move the camera.
+      if (webglNeedsFitRef.current && webglNodes.length > 0) {
+        // Keep the graph framed as the layout expands during settle; the flag is
+        // cleared the moment the user pans/zooms (in the interaction handlers).
+        const bw = Math.max(1, maxX - minX);
+        const bh = Math.max(1, maxY - minY);
+        S.camera.k = Math.min((width - 80) / bw, (height - 80) / bh);
+        S.camera.x = -((minX + maxX) / 2) * S.camera.k;
+        S.camera.y = -((minY + maxY) / 2) * S.camera.k;
+      }
+
+      // Entrance: one scalar for the whole scene. `factor` is 1 once the bloom
+      // is over, and then this second pass is skipped entirely.
+      const entrance = S.entrance;
+      const factor = entrance ? entrance.factor(frameNow) : 1;
+      const edgeAlpha = entrance ? entrance.edgeAlpha(frameNow) : 1;
+      const center = entranceCenter();
+      if (factor !== 1) {
+        const entranceScale = entrance!.nodeScale(frameNow);
+        for (let i = 0; i < webglNodes.length; i++) {
+          const rn = webglNodes[i];
+          rn.x = center.x + (rn.x - center.x) * factor;
+          rn.y = center.y + (rn.y - center.y) * factor;
+          rn.r *= entranceScale;
+        }
+      }
       webgl.setNodes(webglNodes);
       // Edges: two world-space vertices per link (source → target), read from
       // the sim nodes forceLink resolved in place.
@@ -1080,11 +1369,19 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         const src = edges[i].source as SimNode;
         const tgt = edges[i].target as SimNode;
         const o = i * 4;
-        edgePositions[o] = src.x;
-        edgePositions[o + 1] = src.y;
-        edgePositions[o + 2] = tgt.x;
-        edgePositions[o + 3] = tgt.y;
+        if (factor === 1) {
+          edgePositions[o] = src.x;
+          edgePositions[o + 1] = src.y;
+          edgePositions[o + 2] = tgt.x;
+          edgePositions[o + 3] = tgt.y;
+        } else {
+          edgePositions[o] = center.x + (src.x - center.x) * factor;
+          edgePositions[o + 1] = center.y + (src.y - center.y) * factor;
+          edgePositions[o + 2] = center.x + (tgt.x - center.x) * factor;
+          edgePositions[o + 3] = center.y + (tgt.y - center.y) * factor;
+        }
       }
+      webgl.setEdgeAlphaScale(edgeAlpha);
       webgl.setEdges(edgePositions.subarray(0, edges.length * 4));
       // Hover: bright rays from the hovered node to each of its neighbors, so
       // connections are traceable even in a huge cloud.
@@ -1101,17 +1398,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       } else {
         webgl.setHighlightEdges(new Float32Array(0));
       }
-      // One-shot: fit the shared camera to the graph. After that the user's
-      // pan/zoom (which mutates S.camera via the 2D handlers) drives the view.
-      if (webglNeedsFitRef.current && webglNodes.length > 0) {
-        // Keep the graph framed as the layout expands during settle; the flag is
-        // cleared the moment the user pans/zooms (in the interaction handlers).
-        const bw = Math.max(1, maxX - minX);
-        const bh = Math.max(1, maxY - minY);
-        S.camera.k = Math.min((width - 80) / bw, (height - 80) / bh);
-        S.camera.x = -((minX + maxX) / 2) * S.camera.k;
-        S.camera.y = -((minY + maxY) / 2) * S.camera.k;
-      }
       // Same transform as the 2D path: screen_css = width/2 + cam.x + world·cam.k,
       // then scaled by dpr into the device-pixel drawing buffer.
       const cam = S.camera;
@@ -1125,6 +1411,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         MIN_NODE_PX * dpr,
         dpr,
       );
+      refreshLabels(nodeScale * countScale);
+      drawLabelOverlay(factor, edgeAlpha, nodeScale * countScale);
       diagRef.current =
         `webgl ✓ · nodes ${webglNodes.length} · buf ${webglCanvas.width}×${webglCanvas.height} · ` +
         `k ${cam.k.toFixed(3)} · cam ${Math.round(cam.x)},${Math.round(cam.y)} · ` +
@@ -1138,6 +1426,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     function loop() {
       S.rafId = null;
       if (!canRender()) return;
+      frameNow = performance.now();
       // When the Web Worker owns the layout (big global graph) we NEVER tick the
       // main-thread sim — that's the whole point, it would freeze the UI. The
       // worker streams positions in and flips S.workerActive; we just repaint.
@@ -1161,6 +1450,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           ) {
             S.inlineSettling = false;
             setSettling(false);
+            // Arm the entrance HERE, not from the effect that watches
+            // `settling`: the frame this call is part of is the one React then
+            // reveals, so the first thing the eye sees is the bloom's opening
+            // frame rather than the settled graph for a beat before it.
+            makeEntrance(frameNow);
           }
         } else if (sim.alpha() > sim.alphaMin() || S.drag != null) {
           sim.tick();
@@ -1172,7 +1466,17 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         if (webglNeedsFitRef.current && sim.alpha() <= FIT_LOCK_ALPHA) {
           webglNeedsFitRef.current = false;
         }
+        if (
+          settingsRef.current.scope === "local" &&
+          localNeedsFitRef.current &&
+          sim.alpha() <= FIT_LOCK_ALPHA
+        ) {
+          localNeedsFitRef.current = false;
+        }
       }
+      // The entrance keeps the clock running on its own — a settled layout with
+      // a bloom still in flight must not rest until the bloom has landed.
+      if (S.entrance != null) active = true;
       if (settingsRef.current.scope === "global" && webgl) {
         // Only rebuild + re-upload + redraw while the layout is moving (or on an
         // explicit request). Once settled the last frame stands, so idle cost is
@@ -1182,6 +1486,9 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       } else if (active || S.needsDraw) {
         draw();
       }
+      // Drop the entrance only after the frame that drew it at rest, so the
+      // scene it leaves behind is the settled one.
+      if (S.entrance && S.entrance.done(frameNow)) S.entrance = null;
       S.needsDraw = false;
       if (active) S.rafId = requestAnimationFrame(loop);
     }
@@ -1201,6 +1508,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     function handleWheel(e: WheelEvent) {
       e.preventDefault();
       webglNeedsFitRef.current = false; // user is driving the camera now
+      localNeedsFitRef.current = false;
+      S.entrance = null; // the user is here; stop animating the arrival
       const rect = canvas!.getBoundingClientRect();
       const sx = e.clientX - rect.left;
       const sy = e.clientY - rect.top;
@@ -1215,6 +1524,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
 
     function handlePointerDown(e: PointerEvent) {
       webglNeedsFitRef.current = false; // user is driving the camera now
+      localNeedsFitRef.current = false;
+      // Hit-testing reads the SETTLED positions, so a press mid-entrance would
+      // otherwise grab a node that is not yet drawn where it is. Landing the
+      // bloom immediately is both simpler and what the user just asked for.
+      S.entrance = null;
       const { x: sx, y: sy } = clientToLocal(e);
       const hit = nodeAt(sx, sy);
       canvas!.setPointerCapture(e.pointerId);
@@ -1376,7 +1690,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
 
     return () => {
       ro.disconnect();
-      themeObserver.disconnect();
+      stopObservingTheme();
       closingObserver?.disconnect();
       if (S.rafId != null) {
         cancelAnimationFrame(S.rafId);
@@ -1386,8 +1700,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       S.rafId = null;
       sim.stop();
       webgl?.dispose();
+      S.entrance = null;
       requestDrawRef.current = () => {};
       recolorRef.current = () => {};
+      beginEntranceRef.current = () => {};
       canvas.removeEventListener("wheel", handleWheel);
       canvas.removeEventListener("pointerdown", handlePointerDown);
       canvas.removeEventListener("pointermove", handlePointerMove);
@@ -1410,8 +1726,33 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     requestDrawRef.current();
   }, [S, visible]);
 
-  const showEmpty =
-    !loading && !error && graph != null && counts.nodes === 0 && !retryingEmpty;
+  // Play the entrance when the graph is (re)shown. The reveal after a settle is
+  // armed from the frame loop instead (see `makeEntrance`), so this only covers
+  // switching back to an already-built graph. Either way it is purely a way of
+  // PAINTING the layout that already exists — no reheat, no reseeding, no
+  // camera change — so a reopened graph blooms into exactly the arrangement and
+  // framing it had. Declared after the canvas effect, which installs the ref.
+  useEffect(() => {
+    if (!visible) return;
+    beginEntranceRef.current();
+  }, [visible]);
+
+  const showEmpty = shouldShowGraphEmptyState({
+    loading,
+    error,
+    graphLoaded: graph != null,
+    retryingEmpty,
+    scope: settings.scope,
+    nodeCount: counts.nodes,
+    edgeCount: counts.edges,
+  });
+  const localEmptyReason = localGraphEmptyReason({
+    hasOpenNote: openNotePath != null,
+    currentNoteFound: localCurrentNoteFound,
+    preFilterEdgeCount: localPreFilterEdgeCount,
+    nodeCount: counts.nodes,
+    edgeCount: counts.edges,
+  });
 
   return (
     <div className="graph-view" ref={wrapRef}>
@@ -1430,6 +1771,18 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             // Events pass through to the 2D canvas below, which owns the shared
             // pan/zoom + hit-test handlers.
             pointerEvents: "none",
+            display:
+              WEBGL_ENABLED && settings.scope === "global" && !webglError
+                ? "block"
+                : "none",
+          }}
+        />
+        {/* Names for the GPU path. Shares the WebGL canvas's visibility rule —
+            in local scope the 2D canvas draws its own labels inline. */}
+        <canvas
+          className="graph-canvas graph-label-layer"
+          ref={labelCanvasRef}
+          style={{
             display:
               WEBGL_ENABLED && settings.scope === "global" && !webglError
                 ? "block"
@@ -1455,24 +1808,11 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             WebGL unavailable — showing capped 2D fallback. {webglError}
           </div>
         )}
-        {WEBGL_ENABLED && settings.scope === "global" && diag && import.meta.env.DEV && (
-          <div
-            style={{
-              position: "absolute",
-              bottom: 8,
-              left: 8,
-              padding: "4px 8px",
-              borderRadius: 6,
-              background: "rgba(0,0,0,0.6)",
-              color: "#9fef9f",
-              font: "10px/1.4 ui-monospace, monospace",
-              pointerEvents: "none",
-              zIndex: 5,
-            }}
-          >
-            {diag}
-          </div>
-        )}
+        {GRAPH_DIAGNOSTICS_ENABLED &&
+          WEBGL_ENABLED &&
+          settings.scope === "global" &&
+          diag &&
+          !showControls && <div className="graph-diagnostics">{diag}</div>}
         {settings.scope === "global" && hoverTip && (
           <div
             style={{
@@ -1504,6 +1844,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             onChange={applyPatch}
             onReset={onReset}
             legend={legend}
+            hasCurrentNote={openNotePath != null}
           />
         )}
 
@@ -1545,10 +1886,34 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
                   <circle cx="36" cy="36" r="7" className="ge-node ge-node-hub" />
                 </svg>
               </div>
-              <strong>Your graph is empty</strong>
+              <strong>
+                {settings.scope === "local"
+                  ? localEmptyReason === "filtered"
+                    ? "No notes match these filters"
+                    : localEmptyReason === "missing"
+                      ? "This note is not in the graph"
+                      : localEmptyReason === "unlinked"
+                        ? "No links from this note"
+                        : "Open a note"
+                  : "Your graph is empty"}
+              </strong>
               <span>
-                Write a note, then link notes with{" "}
-                <code>[[wikilinks]]</code> to grow a living map of your ideas.
+                {settings.scope === "local" ? (
+                  localEmptyReason === "filtered" ? (
+                    <>Lower Min links or turn off Hide unlinked.</>
+                  ) : localEmptyReason === "missing" ? (
+                    <>Only Markdown notes appear in the graph.</>
+                  ) : localEmptyReason === "unlinked" ? (
+                    <>Add a <code>[[wikilink]]</code> to connect it to another note.</>
+                  ) : (
+                    <>Open a note to see its links and backlinks.</>
+                  )
+                ) : (
+                  <>
+                    Write a note, then link notes with <code>[[wikilinks]]</code> to grow a
+                    map of your ideas.
+                  </>
+                )}
               </span>
             </div>
           </div>

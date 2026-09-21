@@ -20,6 +20,7 @@ export interface HeaderFocus {
   focusTitle(select?: boolean): boolean;
   focusFirstProperty(): boolean;
   focusLastProperty(): boolean;
+  expandProperties(): void;
 }
 
 const registry = new WeakMap<EditorView, Partial<HeaderFocus>>();

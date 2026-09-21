@@ -84,6 +84,16 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
   "&.cm-reading .cm-activeLine, &.cm-reading .cm-activeLineGutter": {
     backgroundColor: "transparent",
   },
+  // Source is literal Markdown. Keep its heading ink on the ordinary text
+  // tier even when Live Preview and Reading use the themed heading palette.
+  "&.cm-source": {
+    "--heading-1-color": "var(--text-primary)",
+    "--heading-2-color": "var(--text-primary)",
+    "--heading-3-color": "var(--text-primary)",
+    "--heading-4-color": "var(--text-primary)",
+    "--heading-5-color": "var(--text-primary)",
+    "--heading-6-color": "var(--text-primary)",
+  },
 
   // Selection: a clearly visible accent wash on the drawSelection() layer.
   // `--accent-soft` was too faint to read as a selection on the white sheet.
@@ -180,12 +190,6 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
     border: "1px solid var(--border)",
     overflow: "hidden",
     background: "var(--bg-subtle)",
-  },
-  ".cm-md-pdf-frame": {
-    width: "100%",
-    height: "100%",
-    border: "0",
-    display: "block",
   },
   ".cm-md-html :first-child": { marginTop: "0" },
   ".cm-md-html :last-child": { marginBottom: "0" },
@@ -729,7 +733,7 @@ export const markdownHighlightSpec = [
       fontSize: "var(--type-heading-1-size)",
       fontWeight: "var(--type-weight-bold)",
       lineHeight: "var(--type-leading-tight)",
-      color: "var(--text-primary)",
+      color: "var(--heading-1-color)",
     },
     {
       tag: t.heading2,
@@ -737,20 +741,32 @@ export const markdownHighlightSpec = [
       fontSize: "var(--type-heading-2-size)",
       fontWeight: "var(--type-weight-bold)",
       lineHeight: "var(--type-leading-tight)",
-      color: "var(--text-primary)",
+      color: "var(--heading-2-color)",
     },
     {
       tag: t.heading3,
       fontFamily: "var(--font-display)",
       fontSize: "var(--type-heading-3-size)",
       fontWeight: "var(--type-weight-semibold)",
-      color: "var(--text-primary)",
+      color: "var(--heading-3-color)",
     },
     {
-      tag: [t.heading4, t.heading5, t.heading6],
+      tag: t.heading4,
       fontFamily: "var(--font-display)",
       fontWeight: "var(--type-weight-semibold)",
-      color: "var(--text-primary)",
+      color: "var(--heading-4-color)",
+    },
+    {
+      tag: t.heading5,
+      fontFamily: "var(--font-display)",
+      fontWeight: "var(--type-weight-semibold)",
+      color: "var(--heading-5-color)",
+    },
+    {
+      tag: t.heading6,
+      fontFamily: "var(--font-display)",
+      fontWeight: "var(--type-weight-semibold)",
+      color: "var(--heading-6-color)",
     },
     { tag: t.strong, fontWeight: "var(--type-weight-bold)", color: "var(--text-primary)" },
     { tag: t.emphasis, fontStyle: "italic", color: "var(--text-primary)" },

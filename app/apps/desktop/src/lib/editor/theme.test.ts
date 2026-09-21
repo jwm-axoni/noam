@@ -1,56 +1,90 @@
-// The editor's colour contract, asserted where it actually lives.
-//
-// Two halves, and the second is the one that has bitten us:
-//  1. `editorThemeSpec` / `markdownHighlightSpec` say WHICH token each part of
-//     the editor consumes (jsdom does no layout, so a computed-px or computed-
-//     colour assertion is impossible — see editorGeometry.test.ts).
-//  2. `tokens.css` must DEFINE those tokens in all three colour blocks —
-//     `:root`, `[data-theme="dark"]`, and the `prefers-color-scheme: dark`
-//     pre-hydration block. Miss the third and every marker in the editor
-//     flashes the light value for a frame on a dark-mode cold start; miss the
-//     second and it stays wrong forever.
+// @vitest-environment jsdom
 
-import { readFileSync } from "node:fs";
-import { fileURLToPath } from "node:url";
 import { tags as t } from "@lezer/highlight";
-import { describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { THEME_PRESETS } from "../theme";
+import {
+  computedToken,
+  installThemeCss,
+  resetThemeAttributes,
+  resolvedToken,
+} from "../../styles/__tests__/themeCssHarness";
 import { hashtagTag, highlightTag } from "./ofm/tags";
 import { editorThemeSpec, markdownHighlightSpec } from "./theme";
-
-const tokensCss = readFileSync(
-  fileURLToPath(new URL("../../styles/tokens.css", import.meta.url)),
-  "utf8",
-);
 
 const tagsOf = (s: { tag: unknown }): unknown[] => (Array.isArray(s.tag) ? s.tag : [s.tag]);
 const ruleFor = (tag: unknown) => markdownHighlightSpec.find((s) => tagsOf(s).includes(tag));
 
-/** How many of tokens.css's three colour blocks define `name`. */
-const definitions = (name: string) =>
-  tokensCss.split("\n").filter((l) => l.trim().startsWith(`${name}:`)).length;
-
 describe("editor tokens", () => {
-  it("defines --text-faint in all three colour blocks", () => {
-    // :root (light), [data-theme="dark"], and the prefers-color-scheme block.
-    expect(definitions("--text-faint")).toBe(3);
+  let style: HTMLStyleElement;
+
+  beforeAll(() => {
+    style = installThemeCss();
   });
 
-  it("gives --highlight-bg a light and a dark value", () => {
-    // Light + both dark blocks; the light one is the `:root` default.
-    expect(definitions("--highlight-bg")).toBe(3);
+  afterEach(resetThemeAttributes);
+  afterAll(() => style.remove());
+
+  it("applies editor tokens across every preset and display mode", () => {
+    const root = document.documentElement;
+    for (const preset of THEME_PRESETS) {
+      for (const mode of ["light", "dark"] as const) {
+        root.dataset.theme = mode;
+        root.dataset.themePreset = preset.id;
+        for (const name of [
+          "--text-faint",
+          "--highlight-bg",
+          "--callout-tint",
+          "--editor-fold-gutter",
+          "--indent-guide",
+          "--indent-guide-active",
+        ]) {
+          expect(computedToken(name), `${preset.id} ${mode} ${name}`).not.toBe("");
+        }
+        for (let level = 1; level <= 6; level += 1) {
+          expect(resolvedToken(`--heading-${level}-color`), `${preset.id} ${mode} heading ${level}`).not.toBe("");
+        }
+      }
+    }
   });
 
-  it("defines the remaining Stage 3 editor surfaces once, theme-independently", () => {
-    expect(definitions("--callout-tint")).toBe(1);
-    expect(definitions("--editor-fold-gutter")).toBe(1);
-    // Indent guides reuse the border tiers rather than minting a third grey.
-    expect(tokensCss).toContain("--indent-guide: var(--border);");
-    expect(tokensCss).toContain("--indent-guide-active: var(--border-strong);");
+  it("applies Plain heading ink above every preset", () => {
+    const root = document.documentElement;
+    for (const preset of THEME_PRESETS) {
+      for (const mode of ["light", "dark"] as const) {
+        root.dataset.theme = mode;
+        root.dataset.themePreset = preset.id;
+        root.dataset.headingColor = "plain";
+        const text = resolvedToken("--text-primary");
+        for (let level = 1; level <= 6; level += 1) {
+          expect(resolvedToken(`--heading-${level}-color`)).toBe(text);
+        }
+      }
+    }
   });
-
 });
 
 describe("editor theme tiers", () => {
+  it("maps each heading level to its own theme token", () => {
+    for (const [level, tag] of [
+      [1, t.heading1],
+      [2, t.heading2],
+      [3, t.heading3],
+      [4, t.heading4],
+      [5, t.heading5],
+      [6, t.heading6],
+    ] as const) {
+      expect(ruleFor(tag)?.color).toBe(`var(--heading-${level}-color)`);
+    }
+  });
+
+  it("keeps heading ink plain in Source mode", () => {
+    const source = editorThemeSpec["&.cm-source"];
+    for (let level = 1; level <= 6; level += 1) {
+      expect(source[`--heading-${level}-color`]).toBe("var(--text-primary)");
+    }
+  });
+
   it("puts the bullet and the gutter on the faint tier", () => {
     expect(editorThemeSpec[".cm-bullet"].color).toBe("var(--text-faint)");
     expect(editorThemeSpec[".cm-gutters"].color).toBe("var(--text-faint)");

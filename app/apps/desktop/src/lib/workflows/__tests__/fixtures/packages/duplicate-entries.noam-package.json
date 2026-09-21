@@ -1,0 +1,30 @@
+{
+  "manifest": {
+    "format": "noam-package",
+    "formatVersion": 1,
+    "id": "duplicate-pack",
+    "name": "Starter pack",
+    "description": "A daily note workflow, its template and one asset.",
+    "version": "1.2.0",
+    "minAppVersion": "0.1.0",
+    "workflowSchemaVersion": 1,
+    "entries": [
+      {
+        "path": "Templates/Daily.md",
+        "kind": "template",
+        "sha256": "475d0bb08b32e591a3f630ff065b3a0d5d864cafaa171143e2f785702229746e"
+      },
+      {
+        "path": "Templates/Daily.md",
+        "kind": "template",
+        "sha256": "475d0bb08b32e591a3f630ff065b3a0d5d864cafaa171143e2f785702229746e"
+      }
+    ]
+  },
+  "files": {
+    "Templates/Daily.md": {
+      "encoding": "utf8",
+      "content": "# {{date:YYYY-MM-DD}}\n\n## Notes\n\n## Tasks\n"
+    }
+  }
+}

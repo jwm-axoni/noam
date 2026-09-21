@@ -1,4 +1,10 @@
 import type pg from "pg";
+import {
+  KNOWLEDGE_SCHEMA_PATH,
+  knowledgeCatalogProjectionNeedsRecovery,
+  markKnowledgeCatalogStaleForVault,
+  scheduleKnowledgeCatalogReprojection,
+} from "../index/indexer.js";
 
 /**
  * Structural operations on a vault's folder/note tree, shared by the
@@ -18,6 +24,36 @@ import type pg from "pg";
  */
 
 type Queryable = Pick<pg.Pool, "query">;
+type TransactionalQueryable = Queryable & Partial<Pick<pg.Pool, "connect">>;
+
+async function inTransaction<T>(
+  db: TransactionalQueryable,
+  fn: (tx: Queryable) => Promise<T>,
+): Promise<T> {
+  if (!db.connect) return fn(db);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
+
+async function canonicalCatalogDocId(db: Queryable, vaultId: string): Promise<string | null> {
+  const { rows } = await db.query<{ id: string }>(
+    `SELECT id FROM notes
+      WHERE vault_id = $1 AND rel_path = $2 AND deleted_at IS NULL
+      LIMIT 1`,
+    [vaultId, KNOWLEDGE_SCHEMA_PATH],
+  );
+  return rows[0]?.id ?? null;
+}
 
 /** basename of a `/`-separated vault-relative path. */
 export function basename(path: string): string {
@@ -335,50 +371,62 @@ export async function planFolderMove(
  * invariant: key by doc_id, never by path).
  */
 export async function moveFolder(
-  db: Queryable,
+  db: TransactionalQueryable,
   folderId: string,
   input: MoveFolderInput,
 ): Promise<{ id: string; vaultId: string; name: string; path: string }> {
-  const folder = await findFolder(db, folderId);
-  if (!folder) throw new TreeOpError("Unknown folder");
+  const moved = await inTransaction(db, async (tx) => {
+    const folder = await findFolder(tx, folderId);
+    if (!folder) throw new TreeOpError("Unknown folder");
 
-  const oldPath = folder.path;
-  const plan = await planFolderMove(db, folder, input);
-  const newPath = plan.path;
-  const newName = input.name ?? basename(newPath);
-  // Always written: `path` and `parent_id` are resolved together (see
-  // `planFolderMove`), so re-parenting by path alone lands on the right parent.
-  const newParentId: string | null = plan.parentId;
+    const oldPath = folder.path;
+    const catalogBefore = await canonicalCatalogDocId(tx, folder.vault_id);
+    const plan = await planFolderMove(tx, folder, input);
+    const newPath = plan.path;
+    const newName = input.name ?? basename(newPath);
+    const newParentId: string | null = plan.parentId;
 
-  if (newParentId != null && newParentId !== folder.parent_id) {
-    if (await wouldCycle(db, folderId, newParentId)) {
-      throw new TreeOpError("Cannot move a folder inside itself");
+    if (newParentId != null && newParentId !== folder.parent_id) {
+      if (await wouldCycle(tx, folderId, newParentId)) {
+        throw new TreeOpError("Cannot move a folder inside itself");
+      }
     }
-  }
 
-  // `samePath`, not `!==`: a pure case change of the folder's own name (`docs` →
-  // `Docs`) is a legal rename, but landing on a DIFFERENT folder that already
-  // holds this path up to case would fork the subtree across two rows that are
-  // one directory on disk. Surfaced as a refusal so the caller sees why, rather
-  // than as a bare 23505 from `folders_vault_path_ci_uq` (migration 023).
-  if (!samePath(newPath, oldPath)) {
-    const clash = await db.query(
-      "SELECT 1 FROM folders WHERE vault_id = $1 AND lower(path) = lower($2) AND id <> $3 LIMIT 1",
-      [folder.vault_id, newPath, folderId],
+    if (!samePath(newPath, oldPath)) {
+      const clash = await tx.query(
+        "SELECT 1 FROM folders WHERE vault_id = $1 AND lower(path) = lower($2) AND id <> $3 LIMIT 1",
+        [folder.vault_id, newPath, folderId],
+      );
+      if ((clash.rowCount ?? 0) > 0) {
+        throw new TreeOpError("A folder already exists at that path");
+      }
+    }
+
+    await tx.query(
+      "UPDATE folders SET path = $1, name = $2, parent_id = $4 WHERE id = $3",
+      [newPath, newName, folderId, newParentId],
     );
-    if ((clash.rowCount ?? 0) > 0) {
-      throw new TreeOpError("A folder already exists at that path");
+    if (newPath !== oldPath) {
+      await rewriteDescendantPaths(tx, folder.vault_id, oldPath, newPath);
     }
+    const catalogAfter = await canonicalCatalogDocId(tx, folder.vault_id);
+    const catalogChanged = catalogBefore !== catalogAfter;
+    if (catalogChanged) await markKnowledgeCatalogStaleForVault(folder.vault_id, tx);
+    const moveIsNoop =
+      newPath === oldPath && newName === basename(oldPath) && newParentId === folder.parent_id;
+    const needsCatalogRecovery =
+      catalogChanged || (
+        moveIsNoop && await knowledgeCatalogProjectionNeedsRecovery(folder.vault_id, tx)
+      );
+    return {
+      result: { id: folderId, vaultId: folder.vault_id, name: newName, path: newPath },
+      needsCatalogRecovery,
+    };
+  });
+  if (moved.needsCatalogRecovery) {
+    void scheduleKnowledgeCatalogReprojection(moved.result.vaultId, db);
   }
-
-  await db.query(
-    "UPDATE folders SET path = $1, name = $2, parent_id = $4 WHERE id = $3",
-    [newPath, newName, folderId, newParentId],
-  );
-  if (newPath !== oldPath) {
-    await rewriteDescendantPaths(db, folder.vault_id, oldPath, newPath);
-  }
-  return { id: folderId, vaultId: folder.vault_id, name: newName, path: newPath };
+  return moved.result;
 }
 
 export interface NoteRow {
@@ -442,35 +490,53 @@ export async function planNoteMove(
 
 /** Rename, retitle, and/or move a single note. Its doc_id never changes. */
 export async function moveNote(
-  db: Queryable,
+  db: TransactionalQueryable,
   docId: string,
   input: MoveNoteInput,
 ): Promise<{ id: string; vaultId: string; relPath: string; title: string | null; folderId: string | null }> {
-  const note = await findNote(db, docId);
-  if (!note) throw new TreeOpError("Unknown note");
+  const moved = await inTransaction(db, async (tx) => {
+    const note = await findNote(tx, docId);
+    if (!note) throw new TreeOpError("Unknown note");
 
-  const title = input.title === undefined ? note.title : input.title;
-  const { relPath, folderId } = await planNoteMove(db, note, input);
+    const title = input.title === undefined ? note.title : input.title;
+    const { relPath, folderId } = await planNoteMove(tx, note, input);
 
-  // Compared up to case (see the folder twin above): renaming `notes.md` →
-  // `Notes.md` is legal, but moving onto a path another live note already holds
-  // case-insensitively is the fork that the 2026-09-04 runaway was made of.
-  if (!samePath(relPath, note.rel_path)) {
-    // Surface the collision as a refusal rather than letting the partial unique
-    // indexes (`notes_live_path_uq` m021, `notes_live_path_ci_uq` m023) throw a
-    // bare 23505.
-    const clash = await db.query(
-      "SELECT 1 FROM notes WHERE vault_id = $1 AND lower(rel_path) = lower($2) AND deleted_at IS NULL AND id <> $3 LIMIT 1",
-      [note.vault_id, relPath, docId],
+    // Compared up to case (see the folder twin above): renaming `notes.md` →
+    // `Notes.md` is legal, but moving onto a path another live note already holds
+    // case-insensitively is the fork that the 2026-09-04 runaway was made of.
+    if (!samePath(relPath, note.rel_path)) {
+      // Surface the collision as a refusal rather than letting the partial unique
+      // indexes (`notes_live_path_uq` m021, `notes_live_path_ci_uq` m023) throw a
+      // bare 23505.
+      const clash = await tx.query(
+        "SELECT 1 FROM notes WHERE vault_id = $1 AND lower(rel_path) = lower($2) AND deleted_at IS NULL AND id <> $3 LIMIT 1",
+        [note.vault_id, relPath, docId],
+      );
+      if ((clash.rowCount ?? 0) > 0) throw new TreeOpError("A note already exists at that path");
+    }
+
+    await tx.query(
+      "UPDATE notes SET rel_path = $1, title = $2, folder_id = $3, updated_at = now() WHERE id = $4",
+      [relPath, title, folderId, docId],
     );
-    if ((clash.rowCount ?? 0) > 0) throw new TreeOpError("A note already exists at that path");
+    const catalogChanged =
+      (note.rel_path === KNOWLEDGE_SCHEMA_PATH) !== (relPath === KNOWLEDGE_SCHEMA_PATH);
+    if (catalogChanged) await markKnowledgeCatalogStaleForVault(note.vault_id, tx);
+    const moveIsNoop =
+      relPath === note.rel_path && title === note.title && folderId === note.folder_id;
+    const needsCatalogRecovery =
+      catalogChanged || (
+        moveIsNoop && await knowledgeCatalogProjectionNeedsRecovery(note.vault_id, tx)
+      );
+    return {
+      result: { id: docId, vaultId: note.vault_id, relPath, title, folderId },
+      needsCatalogRecovery,
+    };
+  });
+  if (moved.needsCatalogRecovery) {
+    void scheduleKnowledgeCatalogReprojection(moved.result.vaultId, db);
   }
-
-  await db.query(
-    "UPDATE notes SET rel_path = $1, title = $2, folder_id = $3, updated_at = now() WHERE id = $4",
-    [relPath, title, folderId, docId],
-  );
-  return { id: docId, vaultId: note.vault_id, relPath, title, folderId };
+  return moved.result;
 }
 
 /** Does this folder directly contain any live note or subfolder? */

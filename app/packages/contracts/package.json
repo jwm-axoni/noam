@@ -1,0 +1,13 @@
+{
+  "name": "@noam/contracts",
+  "private": true,
+  "version": "0.1.0",
+  "license": "UNLICENSED",
+  "type": "module",
+  "exports": {
+    "./access": {
+      "types": "./src/access.d.ts",
+      "default": "./src/access.js"
+    }
+  }
+}

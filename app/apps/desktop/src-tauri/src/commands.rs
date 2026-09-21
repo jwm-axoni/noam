@@ -4,11 +4,14 @@
 
 use crate::attachments::{self, AttachmentMeta};
 use crate::error::{AppError, AppResult};
+use crate::identity::InspectDocumentIdentityResult;
 use crate::import_export::{self, ImportSummary};
 use crate::index::{
-    Backlink, GraphEdge, GraphNode, Index, NoteMeta, NoteTitle, ResolvedLink, SearchResult, YjsPruneReport,
-    YjsState, YjsStateVector,
+    Backlink, GraphEdge, GraphNode, Index, NoteMeta, NoteTitle, ResolvedLink, SearchResult,
+    YjsPruneReport, YjsState, YjsStateVector,
 };
+use crate::knowledge::{KnowledgePage, KnowledgePageRequest, KnowledgeQuery};
+use crate::tasks::{TaskPage, TaskPageRequest, TaskQuery};
 use crate::notefile;
 use crate::state::AppState;
 use crate::tree::{self, TreeNode};
@@ -256,7 +259,11 @@ pub async fn get_vault_epoch(state: State<'_, AppState>) -> AppResult<u64> {
 
 /// Open a vault: build/refresh its index, start the watcher, remember it, and
 /// emit `vault-opened`. Shared by `pick_vault` and `open_vault`.
-fn open_vault_inner(app: &AppHandle, state: &State<AppState>, path: PathBuf) -> AppResult<VaultInfo> {
+fn open_vault_inner(
+    app: &AppHandle,
+    state: &State<AppState>,
+    path: PathBuf,
+) -> AppResult<VaultInfo> {
     if !path.is_dir() {
         return Err(AppError::new("selected path is not a folder"));
     }
@@ -382,8 +389,8 @@ fn open_vault_inner(app: &AppHandle, state: &State<AppState>, path: PathBuf) -> 
     // Preserve other config keys (e.g. server_url) when updating recents.
     let mut cfg = read_config(app, state);
     cfg.last_vault = Some(info.path.clone()); // kept for back-compat
-    // Move this vault to the front of the recents list (dedup by path), stamp
-    // the open time, and cap the list length.
+                                              // Move this vault to the front of the recents list (dedup by path), stamp
+                                              // the open time, and cap the list length.
     cfg.recent_vaults.retain(|r| r.path != info.path);
     cfg.recent_vaults.insert(
         0,
@@ -419,7 +426,10 @@ fn open_vault_inner(app: &AppHandle, state: &State<AppState>, path: PathBuf) -> 
 
 /// Native folder picker → open the chosen vault. Returns None if cancelled.
 #[tauri::command]
-pub async fn pick_vault(app: AppHandle, state: State<'_, AppState>) -> AppResult<Option<VaultInfo>> {
+pub async fn pick_vault(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<Option<VaultInfo>> {
     let folder = app.dialog().file().blocking_pick_folder();
     let Some(folder) = folder else {
         return Ok(None);
@@ -545,12 +555,7 @@ pub async fn create_vault(
     name: String,
 ) -> AppResult<VaultInfo> {
     let name = name.trim();
-    if name.is_empty()
-        || name == "."
-        || name == ".."
-        || name.contains('/')
-        || name.contains('\\')
-    {
+    if name.is_empty() || name == "." || name == ".." || name.contains('/') || name.contains('\\') {
         return Err(AppError::new("invalid vault name"));
     }
     let dir = free_vault_dir(Path::new(&parent), name)
@@ -574,7 +579,9 @@ fn free_vault_dir(parent: &Path, name: &str) -> Option<PathBuf> {
     if !first.exists() {
         return Some(first);
     }
-    (2..100).map(|n| parent.join(format!("{name} {n}"))).find(|d| !d.exists())
+    (2..100)
+        .map(|n| parent.join(format!("{name} {n}")))
+        .find(|d| !d.exists())
 }
 
 /// Report whether a folder already looks like a vault (has our `.context/` index
@@ -621,10 +628,7 @@ fn default_vaults_root(app: &AppHandle) -> AppResult<PathBuf> {
 /// The effective vaults root, auto-initialized to the default and persisted
 /// on first read so the rest of the app can rely on it always existing.
 #[tauri::command]
-pub async fn get_vaults_root(
-    app: AppHandle,
-    state: State<'_, AppState>,
-) -> AppResult<String> {
+pub async fn get_vaults_root(app: AppHandle, state: State<'_, AppState>) -> AppResult<String> {
     let mut cfg = read_config(&app, &state);
     let root = match cfg.vaults_root.clone() {
         Some(r) => PathBuf::from(r),
@@ -705,7 +709,11 @@ pub async fn pick_files(app: AppHandle) -> AppResult<Option<Vec<String>>> {
 /// Native save-file dialog (used for single-note export). Returns the chosen
 /// absolute path, or None if cancelled.
 #[tauri::command]
-pub async fn save_file(app: AppHandle, default_name: String) -> AppResult<Option<String>> {
+pub async fn save_file(
+    state: State<'_, AppState>,
+    app: AppHandle,
+    default_name: String,
+) -> AppResult<Option<String>> {
     let Some(file) = app
         .dialog()
         .file()
@@ -717,6 +725,9 @@ pub async fn save_file(app: AppHandle, default_name: String) -> AppResult<Option
     let path = file
         .into_path()
         .map_err(|e| AppError::new(format!("invalid path: {e}")))?;
+    // The dialog IS the authorization for `write_external_file`; nothing else
+    // can put a path in this set.
+    state.approved_writes.lock().unwrap().insert(path.clone());
     Ok(Some(path.to_string_lossy().to_string()))
 }
 
@@ -1063,7 +1074,10 @@ pub async fn set_note_ui_state(
     expected_epoch: Option<u64>,
 ) -> AppResult<()> {
     let (_, index) = require_vault_at(&state, expected_epoch)?;
-    index.lock().unwrap().set_note_ui_state(&doc_id, &ui_state)?;
+    index
+        .lock()
+        .unwrap()
+        .set_note_ui_state(&doc_id, &ui_state)?;
     Ok(())
 }
 
@@ -1130,6 +1144,16 @@ pub async fn read_note(
     notefile::read_note(&vault, &path)
 }
 
+#[tauri::command]
+pub async fn read_note_snapshot(
+    state: State<'_, AppState>,
+    path: String,
+    expected_epoch: Option<u64>,
+) -> AppResult<notefile::NoteSnapshot> {
+    let (vault, _) = require_vault_at(&state, expected_epoch)?;
+    notefile::read_note_snapshot(&vault, &path)
+}
+
 /// Does a note file exist on disk right now?
 ///
 /// A DISK question, unlike `get_note_meta`, which answers from the index. The
@@ -1189,14 +1213,80 @@ pub async fn write_note(
     path: String,
     content: String,
     expected_epoch: Option<u64>,
-) -> AppResult<()> {
+    expected_document_id: Option<String>,
+    expected_source_revision: Option<String>,
+    expected_file_identity: Option<String>,
+) -> AppResult<String> {
     let (vault, index) = require_vault_at(&state, expected_epoch)?;
-    notefile::write_note(&vault, &path, &content)?;
-    // Re-index immediately so search/backlinks are fresh without waiting for
-    // the watcher echo.
-    let abs = vault::resolve_in_vault(&vault, &path)?;
-    index.lock().unwrap().index_note(&vault, &abs)?;
-    Ok(())
+    let _write_guard = state.note_writes.lock().unwrap();
+    let guard = index.lock().unwrap();
+    write_note_for_document(
+        &vault,
+        &guard,
+        &path,
+        &content,
+        expected_document_id.as_deref(),
+        expected_source_revision.as_deref(),
+        expected_file_identity.as_deref(),
+    )
+}
+
+fn write_note_for_document(
+    vault: &Path,
+    index: &Index,
+    path: &str,
+    content: &str,
+    expected_document_id: Option<&str>,
+    expected_source_revision: Option<&str>,
+    expected_file_identity: Option<&str>,
+) -> AppResult<String> {
+    if let Some(expected) = expected_document_id {
+        let actual = index.get_note_meta(path)?.map(|note| note.id);
+        if actual.as_deref() != Some(expected) {
+            return Err(AppError::new("note identity changed"));
+        }
+    }
+    let published_file_identity = match (expected_source_revision, expected_file_identity) {
+        (Some(revision), Some(file_identity)) => {
+            notefile::write_note_if_unchanged(vault, path, content, revision, file_identity)?
+        }
+        (None, None) => {
+            notefile::write_note(vault, path, content)?;
+            notefile::note_file_identity(vault, path)?
+        }
+        _ => return Err(AppError::new("incomplete note write guard")),
+    };
+    let abs = vault::resolve_in_vault(vault, path)?;
+    index.index_note(vault, &abs)?;
+    Ok(published_file_identity)
+}
+
+/// Validate the portable identity decision before or after the live Yjs writer.
+#[tauri::command(async)]
+pub fn inspect_document_identity(
+    state: State<'_, AppState>,
+    path: String,
+    expected_local_note_id: String,
+    synced_document_id: Option<String>,
+    expected_source_revision: String,
+    expected_epoch: u64,
+) -> AppResult<InspectDocumentIdentityResult> {
+    // Unlike ordinary user-driven reads, this preflight requires an epoch. Its
+    // path and expected revision came from one specific open vault.
+    let (vault, index) = require_vault_at(&state, Some(expected_epoch))?;
+    // The write mutex couples the revision check to the editor's ordinary
+    // write path. The index mutex keeps the duplicate check on one current
+    // index snapshot.
+    let _write_guard = state.note_writes.lock().unwrap();
+    let guard = index.lock().unwrap();
+    crate::identity::inspect_document_identity(
+        &vault,
+        &guard,
+        &path,
+        &expected_local_note_id,
+        synced_document_id.as_deref(),
+        &expected_source_revision,
+    )
 }
 
 /// Create a note only if it doesn't exist yet; returns true when it was created.
@@ -1216,6 +1306,67 @@ pub async fn write_note_if_missing(
     let abs = vault::resolve_in_vault(&vault, &path)?;
     index.lock().unwrap().index_note(&vault, &abs)?;
     Ok(true)
+}
+
+/// The result of a conditional note write: whether it happened, and the sha256
+/// of what is on disk now (the current file when it was refused, the content
+/// just written when it went through) so the caller can re-plan against it.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WriteNoteOutcome {
+    pub ok: bool,
+    pub current_sha256: String,
+}
+
+/// Write a note only while its bytes still hash to `expected_sha256`.
+///
+/// The closed-note write path for workflows and task actions. Those plan an
+/// edit against text they read a moment ago; read-hash-then-write leaves a
+/// window in which a teammate, an AI over MCP or another editor publishes its
+/// own version and this write silently erases it. Here the compare and the
+/// write happen under `note_writes` — the same mutex the editor's ordinary
+/// `write_note` takes — so no other command of ours can slip between them, and
+/// a mismatch is reported instead of written.
+///
+/// The hash is `notefile::sha256_hex` over the file's bytes as `read_note`
+/// hands them back, which is exactly what `bridge/adapter.ts sha256Hex` hashes
+/// on the renderer side (no newline normalisation on either side).
+#[tauri::command]
+pub async fn write_note_if_unchanged(
+    state: State<'_, AppState>,
+    path: String,
+    expected_sha256: String,
+    contents: String,
+    expected_epoch: Option<u64>,
+) -> AppResult<WriteNoteOutcome> {
+    let (vault, index) = require_vault_at(&state, expected_epoch)?;
+    let _write_guard = state.note_writes.lock().unwrap();
+    let guard = index.lock().unwrap();
+    write_note_if_sha_unchanged(&vault, &guard, &path, &expected_sha256, &contents)
+}
+
+fn write_note_if_sha_unchanged(
+    vault: &Path,
+    index: &Index,
+    path: &str,
+    expected_sha256: &str,
+    contents: &str,
+) -> AppResult<WriteNoteOutcome> {
+    let current = notefile::read_note(vault, path)?;
+    let current_sha256 = notefile::sha256_hex(&current);
+    if current_sha256 != expected_sha256 {
+        return Ok(WriteNoteOutcome {
+            ok: false,
+            current_sha256,
+        });
+    }
+    notefile::write_note(vault, path, contents)?;
+    let abs = vault::resolve_in_vault(vault, path)?;
+    index.index_note(vault, &abs)?;
+    Ok(WriteNoteOutcome {
+        ok: true,
+        current_sha256: notefile::sha256_hex(contents),
+    })
 }
 
 #[tauri::command]
@@ -1258,7 +1409,10 @@ pub async fn rename_path(
     let new_rel = notefile::rename_path(&vault, &from, &to)?;
     let new_abs = vault::resolve_in_vault(&vault, &new_rel)?;
     // Keep doc_id stable across the move (file or folder subtree).
-    index.lock().unwrap().rename_note(&vault, &old_abs, &new_abs)?;
+    index
+        .lock()
+        .unwrap()
+        .rename_note(&vault, &old_abs, &new_abs)?;
     Ok(new_rel)
 }
 
@@ -1372,8 +1526,43 @@ pub async fn get_backlinks(
     guard.get_backlinks(&note_id)
 }
 
+/// Read one bounded page from the derived note-knowledge index.
+///
+/// The command is intentionally read-only and resolves against the vault that
+/// is open when it lands, like search and backlinks. Cursors are generation
+/// bound inside the index, so a page from an older vault/index state is refused
+/// rather than replayed against different data.
+#[tauri::command]
+pub async fn query_knowledge(
+    state: State<'_, AppState>,
+    query: KnowledgeQuery,
+    page: KnowledgePageRequest,
+) -> AppResult<KnowledgePage> {
+    let (_, index) = require_vault(&state)?;
+    let guard = index.lock().unwrap();
+    guard.query_knowledge(&query, &page)
+}
+
+/// Read one bounded page from the derived task index.
+///
+/// Read-only and epoch-checked like every other query: a page asked for by a
+/// panel that belongs to the vault we just closed is refused rather than
+/// answered from the new one. The rows it returns carry HINT offsets — a write
+/// goes back through `resolveTask` against live text, never through these.
+#[tauri::command]
+pub async fn query_tasks(
+    state: State<'_, AppState>,
+    query: TaskQuery,
+    page: TaskPageRequest,
+    expected_epoch: Option<u64>,
+) -> AppResult<TaskPage> {
+    let (_, index) = require_vault_at(&state, expected_epoch)?;
+    let guard = index.lock().unwrap();
+    guard.query_tasks(&query, &page)
+}
+
 /// Every resolved edge of the note graph in one call — backs the Graph view so
-/// it no longer fires one `get_backlinks` per note.
+/// it no longer fires one `get_backlinks` per note."""
 #[tauri::command]
 pub async fn graph_edges(
     state: State<'_, AppState>,
@@ -1780,9 +1969,233 @@ pub async fn read_external_file(path: String) -> AppResult<tauri::ipc::Response>
     Ok(tauri::ipc::Response::new(bytes))
 }
 
+/// Write text to an absolute host path the user just chose in a save dialog
+/// (a workflow package export). NOT vault-scoped on purpose: the destination
+/// came from `save_file`, so it lives wherever the user pointed.
+///
+/// Which is exactly why the two calls are TIED TOGETHER: only a path the
+/// native dialog put in `approved_writes` may be written, and writing it
+/// spends that approval. A renderer that calls this command on its own — a
+/// compromised page, an injected script — names a path nobody approved and is
+/// refused. Relative paths are refused first, so nothing can reach the cwd.
+#[tauri::command]
+pub async fn write_external_file(
+    state: State<'_, AppState>,
+    path: String,
+    contents: String,
+) -> AppResult<()> {
+    write_approved_external_text(&state.approved_writes, Path::new(&path), &contents)
+}
+
+fn write_approved_external_text(
+    approved: &Mutex<std::collections::HashSet<PathBuf>>,
+    path: &Path,
+    contents: &str,
+) -> AppResult<()> {
+    if !path.is_absolute() {
+        return Err(AppError::new("external path must be absolute"));
+    }
+    // TAKE, then write. Checking membership and spending the approval later
+    // would let two concurrent calls both pass the check and both write to the
+    // destination the user approved once. A failed write does NOT put it back:
+    // the dialog is the only thing that may authorize a path.
+    if !approved.lock().unwrap().remove(path) {
+        return Err(AppError::new(
+            "external path was not approved by a save dialog",
+        ));
+    }
+    write_external_text(path, contents)
+}
+
+fn write_external_text(path: &Path, contents: &str) -> AppResult<()> {
+    if !path.is_absolute() {
+        return Err(AppError::new("external path must be absolute"));
+    }
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|e| AppError::new(format!("write external file failed: {e}")))?;
+    }
+    std::fs::write(path, contents)
+        .map_err(|e| AppError::new(format!("write external file failed: {e}")))
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn write_external_refuses_a_path_no_save_dialog_approved() {
+        use std::collections::HashSet;
+        let dir = tempfile::tempdir().unwrap();
+        let victim = dir.path().join("victim.txt");
+        std::fs::write(&victim, "original").unwrap();
+        let approved: Mutex<HashSet<PathBuf>> = Mutex::new(HashSet::new());
+
+        // The renderer naming a path of its own choosing.
+        let err = write_approved_external_text(&approved, &victim, "owned").unwrap_err();
+        assert!(err.to_string().contains("not approved"));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "original");
+
+        // The same path, after the save dialog approved it.
+        approved.lock().unwrap().insert(victim.clone());
+        write_approved_external_text(&approved, &victim, "owned").unwrap();
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "owned");
+
+        // The approval is spent: a second write is refused again.
+        let err = write_approved_external_text(&approved, &victim, "twice").unwrap_err();
+        assert!(err.to_string().contains("not approved"));
+        assert_eq!(std::fs::read_to_string(&victim).unwrap(), "owned");
+    }
+
+    #[test]
+    fn write_external_refuses_a_relative_path_even_when_approved() {
+        use std::collections::HashSet;
+        let approved: Mutex<HashSet<PathBuf>> = Mutex::new(HashSet::new());
+        approved.lock().unwrap().insert(PathBuf::from("relative/pkg.json"));
+        let err =
+            write_approved_external_text(&approved, Path::new("relative/pkg.json"), "{}").unwrap_err();
+        assert!(err.to_string().contains("absolute"));
+    }
+
+    #[test]
+    fn external_text_write_refuses_relative_paths_and_writes_absolute_ones() {
+        let err = write_external_text(Path::new("relative/pkg.json"), "{}").unwrap_err();
+        assert!(err.to_string().contains("absolute"));
+
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("nested").join("example.noam-package.json");
+        write_external_text(&dest, "{\"manifest\":{}}").unwrap();
+        assert_eq!(std::fs::read_to_string(&dest).unwrap(), "{\"manifest\":{}}");
+    }
+
+    #[test]
+    fn write_external_spends_the_approval_before_writing() {
+        use std::collections::HashSet;
+        let dir = tempfile::tempdir().unwrap();
+        // A directory is a destination `fs::write` cannot take, so the write
+        // fails AFTER the approval has been taken.
+        let blocked = dir.path().join("a-directory");
+        std::fs::create_dir(&blocked).unwrap();
+        let approved: Mutex<HashSet<PathBuf>> = Mutex::new(HashSet::new());
+        approved.lock().unwrap().insert(blocked.clone());
+
+        let err = write_approved_external_text(&approved, &blocked, "payload").unwrap_err();
+        assert!(err.to_string().contains("write external file failed"));
+        // The approval was consumed before the write, so a concurrent second
+        // call (or a retry of this one) finds nothing to spend. A failed write
+        // never puts it back: the dialog is the only thing that may.
+        assert!(approved.lock().unwrap().is_empty());
+        let err = write_approved_external_text(&approved, &blocked, "payload").unwrap_err();
+        assert!(err.to_string().contains("not approved"));
+    }
+
+    #[test]
+    fn conditional_note_write_refuses_a_file_that_moved_under_it() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path();
+        notefile::write_note(vault, "A.md", "first\n").unwrap();
+        let index = Index::open(vault).unwrap();
+        index.rebuild(vault).unwrap();
+
+        // An external writer got there between the renderer's read and this write.
+        notefile::write_note(vault, "A.md", "theirs\n").unwrap();
+        let outcome = write_note_if_sha_unchanged(
+            vault,
+            &index,
+            "A.md",
+            &notefile::sha256_hex("first\n"),
+            "ours\n",
+        )
+        .unwrap();
+        assert!(!outcome.ok);
+        assert_eq!(outcome.current_sha256, notefile::sha256_hex("theirs\n"));
+        assert_eq!(notefile::read_note(vault, "A.md").unwrap(), "theirs\n");
+
+        // The hash the renderer holds now: the write lands and re-indexes.
+        let outcome = write_note_if_sha_unchanged(
+            vault,
+            &index,
+            "A.md",
+            &notefile::sha256_hex("theirs\n"),
+            "ours\n",
+        )
+        .unwrap();
+        assert!(outcome.ok);
+        assert_eq!(outcome.current_sha256, notefile::sha256_hex("ours\n"));
+        assert_eq!(notefile::read_note(vault, "A.md").unwrap(), "ours\n");
+        assert!(index.get_note_meta("A.md").unwrap().is_some());
+    }
+
+    #[test]
+    fn guarded_note_write_rejects_a_replacement_document() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path();
+        notefile::write_note(vault, "A.md", "first").unwrap();
+        let index = Index::open(vault).unwrap();
+        index.rebuild(vault).unwrap();
+        let first_id = index.get_note_meta("A.md").unwrap().unwrap().id;
+
+        let first_file_identity = notefile::note_file_identity(vault, "A.md").unwrap();
+        let current_file_identity = write_note_for_document(
+            vault,
+            &index,
+            "A.md",
+            "current write",
+            Some(&first_id),
+            Some(&notefile::sha256_hex("first")),
+            Some(&first_file_identity),
+        )
+        .unwrap();
+        assert_eq!(notefile::read_note(vault, "A.md").unwrap(), "current write");
+
+        notefile::write_note(vault, "B.md", "current write").unwrap();
+        std::fs::remove_file(vault.join("A.md")).unwrap();
+        std::fs::rename(vault.join("B.md"), vault.join("A.md")).unwrap();
+        assert_eq!(index.get_note_meta("A.md").unwrap().unwrap().id, first_id);
+
+        let error = write_note_for_document(
+            vault,
+            &index,
+            "A.md",
+            "stale write",
+            Some(&first_id),
+            Some(&notefile::sha256_hex("current write")),
+            Some(&current_file_identity),
+        )
+        .unwrap_err();
+        assert_eq!(error.0, "note file changed");
+        assert_eq!(notefile::read_note(vault, "A.md").unwrap(), "current write");
+    }
+
+    #[test]
+    fn note_write_rejects_each_incomplete_guard() {
+        let dir = tempfile::tempdir().unwrap();
+        let vault = dir.path();
+        notefile::write_note(vault, "A.md", "original").unwrap();
+        let index = Index::open(vault).unwrap();
+        index.rebuild(vault).unwrap();
+        let note = index.get_note_meta("A.md").unwrap().unwrap();
+        let file_identity = notefile::note_file_identity(vault, "A.md").unwrap();
+        let revision = notefile::sha256_hex("original");
+
+        for (source_revision, identity) in [
+            (Some(revision.as_str()), None),
+            (None, Some(file_identity.as_str())),
+        ] {
+            let error = write_note_for_document(
+                vault,
+                &index,
+                "A.md",
+                "replacement",
+                Some(&note.id),
+                source_revision,
+                identity,
+            )
+            .unwrap_err();
+            assert_eq!(error.0, "incomplete note write guard");
+            assert_eq!(notefile::read_note(vault, "A.md").unwrap(), "original");
+        }
+    }
 
     /// A vault opened at a filesystem/drive root has no `file_name`; its label
     /// must fall back to the path itself, never the anonymous "vault".
@@ -2092,10 +2505,7 @@ mod tests {
         let file = dir.path().join("note.md");
         std::fs::write(&file, "x").unwrap();
         assert!(!folder_exists(file.to_string_lossy().to_string()).unwrap());
-        assert!(!folder_exists(
-            dir.path().join("gone").to_string_lossy().to_string()
-        )
-        .unwrap());
+        assert!(!folder_exists(dir.path().join("gone").to_string_lossy().to_string()).unwrap());
     }
 
     /// A config.json written before the `workspace_root` → `vaults_root` rename
@@ -2105,10 +2515,7 @@ mod tests {
     fn app_config_loads_legacy_workspace_root_alias() {
         let legacy = r#"{"workspace_root": "/vaults/Noam Vaults"}"#;
         let cfg: AppConfig = serde_json::from_str(legacy).unwrap();
-        assert_eq!(
-            cfg.vaults_root.as_deref(),
-            Some("/vaults/Noam Vaults")
-        );
+        assert_eq!(cfg.vaults_root.as_deref(), Some("/vaults/Noam Vaults"));
     }
 
     /// A caller that pins the epoch it started under is accepted only while that

@@ -1,5 +1,5 @@
 import { BRAND_NAME } from "../brand.js";
-import { GLYPH_FAVICON_DATA_URI, WORDMARK_DATA_URI } from "../brand-assets.js";
+import { BRAND_MARK_DATA_URI, GLYPH_FAVICON_DATA_URI } from "../brand-assets.js";
 
 /**
  * Shared chrome for every human-facing page this headless server renders: the
@@ -46,7 +46,13 @@ export function page(opts: { title: string; body: string; head?: string }): stri
     box-shadow: 0 24px 70px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.05);
     backdrop-filter: blur(14px);
   }
-  .wordmark { display:block; height: 34px; margin: 2px auto 22px; object-fit: contain; }
+  .wordmark {
+    display: flex; align-items: center; justify-content: center; gap: 9px;
+    margin: 2px auto 22px; color: #ebe4d6;
+    font-family: "Radio Canada Big", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+    font-size: 31px; font-weight: 700; letter-spacing: -0.025em; line-height: 1;
+  }
+  .wordmark img { width: 34px; height: 34px; flex: none; }
   h1 { font-size: 18px; font-weight: 600; margin: 0 0 6px; text-align: center; letter-spacing: -0.01em; }
   .sub { color: #9a9aa6; text-align: center; margin: 0 0 24px; font-size: 13.5px; }
   .sub b { color: #d7d7dc; font-weight: 600; }
@@ -100,7 +106,10 @@ ${opts.head ?? ""}
 </head>
 <body>
   <div class="card">
-    <img class="wordmark" src="${WORDMARK_DATA_URI}" alt="${esc(BRAND_NAME)}" />
+    <div class="wordmark" role="img" aria-label="${esc(BRAND_NAME)}">
+      <img src="${BRAND_MARK_DATA_URI}" alt="" width="34" height="34" />
+      <span aria-hidden="true">noam</span>
+    </div>
     ${opts.body}
   </div>
 </body>

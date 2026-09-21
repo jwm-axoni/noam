@@ -28,6 +28,7 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import type { NoteTitle } from "../ipc";
+import { FOLDER_PRESENTATION_KIND } from "../presentation/types";
 import { focusMoved, selectionTouches } from "./reveal";
 
 /**
@@ -59,6 +60,7 @@ export function wikilinkCompletions(opts: WikilinkOptions) {
     const typed = before.text.slice(2).toLowerCase();
     const options: Completion[] = opts
       .getTitles()
+      .filter((title) => title.kind !== FOLDER_PRESENTATION_KIND)
       .filter((t) => {
         const base = t.path.split("/").pop()?.replace(/\.md$/i, "") ?? "";
         return (

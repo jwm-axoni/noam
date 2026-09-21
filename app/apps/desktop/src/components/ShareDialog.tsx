@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useId, useRef, useState } from "react";
 import { authManager } from "../lib/auth/authManager";
 import {
   type Permission,
@@ -7,6 +7,12 @@ import {
 } from "../lib/api";
 import { useStore } from "../store";
 import { Avatar } from "./Avatar";
+import {
+  containSettingsTab,
+  focusableSettingsElements,
+  topSettingsNestedDialog,
+  topSettingsNestedSurface,
+} from "./settings/focusContainment";
 
 export interface ShareTarget {
   resourceType: "folder" | "file";
@@ -22,6 +28,9 @@ export interface ShareTarget {
 export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose: () => void }) {
   const members = useStore((s) => s.members);
   const session = useStore((s) => s.session);
+  const backdropRef = useRef<HTMLDivElement | null>(null);
+  const dialogRef = useRef<HTMLDivElement | null>(null);
+  const titleId = useId();
 
   const [shares, setShares] = useState<Share[]>([]);
   const [principalId, setPrincipalId] = useState("");
@@ -47,6 +56,49 @@ export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose:
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [target.resourceId]);
+
+  useEffect(() => {
+    const previous = document.activeElement as HTMLElement | null;
+    const dialog = dialogRef.current;
+    const initial = dialog ? focusableSettingsElements(dialog)[0] ?? dialog : null;
+    initial?.focus();
+    return () => {
+      if (
+        previous?.isConnected &&
+        previous !== document.body &&
+        previous !== document.documentElement
+      ) {
+        previous.focus();
+      }
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      const backdrop = backdropRef.current;
+      const dialog = dialogRef.current;
+      if (!backdrop || !dialog) return;
+
+      if (event.key === "Escape") {
+        // A menu or dialog opened from Share owns Escape first. The backdrop
+        // is included in the shared selector, so only a different top surface
+        // blocks this dialog from closing.
+        const topSurface = topSettingsNestedSurface();
+        if (topSurface && topSurface !== backdrop) return;
+        event.preventDefault();
+        onClose();
+        return;
+      }
+
+      const topDialog = topSettingsNestedDialog();
+      containSettingsTab(
+        event,
+        topDialog && topDialog !== backdrop ? topDialog : dialog,
+      );
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [onClose]);
 
   const addShare = async () => {
     if (!principalId) return;
@@ -85,14 +137,26 @@ export function ShareDialog({ target, onClose }: { target: ShareTarget; onClose:
   };
 
   return (
-    <div className="modal-backdrop" onClick={onClose}>
-      <div className="modal share-dialog" onClick={(e) => e.stopPropagation()}>
+    <div ref={backdropRef} className="modal-backdrop" onClick={onClose}>
+      <div
+        ref={dialogRef}
+        className="modal share-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        tabIndex={-1}
+        onClick={(e) => e.stopPropagation()}
+      >
         <div className="modal-header">
-          <span>
+          <span id={titleId}>
             Share <strong>{target.title}</strong>
             <span className="muted"> ({target.resourceType})</span>
           </span>
-          <button className="icon-btn" onClick={onClose}>
+          <button
+            className="icon-btn"
+            aria-label="Close share dialog"
+            onClick={onClose}
+          >
             ✕
           </button>
         </div>

@@ -6,6 +6,7 @@ import { buildNoteLink } from "../lib/shareLink";
 import { toast } from "../lib/toast";
 import { useStore } from "../store";
 import { CheckMark, Spinner } from "./Spinner";
+import { ViewportMenu } from "./ViewportMenu";
 
 /**
  * "Copy link to this note" — the header's share affordance.
@@ -39,6 +40,8 @@ export function ShareNoteButton({ docId }: { docId: string }) {
   const [fallbackUrl, setFallbackUrl] = useState<string | null>(null);
   const [fallbackCopied, setFallbackCopied] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // The tick is a state, so it has to be cleared — otherwise switching notes
   // leaves a stale "copied" on a link nobody copied.
@@ -67,10 +70,14 @@ export function ShareNoteButton({ docId }: { docId: string }) {
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKey);
@@ -161,6 +168,7 @@ export function ShareNoteButton({ docId }: { docId: string }) {
   return (
     <div className="share-menu" ref={rootRef}>
       <button
+        ref={triggerRef}
         className={`icon-btn share-btn${copied ? " copied" : ""}${open ? " active" : ""}`}
         title="Copy a link to this note"
         aria-label="Copy a link to this note"
@@ -187,7 +195,13 @@ export function ShareNoteButton({ docId }: { docId: string }) {
         )}
       </button>
       {open && (
-        <div className="account-popover share-popover" role="menu">
+        <ViewportMenu
+          anchorRef={triggerRef}
+          menuRef={menuRef}
+          className="account-popover share-popover"
+          role="menu"
+          align="end"
+        >
           <button className="menu-item" onClick={() => void copyPrivate()}>
             <span className="menu-item-label">Copy private link</span>
             {copiedKind === "private" ? (
@@ -246,7 +260,7 @@ export function ShareNoteButton({ docId }: { docId: string }) {
               </button>
             </>
           )}
-        </div>
+        </ViewportMenu>
       )}
     </div>
   );

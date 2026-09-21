@@ -61,8 +61,11 @@ describe("code fence flair", () => {
     // the app (`eventBelongsToEditor` bails on a defaultPrevented event).
     button.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
     // `copyText` tries the native Tauri clipboard first and falls through to
-    // the web API here, so give the dynamic import a turn of the event loop.
-    await new Promise((r) => setTimeout(r, 50));
+    // the web API here, so wait for the dynamic import to settle. A fixed
+    // 50 ms lost under full-suite load; poll with a generous ceiling instead.
+    for (let i = 0; i < 100 && copied.length === 0; i++) {
+      await new Promise((r) => setTimeout(r, 20));
+    }
     // The code, without the fence lines.
     expect(copied).toEqual(["const a = 1;"]);
     expect(button.textContent).toBe("Copied");

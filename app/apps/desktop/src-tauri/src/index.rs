@@ -8,6 +8,8 @@
 //! inbound links (which store `dst_note_id`) never break.
 
 use crate::error::{AppError, AppResult};
+use crate::knowledge::{KnowledgePage, KnowledgePageRequest, KnowledgeQuery};
+use crate::tasks::{TaskPage, TaskPageRequest, TaskQuery};
 use crate::notefile::sha256_hex;
 use crate::parse::parse_note;
 use crate::vault::{is_ignored_name, rel_from_abs};
@@ -60,6 +62,8 @@ pub struct SearchResult {
     pub path: String,
     pub title: String,
     pub snippet: String,
+    pub icon: Option<String>,
+    pub icon_color: Option<String>,
 }
 
 #[derive(Debug, Serialize, Clone)]
@@ -91,6 +95,7 @@ pub struct NoteMeta {
     /// Normalized scalar `type` from the already-indexed frontmatter JSON.
     /// Missing, blank, non-string, and invalid JSON values are all `None`.
     pub r#type: Option<String>,
+    pub kind: Option<String>,
     pub tags: Vec<String>,
 }
 
@@ -100,6 +105,20 @@ pub struct NoteTitle {
     pub id: String,
     pub path: String,
     pub title: String,
+    pub icon: Option<String>,
+    pub icon_color: Option<String>,
+    pub kind: Option<String>,
+    pub cover: Option<String>,
+}
+
+fn frontmatter_string(value: &serde_json::Value, key: &str) -> Option<String> {
+    value
+        .as_object()?
+        .get(key)?
+        .as_str()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string)
 }
 
 /// The graph's node metadata, returned in one indexed query. Keeping this
@@ -112,12 +131,18 @@ pub struct GraphNode {
     pub path: String,
     pub title: String,
     pub r#type: Option<String>,
+    pub kind: Option<String>,
 }
 
 fn graph_node_type(frontmatter: Option<&str>) -> Option<String> {
     let value = serde_json::from_str::<serde_json::Value>(frontmatter?).ok()?;
     let value = value.as_object()?.get("type")?.as_str()?.trim();
     (!value.is_empty()).then(|| value.to_lowercase())
+}
+
+fn graph_node_kind(frontmatter: Option<&str>) -> Option<String> {
+    let value = serde_json::from_str::<serde_json::Value>(frontmatter?).ok()?;
+    frontmatter_string(&value, "noam_kind")
 }
 
 /// One `#tag` and how many notes carry it. Feeds the editor's `#` completion,
@@ -295,6 +320,8 @@ impl Index {
             );
             "#,
         )?;
+        crate::knowledge::migrate(&self.conn)?;
+        crate::tasks::migrate(&self.conn)?;
         Ok(())
     }
 
@@ -317,6 +344,7 @@ impl Index {
         let started = Instant::now();
         let mut touched = 0usize;
         let tx = self.conn.unchecked_transaction()?;
+        let knowledge_generation = crate::knowledge::next_generation(&tx)?;
 
         // Snapshot what's already indexed: path -> (id, mtime, rowid).
         let mut indexed: HashMap<String, (String, i64, i64)> = HashMap::new();
@@ -335,6 +363,19 @@ impl Index {
                 indexed.insert(path, (id, mtime, rowid));
             }
         }
+
+        // A schema upgrade can add the derived knowledge tables to an existing
+        // index whose note mtimes are all unchanged. Those notes still need one
+        // canonical Markdown pass to seed the new tables.
+        let knowledge_indexed: HashSet<String> = {
+            let mut stmt = tx.prepare("SELECT note_id FROM knowledge_documents")?;
+            let rows = stmt.query_map([], |row| row.get(0))?;
+            rows.collect::<Result<_, _>>()?
+        };
+        let catalog_projection_ready = crate::knowledge::catalog_projection_ready(&tx)?;
+        // A vault indexed before the task tables existed has matching mtimes
+        // everywhere, so without this one flag nothing would ever be re-read.
+        let tasks_ready = crate::tasks::projection_ready(&tx)?;
 
         // Snapshot indexed folders: path -> (parent_id, name). An unchanged
         // folder then costs a hash lookup instead of a write. `rebuild` used to
@@ -420,16 +461,21 @@ impl Index {
 
             match indexed.get(&rel) {
                 // Unchanged since the last index — skip the read + parse.
-                Some((_, mtime, _)) if *mtime == disk_mtime => {}
+                Some((id, mtime, _))
+                    if *mtime == disk_mtime
+                        && knowledge_indexed.contains(id)
+                        && tasks_ready
+                        && (rel != crate::knowledge::KNOWLEDGE_SCHEMA_PATH
+                            || catalog_projection_ready) => {}
                 // Changed — re-index in place, preserving the doc_id.
                 Some((id, _, _)) => {
-                    self.index_one(&tx, vault, abs, Some(id.clone()))?;
+                    self.index_one(&tx, vault, abs, Some(id.clone()), knowledge_generation)?;
                     touched += 1;
                     notes_changed = true;
                 }
                 // New file.
                 None => {
-                    self.index_one(&tx, vault, abs, None)?;
+                    self.index_one(&tx, vault, abs, None, knowledge_generation)?;
                     touched += 1;
                     notes_changed = true;
                 }
@@ -465,6 +511,8 @@ impl Index {
         if notes_changed {
             self.resolve_links(&tx, LinkScope::All)?;
         }
+        crate::knowledge::resolve_queued_relationships(&tx)?;
+        crate::tasks::mark_projection_ready(&tx)?;
         tx.commit()?;
         // Unconditional, unlike `log_batch`, which stays silent below
         // `BATCH_LOG_MIN` — a clean reopen (0 touched notes) is exactly the case
@@ -502,12 +550,15 @@ impl Index {
         }
         let started = Instant::now();
         let tx = self.conn.unchecked_transaction()?;
+        let knowledge_generation = crate::knowledge::next_generation(&tx)?;
         let mut failures: Vec<(PathBuf, AppError)> = Vec::new();
         let mut touched: Vec<String> = Vec::with_capacity(abs_paths.len());
         for abs in abs_paths {
             let outcome = rel_from_abs(vault, abs)
                 .and_then(|rel| self.id_for_path(&tx, &rel))
-                .and_then(|reuse_id| self.index_one(&tx, vault, abs, reuse_id));
+                .and_then(|reuse_id| {
+                    self.index_one(&tx, vault, abs, reuse_id, knowledge_generation)
+                });
             match outcome {
                 Ok(id) => touched.push(id),
                 Err(e) => failures.push((abs.clone(), e)),
@@ -517,6 +568,7 @@ impl Index {
         if !touched.is_empty() {
             self.resolve_links(&tx, LinkScope::Touched(&touched))?;
         }
+        crate::knowledge::resolve_queued_relationships(&tx)?;
         tx.commit()?;
         log_batch("index_notes", abs_paths.len(), started);
         Ok(failures)
@@ -544,6 +596,7 @@ impl Index {
             return Ok(Vec::new());
         }
         let tx = self.conn.unchecked_transaction()?;
+        crate::knowledge::next_generation(&tx)?;
         let mut failures: Vec<(PathBuf, AppError)> = Vec::new();
         let mut gone: Vec<String> = Vec::new();
         for abs in abs_paths {
@@ -555,6 +608,7 @@ impl Index {
         if !gone.is_empty() {
             self.resolve_links(&tx, LinkScope::Touched(&gone))?;
         }
+        crate::knowledge::resolve_queued_relationships(&tx)?;
         tx.commit()?;
         Ok(failures)
     }
@@ -604,6 +658,8 @@ impl Index {
     }
 
     fn delete_note_rows(tx: &Connection, id: &str, rowid: i64) -> AppResult<()> {
+        crate::knowledge::remove_note(tx, id)?;
+        crate::tasks::remove_note(tx, id)?;
         tx.execute("DELETE FROM notes_fts WHERE rowid = ?1", params![rowid])?;
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
@@ -618,6 +674,11 @@ impl Index {
         let old_rel = rel_from_abs(vault, old_abs)?;
         let new_rel = rel_from_abs(vault, new_abs)?;
         let tx = self.conn.unchecked_transaction()?;
+        let had_catalog: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE path = ?1)",
+            params![crate::knowledge::KNOWLEDGE_SCHEMA_PATH],
+            |row| row.get(0),
+        )?;
 
         // Exact file rename/move (preserves doc_id).
         if let Some(id) = self.id_for_path(&tx, &old_rel)? {
@@ -643,6 +704,28 @@ impl Index {
             tx.execute(
                 "UPDATE notes SET path = ?1 WHERE id = ?2",
                 params![new_path, id],
+            )?;
+        }
+
+        let has_catalog: bool = tx.query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE path = ?1)",
+            params![crate::knowledge::KNOWLEDGE_SCHEMA_PATH],
+            |row| row.get(0),
+        )?;
+        if had_catalog != has_catalog {
+            let content = std::fs::read_to_string(
+                vault.join(crate::knowledge::KNOWLEDGE_SCHEMA_PATH),
+            )
+            .ok();
+            let parsed = content
+                .as_deref()
+                .map(|value| parse_note(value, "Knowledge schema"));
+            crate::knowledge::refresh_catalog(
+                &tx,
+                parsed
+                    .as_ref()
+                    .and_then(|value| value.frontmatter_json.as_deref()),
+                parsed.as_ref().map(|value| value.body.as_str()).unwrap_or(""),
             )?;
         }
 
@@ -701,6 +784,7 @@ impl Index {
             "UPDATE links SET src_note_id = ?1 WHERE src_note_id = ?2",
             params![doc_id, current],
         )?;
+        crate::knowledge::rebind_note(&tx, &current, doc_id)?;
         // Inbound links point at the OLD id in `dst_note_id`; the pass recomputes
         // every one of them from `dst_path_raw`, which is what keeps backlinks
         // pointing at this note across the rebind.
@@ -720,6 +804,7 @@ impl Index {
         stem: &str,
         mtime: i64,
         reuse_id: Option<String>,
+        knowledge_generation: i64,
     ) -> AppResult<String> {
         let id = reuse_id.unwrap_or_else(|| Uuid::new_v4().to_string());
         tx.execute(
@@ -741,6 +826,9 @@ impl Index {
         )?;
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
+        crate::knowledge::mark_skipped(tx, &id, "skipped_oversized", knowledge_generation)?;
+        // An oversized note is listed but not parsed, so it contributes no tasks.
+        crate::tasks::remove_note(tx, &id)?;
         Ok(id)
     }
 
@@ -752,6 +840,7 @@ impl Index {
         vault: &Path,
         abs: &Path,
         reuse_id: Option<String>,
+        knowledge_generation: i64,
     ) -> AppResult<String> {
         let rel = rel_from_abs(vault, abs)?;
         let stem = abs
@@ -781,7 +870,7 @@ impl Index {
                 size as f64 / (1024.0 * 1024.0),
                 MAX_INDEX_BYTES / (1024 * 1024)
             );
-            return self.index_oversized(tx, &rel, stem, mtime, reuse_id);
+            return self.index_oversized(tx, &rel, stem, mtime, reuse_id, knowledge_generation);
         }
 
         let content = std::fs::read_to_string(abs)?;
@@ -799,6 +888,30 @@ impl Index {
                 sha256=excluded.sha256, frontmatter=excluded.frontmatter",
             params![id, rel, parsed.title, mtime, sha, parsed.frontmatter_json],
         )?;
+
+        let starts_frontmatter = content
+            .strip_prefix('\u{feff}')
+            .unwrap_or(&content)
+            .starts_with("---");
+        let knowledge_status = if starts_frontmatter && parsed.frontmatter_json.is_none() {
+            "unsupported_frontmatter"
+        } else {
+            "current"
+        };
+        crate::knowledge::replace_note(
+            tx,
+            &id,
+            &rel,
+            parsed.frontmatter_json.as_deref(),
+            &parsed.body,
+            &sha,
+            knowledge_status,
+            knowledge_generation,
+        )?;
+
+        // Tasks: derived from the same `content`, in the same transaction, so a
+        // note's rows and its task rows can never disagree.
+        crate::tasks::index_tasks(tx, &id, &content, knowledge_generation)?;
 
         let rowid: i64 =
             tx.query_row("SELECT rowid FROM notes WHERE id = ?1", params![id], |r| {
@@ -840,6 +953,20 @@ impl Index {
         }
 
         Ok(id)
+    }
+
+    /// Bounded, generation-bound reads over the normalized local knowledge index.
+    pub fn query_knowledge(
+        &self,
+        query: &KnowledgeQuery,
+        page: &KnowledgePageRequest,
+    ) -> AppResult<KnowledgePage> {
+        crate::knowledge::query(&self.conn, query, page)
+    }
+
+    /// Bounded reads over the derived task index.
+    pub fn query_tasks(&self, query: &TaskQuery, page: &TaskPageRequest) -> AppResult<TaskPage> {
+        crate::tasks::query(&self.conn, query, page)
     }
 
     fn upsert_folder(&self, tx: &Connection, vault: &Path, abs: &Path) -> AppResult<()> {
@@ -1039,7 +1166,8 @@ impl Index {
         // though the body is raw markdown.
         let mut stmt = self.conn.prepare(
             "SELECT n.id, n.path, n.title,
-                    snippet(notes_fts, 1, char(1), char(2), '…', 12) AS snip
+                    snippet(notes_fts, 1, char(1), char(2), '…', 12) AS snip,
+                    n.frontmatter
              FROM notes_fts
              JOIN notes n ON n.rowid = notes_fts.rowid
              WHERE notes_fts MATCH ?1
@@ -1048,17 +1176,38 @@ impl Index {
         )?;
         let rows = stmt.query_map(params![match_query], |r| {
             let raw: String = r.get(3)?;
+            let frontmatter = r
+                .get::<_, Option<String>>(4)?
+                .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok());
+            if frontmatter
+                .as_ref()
+                .and_then(|value| frontmatter_string(value, "noam_kind"))
+                .as_deref()
+                == Some("folder-presentation")
+            {
+                return Ok(None);
+            }
             let snippet = html_escape(&raw)
                 .replace('\u{1}', "<mark>")
                 .replace('\u{2}', "</mark>");
-            Ok(SearchResult {
+            Ok(Some(SearchResult {
                 id: r.get(0)?,
                 path: r.get(1)?,
                 title: r.get(2)?,
                 snippet,
-            })
+                icon: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_icon")),
+                icon_color: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_icon_color")),
+            }))
         })?;
-        Ok(rows.collect::<Result<Vec<_>, _>>()?)
+        Ok(rows
+            .collect::<Result<Vec<_>, _>>()?
+            .into_iter()
+            .flatten()
+            .collect())
     }
 
     /// Notes that link *to* the given note id.
@@ -1171,9 +1320,30 @@ impl Index {
             mtime,
             sha256: sha256.unwrap_or_default(),
             r#type: graph_node_type(frontmatter.as_deref()),
+            kind: graph_node_kind(frontmatter.as_deref()),
             frontmatter,
             tags,
         }))
+    }
+
+    /// Path of another note that currently claims `document_id` in the local
+    /// knowledge index. This is an indexed lookup, never a vault scan.
+    pub fn portable_document_identity_owner(
+        &self,
+        document_id: &str,
+        except_path: &str,
+    ) -> AppResult<Option<String>> {
+        Ok(self
+            .conn
+            .query_row(
+                "SELECT n.path
+                   FROM knowledge_documents d JOIN notes n ON n.id = d.note_id
+                  WHERE d.portable_document_id = ?1 AND n.path <> ?2
+                  ORDER BY n.path LIMIT 1",
+                params![document_id, except_path],
+                |row| row.get(0),
+            )
+            .optional()?)
     }
 
     /// Resolve a wiki-link target to a note: by full relative path, then by
@@ -1247,12 +1417,27 @@ impl Index {
     pub fn list_note_titles(&self) -> AppResult<Vec<NoteTitle>> {
         let mut stmt = self
             .conn
-            .prepare("SELECT id, path, title FROM notes ORDER BY title")?;
+            .prepare("SELECT id, path, title, frontmatter FROM notes ORDER BY title")?;
         let rows = stmt.query_map([], |r| {
+            let frontmatter = r
+                .get::<_, Option<String>>(3)?
+                .and_then(|value| serde_json::from_str::<serde_json::Value>(&value).ok());
             Ok(NoteTitle {
                 id: r.get(0)?,
                 path: r.get(1)?,
                 title: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
+                icon: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_icon")),
+                icon_color: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_icon_color")),
+                kind: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_kind")),
+                cover: frontmatter
+                    .as_ref()
+                    .and_then(|value| frontmatter_string(value, "noam_cover")),
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -1272,6 +1457,7 @@ impl Index {
                 path: r.get(1)?,
                 title: r.get::<_, Option<String>>(2)?.unwrap_or_default(),
                 r#type: graph_node_type(frontmatter.as_deref()),
+                kind: graph_node_kind(frontmatter.as_deref()),
             })
         })?;
         Ok(rows.collect::<Result<Vec<_>, _>>()?)
@@ -1969,6 +2155,23 @@ mod tests {
         assert_eq!(updated.r#type, Some("project".to_string()));
     }
 
+    #[test]
+    fn list_graph_nodes_includes_frontmatter_kind() {
+        let tmp = tempfile::tempdir().unwrap();
+        let vault = tmp.path().to_path_buf();
+        write_note(
+            &vault,
+            "Folder/_noam-folder.md",
+            "---\nnoam_kind: folder-presentation\n---\n",
+        )
+        .unwrap();
+        let idx = Index::open(&vault).unwrap();
+        idx.rebuild(&vault).unwrap();
+
+        let node = idx.list_graph_nodes().unwrap().pop().unwrap();
+        assert_eq!(node.kind, Some("folder-presentation".to_string()));
+    }
+
     /// A clean reopen must not rewrite a single `folders` row. Those writes
     /// happen inside the transaction that holds the index mutex, so paying them
     /// for an unchanged vault delays every reader at launch for nothing.
@@ -2465,6 +2668,42 @@ mod tests {
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].title, "Beta");
         assert!(results[0].snippet.contains("<mark>"));
+    }
+
+    #[test]
+    fn presentation_metadata_is_indexed_and_folder_companions_stay_out_of_search() {
+        let tmp = tempfile::tempdir().unwrap();
+        let v = tmp.path().to_path_buf();
+        write_note(
+            &v,
+            "Leaf.md",
+            "---\nnoam_icon: lucide:leaf\nnoam_icon_color: green\nnoam_cover: attachments/leaf.jpg\n---\n# Leaf\n\nneedle",
+        )
+        .unwrap();
+        write_note(
+            &v,
+            "Garden/_noam-folder.md",
+            "---\nnoam_kind: folder-presentation\nnoam_icon: emoji:🌿\n---\nneedle",
+        )
+        .unwrap();
+        let idx = Index::open(&v).unwrap();
+        idx.rebuild(&v).unwrap();
+
+        let titles = idx.list_note_titles().unwrap();
+        let leaf = titles.iter().find(|note| note.path == "Leaf.md").unwrap();
+        assert_eq!(leaf.icon.as_deref(), Some("lucide:leaf"));
+        assert_eq!(leaf.icon_color.as_deref(), Some("green"));
+        assert_eq!(leaf.cover.as_deref(), Some("attachments/leaf.jpg"));
+        let folder = titles
+            .iter()
+            .find(|note| note.path == "Garden/_noam-folder.md")
+            .unwrap();
+        assert_eq!(folder.kind.as_deref(), Some("folder-presentation"));
+
+        let results = idx.search_notes("needle").unwrap();
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].path, "Leaf.md");
+        assert_eq!(results[0].icon.as_deref(), Some("lucide:leaf"));
     }
 
     #[test]

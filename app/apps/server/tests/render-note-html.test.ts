@@ -50,6 +50,29 @@ describe("renderNoteHtml — hostile input", () => {
 });
 
 describe("renderNoteHtml — markdown subset", () => {
+  it("renders the fixed highlight palette with nested Markdown", () => {
+    const { bodyHtml } = renderNoteHtml(
+      '==yellow== <mark data-noam-color="green">**bold** and [site](https://example.com)</mark>',
+      noAssets,
+    );
+    expect(bodyHtml).toContain('<mark data-noam-color="yellow">yellow</mark>');
+    expect(bodyHtml).toContain('<mark data-noam-color="green"><strong>bold</strong> and <a');
+    expect(bodyHtml).toContain('>site</a></mark>');
+  });
+
+  it("never renders arbitrary mark attributes, colors or marks in code", () => {
+    for (const value of [
+      '<mark style="background:red">text</mark>',
+      '<mark data-noam-color="invalid">text</mark>',
+      '<mark data-noam-color="green" onclick="alert(1)">text</mark>',
+      '`<mark data-noam-color="green">text</mark>`',
+      '```\n<mark data-noam-color="green">text</mark>\n```',
+    ]) {
+      expect(renderNoteHtml(value, noAssets).bodyHtml).not.toContain('<mark');
+    }
+    expect(renderNoteHtml('`==code==`', noAssets).bodyHtml).toContain('<code>==code==</code>');
+  });
+
   it("renders headings, emphasis, lists, quotes, hr", () => {
     const { bodyHtml } = renderNoteHtml(
       "# Title\n\n**bold** and *it* and ~~gone~~\n\n- one\n- two\n  1. nested\n\n> quoted\n\n---",

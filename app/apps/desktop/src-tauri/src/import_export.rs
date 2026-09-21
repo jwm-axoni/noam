@@ -14,7 +14,7 @@
 //! Per-item failures are collected into the summary, never fatal.
 
 use crate::error::{AppError, AppResult};
-use crate::vault::{is_ignored_name, resolve_in_vault};
+use crate::vault::{import_rule, is_ignored_name, resolve_in_vault};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -29,6 +29,9 @@ pub struct ImportSummary {
     pub files: usize,
     /// Files/dirs skipped (ignored names, unreadable sources, etc.).
     pub skipped: usize,
+    /// Non-note bytes imported outside the root `attachments/` sync store.
+    /// These remain local until the user moves or embeds them as attachments.
+    pub local_only: usize,
 }
 
 enum Kind {
@@ -38,19 +41,11 @@ enum Kind {
 }
 
 fn classify(name: &str) -> Kind {
-    match ext_lower(name).as_str() {
-        "md" | "markdown" | "txt" => Kind::Note,
-        "html" | "htm" => Kind::Html,
+    match import_rule(name) {
+        Some("note") => Kind::Note,
+        Some("html") => Kind::Html,
         _ => Kind::Other,
     }
-}
-
-fn ext_lower(name: &str) -> String {
-    Path::new(name)
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("")
-        .to_lowercase()
 }
 
 /// File name after note-extension normalization (`.txt`/`.markdown` → `.md`).
@@ -133,6 +128,9 @@ fn copy_file_to(
     let bytes = std::fs::read(src_abs)?;
     atomic_write(vault, &rel, &bytes)?;
     s.files += 1;
+    if matches!(classify(target_name), Kind::Other) && !rel.starts_with("attachments/") {
+        s.local_only += 1;
+    }
     Ok(rel)
 }
 
@@ -339,6 +337,7 @@ mod tests {
         assert_eq!(s.imported, vec!["Notes/logo.png", "Notes/app.js"]);
         assert!(vault.path().join("Notes/logo.png").is_file());
         assert!(vault.path().join("Notes/app.js").is_file());
+        assert_eq!(s.local_only, 2);
     }
 
     #[test]

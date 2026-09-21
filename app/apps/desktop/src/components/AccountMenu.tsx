@@ -7,12 +7,14 @@ import {
   recentVaultRows,
   type VaultRow,
 } from "../lib/vaultRows";
+import { openExistingVault } from "../lib/vault/openExisting";
 import { authManager } from "../lib/auth/authManager";
 import { statusTone } from "../lib/presence/color";
 import { useLocalVaults, useRecentVaults } from "./useVaultLists";
 import { AsyncButton } from "./AsyncButton";
 import { LazyAvatar } from "./Face";
 import { MenuIcon } from "./MenuIcon";
+import { ViewportMenu } from "./ViewportMenu";
 
 /* The settings surface is a whole second app (nine tabs, billing, MCP tokens,
    access) and nothing in it is on the first screen, so all three dialogs load
@@ -48,6 +50,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   const vault = useStore((s) => s.vault);
 
   const [open, setOpen] = useState(false);
+  const [openFolderError, setOpenFolderError] = useState<string | null>(null);
   const [authOpen, setAuthOpen] = useState(false);
   const [settingsSection, setSettingsSection] = useState<SettingsSectionId | null>(null);
   // Signed out with a folder open: is that folder actually a SYNCED vault
@@ -58,6 +61,8 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   // caches may be gone while the folder still knows whose it is.
   const [openFolderSynced, setOpenFolderSynced] = useState(false);
   const rootRef = useRef<HTMLDivElement>(null);
+  const triggerRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
 
   // "unknown" is a state the user can now SEE: the sidebar paints before the
   // session restore finishes, so for its first moments we do not yet know
@@ -94,10 +99,14 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   useEffect(() => {
     if (!open) return;
     const onPointerDown = (e: PointerEvent) => {
-      if (!rootRef.current?.contains(e.target as Node)) setOpen(false);
+      const target = e.target as Node;
+      if (!rootRef.current?.contains(target) && !menuRef.current?.contains(target)) setOpen(false);
     };
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setOpen(false);
+      if (e.key !== "Escape") return;
+      e.preventDefault();
+      setOpen(false);
+      requestAnimationFrame(() => triggerRef.current?.focus());
     };
     window.addEventListener("pointerdown", onPointerDown);
     window.addEventListener("keydown", onKey);
@@ -128,6 +137,20 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     };
   }, []);
 
+  const openFolder = async () => {
+    // The native picker owns the next interaction, so retire the menu first.
+    // Cancellation leaves it closed. A real failure brings the same menu back
+    // with the inline error treatment used by its other vault actions.
+    setOpenFolderError(null);
+    setOpen(false);
+    try {
+      await openExistingVault();
+    } catch (e) {
+      setOpenFolderError(e instanceof Error ? e.message : String(e));
+      setOpen(true);
+    }
+  };
+
   if (signedOut || authPending || !session) {
     // Signed out is still local-first: the identity bar names the local
     // vault you're in (if any) and opens the switcher, so you can hop
@@ -138,6 +161,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
     return (
       <div className={`account-menu${compact ? " compact" : ""}`} ref={rootRef}>
         <button
+          ref={triggerRef}
           data-settings-return-focus
           className={`identity-bar ${open ? "open" : ""}`}
           onClick={() => setOpen((v) => !v)}
@@ -193,17 +217,28 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
           </span>
         </button>
         {open && (
-          <SignedOutPopover
-            onClose={() => setOpen(false)}
-            onSignIn={() => {
-              setOpen(false);
-              setAuthOpen(true);
-            }}
-            onOpenSettings={() => {
-              setOpen(false);
-              setSettingsSection("general");
-            }}
-          />
+          <ViewportMenu
+            anchorRef={triggerRef}
+            menuRef={menuRef}
+            className="account-popover"
+            role="menu"
+            align="start"
+            side="up"
+          >
+            <SignedOutPopover
+              onClose={() => setOpen(false)}
+              onOpenFolder={() => void openFolder()}
+              openFolderError={openFolderError}
+              onSignIn={() => {
+                setOpen(false);
+                setAuthOpen(true);
+              }}
+              onOpenSettings={() => {
+                setOpen(false);
+                setSettingsSection("general");
+              }}
+            />
+          </ViewportMenu>
         )}
         {/* Same rule as VaultPicker: a link-driven prompt mounts its own
             AuthDialog from App.tsx, and two stacked sign-in cards is a bug.
@@ -263,6 +298,7 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   return (
     <div className={`account-menu${compact ? " compact" : ""}`} ref={rootRef}>
       <button
+        ref={triggerRef}
         data-settings-return-focus
         className={`identity-bar ${open ? "open" : ""}`}
         onClick={() => setOpen((v) => !v)}
@@ -294,17 +330,28 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
       </button>
 
       {open && (
-        <AccountPopover
-          onClose={() => setOpen(false)}
-          onOpenMembers={() => {
-            setOpen(false);
-            setSettingsSection("general");
-          }}
-          onOpenAccount={() => {
-            setOpen(false);
-            setSettingsSection("profile");
-          }}
-        />
+        <ViewportMenu
+          anchorRef={triggerRef}
+          menuRef={menuRef}
+          className="account-popover"
+          role="menu"
+          align="start"
+          side="up"
+        >
+          <AccountPopover
+            onClose={() => setOpen(false)}
+            onOpenFolder={() => void openFolder()}
+            openFolderError={openFolderError}
+            onOpenMembers={() => {
+              setOpen(false);
+              setSettingsSection("general");
+            }}
+            onOpenAccount={() => {
+              setOpen(false);
+              setSettingsSection("profile");
+            }}
+          />
+        </ViewportMenu>
       )}
       {settingsSection && (
         <Suspense fallback={null}>
@@ -318,15 +365,37 @@ export function AccountMenu({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** Native-pick a folder and open it as a local vault, then close the menu. */
+/** Open a folder picker from the same row shape as the vault switcher. */
+function OpenFolderItem({ onOpen }: { onOpen: () => void }) {
+  return (
+    <button className="menu-item subtle" onClick={onOpen}>
+      <span className="menu-swatch plus" aria-hidden="true">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+        </svg>
+      </span>
+      <span className="menu-item-label">Open folder…</span>
+    </button>
+  );
+}
+
 /**
  * "New vault": name it, and it's created under the vaults root.
  *
  * Name-only, matching the welcome screen. Asking which folder was a question
  * with one sensible answer — every vault we create lives under the same root,
  * and a vault's folder is just `slugify(its name)`. Adopting a folder you
- * already have is "Open existing" on the welcome screen, which keeps that
- * folder exactly where it is.
+ * already have is the adjacent "Open folder…" action, shared with the welcome
+ * screen's "Open existing" handler. It keeps that folder exactly where it is.
  *
  * Inline rather than a dialog: it's one field, and the menu is already open.
  */
@@ -496,10 +565,14 @@ function VaultRows({
  */
 function SignedOutPopover({
   onClose,
+  onOpenFolder,
+  openFolderError,
   onSignIn,
   onOpenSettings,
 }: {
   onClose: () => void;
+  onOpenFolder: () => void;
+  openFolderError: string | null;
   onSignIn: () => void;
   onOpenSettings: () => void;
 }) {
@@ -507,13 +580,15 @@ function SignedOutPopover({
   const recents = useRecentVaults();
   const locals = useLocalVaults();
   return (
-    <div className="account-popover" role="menu">
+    <>
       {vault && <HomeButton onClose={onClose} />}
       {/* Signed out there are no vaults in an account, so local folders get
           the whole budget. */}
       <VaultRows onClose={onClose} organizations={[]} recents={recents} locals={locals} />
 
       <NewVaultItem onDone={onClose} />
+      <OpenFolderItem onOpen={onOpenFolder} />
+      {openFolderError && <div className="auth-error">{openFolderError}</div>}
 
       {vault && (
         <button className="menu-item" onClick={onOpenSettings}>
@@ -535,16 +610,20 @@ function SignedOutPopover({
         <span className="menu-item-label">Sign in</span>
         <span className="menu-hint">Sync &amp; collaborate</span>
       </button>
-    </div>
+    </>
   );
 }
 
 function AccountPopover({
   onClose,
+  onOpenFolder,
+  openFolderError,
   onOpenMembers,
   onOpenAccount,
 }: {
   onClose: () => void;
+  onOpenFolder: () => void;
+  openFolderError: string | null;
   onOpenMembers: () => void;
   onOpenAccount: () => void;
 }) {
@@ -588,7 +667,7 @@ function AccountPopover({
     // menu saying something the user was already looking at. Home takes that
     // row instead: it's the one destination, and it was previously buried
     // below the fold on an account with several vaults.
-    <div className="account-popover" role="menu">
+    <>
       {vault && <HomeButton onClose={onClose} />}
 
       {userInvitations.length > 0 && (
@@ -649,6 +728,8 @@ function AccountPopover({
       />
 
       <NewVaultItem onDone={onClose} />
+      <OpenFolderItem onOpen={onOpenFolder} />
+      {openFolderError && <div className="auth-error">{openFolderError}</div>}
 
       {/* Teammates join with the code shared from Vault settings. */}
       {joining ? (
@@ -721,7 +802,7 @@ function AccountPopover({
         </MenuIcon>
         <span className="menu-item-label">Sign out</span>
       </button>
-    </div>
+    </>
   );
 }
 

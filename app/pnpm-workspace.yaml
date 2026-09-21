@@ -2,6 +2,7 @@
 # railway.json + .github, which reference paths under app/).
 packages:
   - apps/*
+  - packages/*
 
 # Single source of truth for deps that MUST stay version-identical across
 # desktop and server. yjs / y-protocols / @hocuspocus/provider form the sync

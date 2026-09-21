@@ -66,6 +66,15 @@
   cursor: grab;
 }
 
+/* Node names for the GPU (global) path: a 2D canvas stacked over the WebGL one
+   and drawn from the same camera, because text on the GPU would mean a glyph
+   atlas for what is a few hundred fillText calls. Never takes the pointer — the
+   2D canvas underneath owns pan/zoom/hit-testing for both paths. */
+.graph-label-layer {
+  z-index: 1;
+  pointer-events: none;
+}
+
 .graph-canvas.is-dragging {
   cursor: grabbing;
 }
@@ -95,6 +104,9 @@
 }
 
 .graph-counts {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
   font-size: var(--type-chrome-size);
   line-height: var(--type-leading-chrome);
   color: var(--text-secondary);
@@ -312,11 +324,12 @@
   border-color: var(--accent);
 }
 
-/* Segmented control (color mode). Spans the value + trailing columns and fills
-   the row so all four options fit without clipping. */
+/* Segmented control (color mode). A two-column grid keeps every label intact
+   at the panel's minimum width without replacing the existing control. */
 .graph-seg {
   grid-column: 2 / -1;
-  display: flex;
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
   width: 100%;
   min-width: 0;
   gap: 2px;
@@ -326,7 +339,6 @@
   border-radius: var(--radius-sm);
 }
 .graph-seg-btn {
-  flex: 1;
   min-width: 0;
   padding: 3px 4px;
   border: none;
@@ -335,17 +347,28 @@
   color: var(--text-secondary);
   font-size: var(--type-chrome-size);
   white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
   cursor: pointer;
   transition: background var(--t-fast) var(--ease), color var(--t-fast) var(--ease);
 }
 .graph-seg-btn:hover {
   color: var(--text-primary);
 }
+.graph-seg-btn:disabled {
+  color: var(--text-tertiary);
+  cursor: not-allowed;
+  opacity: 0.6;
+}
 .graph-seg-btn.is-active {
   background: var(--accent);
   color: var(--text-on-accent);
+}
+.graph-scope-seg {
+  grid-column: 1 / -1;
+}
+.graph-control-hint {
+  color: var(--text-tertiary);
+  font-size: var(--type-label-size);
+  line-height: var(--type-leading-chrome);
 }
 
 /* Legend. */
@@ -393,6 +416,27 @@
 .graph-control-reset:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
+}
+
+/* Opt-in WebGL diagnostics. GraphView suppresses this while the controls card
+   is open, and this top-right placement keeps it clear of the legend. */
+.graph-diagnostics {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  z-index: 5;
+  max-width: calc(100% - var(--sp-4));
+  padding: var(--sp-1) var(--sp-2);
+  overflow-wrap: anywhere;
+  pointer-events: none;
+  color: var(--text-secondary);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  box-shadow: var(--shadow-sm);
+  font-family: var(--font-mono);
+  font-size: var(--type-label-size);
+  line-height: var(--type-leading-chrome);
 }
 
 @container (max-width: 340px) {

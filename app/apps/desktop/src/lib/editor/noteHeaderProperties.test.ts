@@ -10,14 +10,21 @@
 //      YAML stays visible and is never rewritten.
 import { Compartment, EditorState } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it } from "vitest";
+import { addPropertyToNote } from "../../components/properties/PropertiesPanel";
 import { propertiesMode, type PropertiesMode } from "./frontmatter";
+import { getHeaderFocus } from "./headerFocus";
 import { createEditorState } from "./index";
 
 /** The Compartment Editor.tsx owns, exposed so a test can reconfigure it. */
 const modeCompartments = new WeakMap<EditorView, Compartment>();
 
-function mount(doc: string, mode: PropertiesMode = "visible", readOnly = false) {
+function mount(
+  doc: string,
+  mode: PropertiesMode = "visible",
+  readOnly = false,
+  identity = { vaultId: "vault-a", docId: "doc-1", path: "Notes/My Note.md" },
+) {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const modeCompartment = new Compartment();
@@ -27,7 +34,7 @@ function mount(doc: string, mode: PropertiesMode = "visible", readOnly = false) 
       getTitles: () => [],
       onNavigate: () => {},
       header: {
-        path: "Notes/My Note.md",
+        ...identity,
         mode,
         modeCompartment,
         renameTo: async () => null,
@@ -61,7 +68,25 @@ const DOC = [
   "Body text.",
 ].join("\n");
 
+beforeEach(() => localStorage.clear());
+
 describe("the Properties panel", () => {
+  it("restores the collapsed panel after direct and ancestor moves without leaking to another vault", () => {
+    const view = mount(DOC);
+    view.dom.querySelector<HTMLButtonElement>(".prop-panel-header")!.click();
+    view.destroy();
+
+    for (const path of ["Notes/Renamed.md", "Moved/Renamed.md"]) {
+      const restored = mount(DOC, "visible", false, { vaultId: "vault-a", docId: "doc-1", path });
+      expect(restored.dom.querySelector(".prop-panel-header")?.getAttribute("aria-expanded")).toBe("false");
+      expect(names(restored)).toEqual([]);
+      restored.destroy();
+    }
+    const other = mount(DOC, "visible", false, { vaultId: "vault-b", docId: "doc-1", path: "Moved/Renamed.md" });
+    expect(other.dom.querySelector(".prop-panel-header")?.getAttribute("aria-expanded")).toBe("true");
+    other.destroy();
+  });
+
   it("renders one row per key, with the right control", () => {
     const view = mount(DOC);
     expect(panel(view)).not.toBeNull();
@@ -70,6 +95,53 @@ describe("the Properties panel", () => {
     expect(view.dom.querySelector<HTMLInputElement>(".prop-checkbox")?.checked).toBe(false);
     // The YAML lines are replaced, not merely hidden by CSS.
     expect(lineTexts(view)).not.toContain("status: draft");
+    view.destroy();
+  });
+
+  it("collapses to a count header, expands again, and remembers the note", () => {
+    const view = mount(DOC);
+    const header = view.dom.querySelector<HTMLButtonElement>(".prop-panel-header")!;
+    expect(header.textContent).toContain("Properties · 3");
+    expect(header.getAttribute("aria-expanded")).toBe("true");
+
+    header.click();
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(names(view)).toEqual([]);
+    header.focus();
+
+    const host = panel(view);
+    view.dispatch({ changes: { from: DOC.lastIndexOf("---"), insert: "priority: high\n" } });
+    expect(panel(view)).toBe(host);
+    expect(header.getAttribute("aria-expanded")).toBe("false");
+    expect(header.textContent).toContain("Properties · 4");
+    expect(document.activeElement).toBe(header);
+    view.destroy();
+
+    const restored = mount(DOC);
+    expect(
+      restored.dom.querySelector(".prop-panel-header")?.getAttribute("aria-expanded"),
+    ).toBe("false");
+    restored.dom.querySelector<HTMLButtonElement>(".prop-panel-header")!.click();
+    expect(names(restored)).toEqual(["status", "tags", "done"]);
+    restored.destroy();
+  });
+
+  it("expands before property focus handoffs and add-property", () => {
+    const view = mount(DOC);
+    view.dom.querySelector<HTMLButtonElement>(".prop-panel-header")!.click();
+
+    expect(getHeaderFocus(view).focusFirstProperty?.()).toBe(true);
+    expect(view.dom.querySelector(".prop-panel-header")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    expect(document.activeElement).toBe(
+      view.dom.querySelectorAll<HTMLInputElement>(".prop-input")[0],
+    );
+
+    view.dom.querySelector<HTMLButtonElement>(".prop-panel-header")!.click();
+    expect(addPropertyToNote(view)).toBe(true);
+    expect(view.dom.querySelector(".prop-panel-header")?.getAttribute("aria-expanded"))
+      .toBe("true");
+    expect(names(view)).toContain("property");
     view.destroy();
   });
 

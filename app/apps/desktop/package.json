@@ -1,7 +1,7 @@
 {
   "name": "desktop",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.1.59",
   "license": "UNLICENSED",
   "type": "module",
   "scripts": {
@@ -12,6 +12,7 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@noam/contracts": "workspace:*",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -51,7 +52,9 @@
     "codemirror": "^6.0.2",
     "d3-force": "^3.0.0",
     "diff-match-patch": "^1.0.5",
+    "lucide-react": "^1.47.0",
     "motion": "^12.42.2",
+    "pdfjs-dist": "^6.3.289",
     "react": "^19.1.0",
     "react-arborist": "^3.13.2",
     "react-dom": "^19.1.0",

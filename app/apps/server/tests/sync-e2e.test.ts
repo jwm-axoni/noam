@@ -7,6 +7,7 @@ import { createSyncServer, disconnectDoc, type SyncContext } from "../src/sync/h
 import { formatDocName } from "../src/sync/doc-name.js";
 import { mintSyncToken } from "../src/tokens/sync-token.js";
 import { countUpdates } from "../src/yjs/persistence.js";
+import { scheduleIndex } from "../src/index/indexer.js";
 import { createDocWriter } from "../src/mcp/doc-writer.js";
 import { createApp } from "../src/http/app.js";
 import { recordVersion } from "../src/versions/capture.js";
@@ -21,6 +22,8 @@ const URL = `ws://127.0.0.1:${PORT}`;
 const VAULT = "vault-e2e";
 
 let server: Server<SyncContext>;
+let failIndexing = false;
+let changes: Array<{ vaultId: string; docId: string }>;
 /** Every `onDocEdited` notification the sync server made, in order. */
 let edits: Array<{ vaultId: string; docId: string; userId: string | null }>;
 
@@ -65,8 +68,15 @@ describe("end-to-end Yjs sync through the server (spec 03 §3, 04 §4)", () => {
   beforeAll(async () => {
     await resetDb();
     edits = [];
-    server = createSyncServer(PORT, undefined, (vaultId, docId, userId) =>
-      edits.push({ vaultId, docId, userId }),
+    changes = [];
+    server = createSyncServer(
+      PORT,
+      (vaultId, docId) => changes.push({ vaultId, docId }),
+      (vaultId, docId, userId) => edits.push({ vaultId, docId, userId }),
+      async (docId) => {
+        if (failIndexing) throw new Error("index unavailable");
+        await scheduleIndex(docId);
+      },
     );
     await server.listen();
   });
@@ -77,6 +87,8 @@ describe("end-to-end Yjs sync through the server (spec 03 §3, 04 §4)", () => {
   beforeEach(async () => {
     await resetDb();
     edits = [];
+    changes = [];
+    failIndexing = false;
   });
 
   it("two edit clients converge on one doc", async () => {
@@ -100,6 +112,21 @@ describe("end-to-end Yjs sync through the server (spec 03 §3, 04 §4)", () => {
 
     a.provider.destroy();
     b.provider.destroy();
+  });
+
+  it("fans out a persisted update when index scheduling fails", async () => {
+    failIndexing = true;
+    const docId = "e2e-index-failure";
+    const client = await connect(docId, false);
+    client.text.insert(0, "stored before indexing");
+
+    await waitFor(
+      () => changes.some((change) => change.docId === docId),
+      8000,
+      "onDocChanged fired",
+    );
+    expect(await countUpdates(docId)).toBeGreaterThan(0);
+    client.provider.destroy();
   });
 
   it("a read-only client's edits are rejected by the server", async () => {

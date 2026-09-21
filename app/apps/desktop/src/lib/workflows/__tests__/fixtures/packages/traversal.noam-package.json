@@ -1,0 +1,25 @@
+{
+  "manifest": {
+    "format": "noam-package",
+    "formatVersion": 1,
+    "id": "traversal-pack",
+    "name": "Starter pack",
+    "description": "A daily note workflow, its template and one asset.",
+    "version": "1.2.0",
+    "minAppVersion": "0.1.0",
+    "workflowSchemaVersion": 1,
+    "entries": [
+      {
+        "path": "../outside/Evil.md",
+        "kind": "template",
+        "sha256": "45697286b8094dd9701d8ec7ccb77f19cf6bbd58357fa5a61d1e213d9d037e61"
+      }
+    ]
+  },
+  "files": {
+    "../outside/Evil.md": {
+      "encoding": "utf8",
+      "content": "# owned\n"
+    }
+  }
+}

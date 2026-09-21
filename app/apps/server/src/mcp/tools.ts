@@ -12,11 +12,13 @@ import {
   moveFolderTool,
   moveNoteTool,
   readNote,
+  queryKnowledgeTool,
   searchNotes,
   updateNote,
   type McpContext,
   type NoteEdit,
 } from "./service.js";
+import type { KnowledgeQuery, PropertyPredicate } from "../knowledge/query.js";
 
 /**
  * The MCP tool catalog. Each entry carries a JSON-Schema `inputSchema` (sent to
@@ -88,6 +90,99 @@ function optStrOrNull(args: Args, key: string): string | null | undefined {
 }
 
 const S = (description: string) => ({ type: "string", description });
+
+const KNOWLEDGE_OPS = new Set<PropertyPredicate["op"]>([
+  "eq",
+  "contains",
+  "lt",
+  "lte",
+  "gt",
+  "gte",
+]);
+
+function boundedString(value: unknown, label: string, max: number): string {
+  if (typeof value !== "string" || value.length === 0 || value.length > max) {
+    throw new McpToolError(`${label} must be a non-empty string of at most ${max} characters`);
+  }
+  return value;
+}
+
+/** Convert the public flat MCP arguments into the internal bounded query. */
+export function parseKnowledgeArgs(args: Args): { vaultId: string; query: KnowledgeQuery } {
+  const vaultId = boundedString(args.vaultId, "vaultId", 256);
+  const query: KnowledgeQuery = {};
+  if (args.text !== undefined) query.text = boundedString(args.text, "text", 4_096);
+  if (args.consistency !== undefined) {
+    if (args.consistency !== "current-only" && args.consistency !== "allow-stale") {
+      throw new McpToolError("consistency must be current-only or allow-stale");
+    }
+    query.consistency = args.consistency;
+  }
+  const limit = optNum(args, "limit");
+  const cursor = optStr(args, "cursor");
+  if (limit !== undefined || cursor !== undefined) {
+    if (limit !== undefined && (!Number.isInteger(limit) || limit < 1 || limit > 50)) {
+      throw new McpToolError("limit must be an integer from 1 to 50");
+    }
+    if (cursor !== undefined && cursor.length > 8_192) {
+      throw new McpToolError("cursor is too long");
+    }
+    query.page = { ...(limit !== undefined ? { limit } : {}), ...(cursor ? { cursor } : {}) };
+  }
+
+  if (args.where !== undefined) {
+    if (!Array.isArray(args.where) || args.where.length > 16) {
+      throw new McpToolError("where must contain at most 16 predicates");
+    }
+    query.where = args.where.map((entry, index): PropertyPredicate => {
+      if (!entry || typeof entry !== "object" || Array.isArray(entry)) {
+        throw new McpToolError(`where[${index}] must be an object`);
+      }
+      const row = entry as Args;
+      const propertyId = boundedString(row.propertyId, `where[${index}].propertyId`, 64);
+      if (typeof row.op !== "string" || !KNOWLEDGE_OPS.has(row.op as PropertyPredicate["op"])) {
+        throw new McpToolError(`where[${index}].op is invalid`);
+      }
+      if (!["string", "number", "boolean"].includes(typeof row.value)) {
+        throw new McpToolError(`where[${index}].value must be text, a number or a boolean`);
+      }
+      if (typeof row.value === "string" && row.value.length > 4_096) {
+        throw new McpToolError(`where[${index}].value is too long`);
+      }
+      return {
+        propertyId,
+        op: row.op as PropertyPredicate["op"],
+        value: row.value as PropertyPredicate["value"],
+      };
+    });
+  }
+
+  if (args.traverse !== undefined) {
+    if (!args.traverse || typeof args.traverse !== "object" || Array.isArray(args.traverse)) {
+      throw new McpToolError("traverse must be an object");
+    }
+    const row = args.traverse as Args;
+    const fromDocId = boundedString(row.fromDocId, "traverse.fromDocId", 256);
+    if (row.direction !== "outgoing" && row.direction !== "incoming") {
+      throw new McpToolError("traverse.direction must be outgoing or incoming");
+    }
+    if (!Number.isInteger(row.maxDepth) || ![1, 2, 3, 4].includes(row.maxDepth as number)) {
+      throw new McpToolError("traverse.maxDepth must be an integer from 1 to 4");
+    }
+    if (!Array.isArray(row.relationshipIds) || row.relationshipIds.length > 32) {
+      throw new McpToolError("traverse.relationshipIds must contain at most 32 ids");
+    }
+    const relationshipIds = row.relationshipIds.map((value, index) =>
+      boundedString(value, `traverse.relationshipIds[${index}]`, 64));
+    query.traverse = {
+      fromDocId,
+      relationshipIds,
+      direction: row.direction,
+      maxDepth: row.maxDepth as 1 | 2 | 3 | 4,
+    };
+  }
+  return { vaultId, query };
+}
 
 /** Validate `edit_note`'s `edits` argument into typed edits (McpToolError on a bad shape). */
 function parseEdits(raw: unknown): NoteEdit[] {
@@ -187,6 +282,57 @@ export const TOOLS: McpTool[] = [
     annotations: { readOnlyHint: true },
     handler: (ctx, a) =>
       searchNotes(ctx, reqStr(a, "vaultId"), reqStr(a, "query"), optNum(a, "k")),
+  },
+  {
+    name: "query_knowledge",
+    description:
+      "Query the properties and named relationships of notes you can access. Supports typed property predicates, bounded incoming/outgoing traversal, current-index checks, and paginated source evidence.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        vaultId: S("Vault id from list_vaults"),
+        text: S("Optional text to find in readable notes"),
+        where: {
+          type: "array",
+          maxItems: 16,
+          items: {
+            type: "object",
+            properties: {
+              propertyId: S("Stable property definition id"),
+              op: { type: "string", enum: ["eq", "contains", "lt", "lte", "gt", "gte"] },
+              value: { type: ["string", "number", "boolean"] },
+            },
+            required: ["propertyId", "op", "value"],
+            additionalProperties: false,
+          },
+        },
+        traverse: {
+          type: "object",
+          properties: {
+            fromDocId: S("Readable note docId to start from"),
+            relationshipIds: {
+              type: "array",
+              maxItems: 32,
+              items: S("Stable relationship definition id"),
+            },
+            direction: { type: "string", enum: ["outgoing", "incoming"] },
+            maxDepth: { type: "integer", minimum: 1, maximum: 4 },
+          },
+          required: ["fromDocId", "relationshipIds", "direction", "maxDepth"],
+          additionalProperties: false,
+        },
+        consistency: { type: "string", enum: ["current-only", "allow-stale"] },
+        limit: { type: "integer", minimum: 1, maximum: 50 },
+        cursor: S("Opaque nextCursor from the preceding page"),
+      },
+      required: ["vaultId"],
+      additionalProperties: false,
+    },
+    annotations: { readOnlyHint: true },
+    handler: (ctx, args) => {
+      const { vaultId, query } = parseKnowledgeArgs(args);
+      return queryKnowledgeTool(ctx, vaultId, query);
+    },
   },
   {
     name: "create_note",

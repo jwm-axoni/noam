@@ -1,16 +1,23 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from "react";
+import { lazy, Suspense, useEffect, useMemo, useState, type CSSProperties } from "react";
 import { motion, AnimatePresence, useReducedMotion } from "motion/react";
 import type { VaultInfo, RecentVault } from "../lib/ipc";
 import * as ipc from "../lib/ipc";
+import { LEFT_DOCK_MIN } from "../layout/geometry";
+import { DEFAULT_LEFT_WIDTH } from "../layout/types";
+import { openExistingVault } from "../lib/vault/openExisting";
 import {
   readKnownVaults,
+  readLastVault,
   readOrgVaults,
   requestJoinWithCode,
   requestOpenVault,
   useStore,
 } from "../store";
 import { Wordmark } from "./Logo";
+import { LazyAvatar } from "./Face";
+import { MenuIcon } from "./MenuIcon";
 import { Spinner } from "./Spinner";
+import { ThemeToggle } from "./ThemeToggle";
 
 /* Its own handle on the same chunk every other sign-in mount uses — the
    welcome screen must not drag the auth modal in just by rendering. */
@@ -45,37 +52,53 @@ function isSyncedEntry(e: PickerEntry): boolean {
 
 // Springs tuned for small UI: snappy but soft-landing (no rubber-banding).
 const SPRING = { type: "spring", stiffness: 300, damping: 24 } as const;
-const EASE_OUT = [0.16, 1, 0.3, 1] as const;
 
-/** Splash entrance: the wordmark resolves out of a blur, rising and settling
- *  in ~550ms. Everything else waits, then fades in quietly underneath. */
-const logoVariants = {
-  hidden: { opacity: 0, y: 20, scale: 0.92, filter: "blur(14px)" },
-  show: {
-    opacity: 1,
-    y: 0,
-    scale: 1,
-    filter: "blur(0px)",
-    transition: { duration: 0.55, ease: EASE_OUT },
-  },
-};
+function PlusGlyph() {
+  return (
+    <MenuIcon>
+      <path d="M12 5v14M5 12h14" />
+    </MenuIcon>
+  );
+}
 
-// Delayed reveal for the actions + hint, after the logo has landed.
-const REVEAL_DELAY = 1.1;
-const revealTransition = (delay: number) => ({
-  delay,
-  duration: 0.7,
-  ease: EASE_OUT,
-});
+function FolderGlyph() {
+  return (
+    <MenuIcon>
+      <path d="M3 7a2 2 0 0 1 2-2h4l2 2h8a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2Z" />
+    </MenuIcon>
+  );
+}
 
-/** Slow ambient drift for one aurora blob; each gets its own phase. */
-function auroraDrift(dx: number, dy: number, duration: number) {
-  return {
-    x: [0, dx, -dx * 0.6, 0],
-    y: [0, -dy, dy * 0.5, 0],
-    scale: [1, 1.12, 0.94, 1],
-    transition: { duration, repeat: Infinity, ease: "easeInOut" as const },
-  };
+function PeopleGlyph() {
+  return (
+    <MenuIcon>
+      <circle cx="9" cy="8" r="3.5" />
+      <path d="M2.5 20a6.5 6.5 0 0 1 13 0M16 4.5a3.5 3.5 0 0 1 0 7M17.5 13.5a6.5 6.5 0 0 1 4 6.5" />
+    </MenuIcon>
+  );
+}
+
+function CloudGlyph() {
+  return (
+    <MenuIcon>
+      <path d="M17.5 19a4.5 4.5 0 0 0 .6-8.96A6 6 0 0 0 6.3 9.2 4.5 4.5 0 0 0 7 18.99h10.5Z" />
+    </MenuIcon>
+  );
+}
+
+function PersonGlyph() {
+  return (
+    <MenuIcon>
+      <circle cx="12" cy="8" r="4" />
+      <path d="M4 21a8 8 0 0 1 16 0" />
+    </MenuIcon>
+  );
+}
+
+export function welcomeGreeting(hour = new Date().getHours()): string {
+  if (hour < 12) return "Good morning.";
+  if (hour < 18) return "Good afternoon.";
+  return "Good evening.";
 }
 
 /** Compact "time since" label for a recent vault, e.g. "just now", "3h ago". */
@@ -102,6 +125,7 @@ function tidyPath(path: string): string {
 
 export function VaultPicker() {
   const authStatus = useStore((s) => s.authStatus);
+  const session = useStore((s) => s.session);
   // A link-driven prompt (shared note / server invite / team invitation) mounts
   // its OWN AuthDialog from App.tsx, over this same welcome screen. Two stacked
   // sign-in modals is not a hypothetical: an invitation link clicked while the
@@ -138,13 +162,6 @@ export function VaultPicker() {
   // Which recent-vault card is being opened, by its key. A single boolean would
   // only tell the list to grey out; the point is to mark the row you clicked.
   const [opening, setOpening] = useState<string | null>(null);
-  // Recents are collapsed to the 3 most recent; "Show all" opens a MODAL with
-  // the full list. Expanding in place was tried twice and both ways lost:
-  // locked to the collapsed height it looked like the button did nothing
-  // (macOS overlay scrollbars are invisible until you scroll), and growing the
-  // box reflowed the vertically-centered card, shoving the wordmark and action
-  // buttons upward. A modal reveals everything and moves nothing.
-  const [showAllVaults, setShowAllVaults] = useState(false);
   const reduceMotion = useReducedMotion();
 
   // Surface recently opened vaults as one-tap "reopen" affordances.
@@ -241,8 +258,7 @@ export function VaultPicker() {
     setBusy(true);
     setError(null);
     try {
-      const vault = await ipc.pickVault();
-      await openVault(vault);
+      await openExistingVault();
     } catch (e) {
       setError(String(e));
     } finally {
@@ -475,12 +491,7 @@ export function VaultPicker() {
     return [...remote, ...local];
   }, [recents, stamps, organizations, authStatus, serverUrl]);
 
-  // Show the 3 most recent by default; the rest live in the "Show all" modal.
-  const RECENT_LIMIT = 3;
-  const shownRecents = entries.slice(0, RECENT_LIMIT);
-  const hiddenRecents = entries.length - RECENT_LIMIT;
-
-  // One vault row (used by both the inline recents and the "Show all" modal).
+  // One vault row in the welcome shell's scrolling vault column.
   // Every row carries a truthful state tag (docs' vault states): "Remote" =
   // synced, no local folder here yet; "Synced" = synced with a folder on this
   // device; "Local" = a plain folder that syncs nowhere. The tag comes from
@@ -490,35 +501,32 @@ export function VaultPicker() {
     const synced = isSyncedEntry(e);
     const tag = e.kind === "remote" && !e.path ? "Remote" : synced ? "Synced" : "Local";
     return (
-      <div
-        className={`recent-card${e.kind === "local" ? " removable" : ""}${
-          opening === e.key ? " is-opening" : ""
-        }`}
-        key={e.key}
-      >
+      <div className={`welcome-vault-row${opening === e.key ? " is-opening" : ""}`} key={e.key}>
         <button
-          className="recent-open"
+          className="welcome-vault-open"
           disabled={busy}
           aria-busy={opening === e.key || undefined}
           onClick={() => void openEntry(e)}
           title={e.path ?? e.name}
         >
-          <span className="recent-name">{e.name}</span>
+          <span className="welcome-vault-icon" aria-hidden="true">
+            {synced ? <CloudGlyph /> : <FolderGlyph />}
+          </span>
+          <span className="welcome-vault-name" title={e.name}>
+            {e.name}
+          </span>
           {/* The card the user clicked reports for itself. A single shared `busy`
               flag only greyed every row out, which says "the list is disabled"
               rather than "this one is opening" — and opening a vault is seconds
               of work. */}
           {opening === e.key ? (
-            <Spinner size="xs" tone="accent" className="recent-badge" />
+            <Spinner size="xs" tone="accent" className="welcome-vault-badge" />
           ) : (
-            <span className="recent-meta recent-badge">
-              {e.kind === "local" && e.openedAt > 0 && (
-                <span className="recent-time">{relativeTime(e.openedAt)}</span>
-              )}
+            <span className="welcome-vault-badge">
               <span className={`ws-badge ${synced ? "synced" : "local"}`}>{tag}</span>
             </span>
           )}
-          <span className="recent-path">
+          <span className="welcome-vault-path">
             {opening === e.key
               ? "Opening…"
               : e.path
@@ -528,13 +536,9 @@ export function VaultPicker() {
                 : "Synced · sign in to open"}
           </span>
         </button>
-        {/* The remove × overlays the row's top-right corner on hover (the tag
-            fades out while it shows) instead of sitting in the flow — in flow
-            it reserved a column on local rows only, pushing their tag out of
-            line with the synced rows'. */}
         {e.kind === "local" && (
           <button
-            className="recent-remove"
+            className="welcome-vault-remove"
             aria-label={`Remove ${e.name} from recents`}
             title="Remove from recents"
             disabled={busy}
@@ -547,41 +551,147 @@ export function VaultPicker() {
     );
   };
 
+  // The list groups remote vaults before local ones, so its first row is not
+  // necessarily the vault used most recently. Follow the newest local recent
+  // path first. A synced vault resolves through its bound path and still wins
+  // when it really was the last one opened. If this device has no usable path
+  // history, fall back to the remembered or session-active synced vault.
+  const newestRecentPath = recents[0]?.path ?? null;
+  const rememberedOrgId = readLastVault();
+  const activeOrgId = session?.activeOrganizationId ?? null;
+  const continueEntry =
+    (newestRecentPath
+      ? (entries.find((entry) => entry.path === newestRecentPath) ?? null)
+      : null) ??
+    (rememberedOrgId
+      ? (entries.find(
+          (entry) => entry.kind === "remote" && entry.orgId === rememberedOrgId,
+        ) ?? null)
+      : null) ??
+    (activeOrgId
+      ? (entries.find((entry) => entry.kind === "remote" && entry.orgId === activeOrgId) ??
+        null)
+      : null);
+  const continueSynced = continueEntry ? isSyncedEntry(continueEntry) : false;
+  const continueTag =
+    continueEntry?.kind === "remote" && !continueEntry.path
+      ? "Remote"
+      : continueSynced
+        ? "Synced"
+        : "Local";
+  const userLabel = session?.user.name || session?.user.email || "Not signed in";
+  const shellStyle = {
+    "--welcome-sidebar-width": `${DEFAULT_LEFT_WIDTH}px`,
+    "--welcome-sidebar-min-width": `${LEFT_DOCK_MIN}px`,
+  } as CSSProperties;
+
   return (
-    <div className="vault-picker">
-      {/* The main app is draggable by its two header rows; this screen has no
-          chrome of its own, so without a strip here the window couldn't be
-          moved at all before a vault is open. */}
+    <div className="vault-picker" style={shellStyle}>
       <div className="titlebar-drag" data-tauri-drag-region />
-      {/* Ambient aurora — three blurred color fields drifting very slowly. */}
-      {!reduceMotion && (
-        <div className="aurora" aria-hidden="true">
-          <motion.span className="aurora-blob a1" animate={auroraDrift(60, 40, 26)} />
-          <motion.span className="aurora-blob a2" animate={auroraDrift(-50, 55, 32)} />
-          <motion.span className="aurora-blob a3" animate={auroraDrift(45, -35, 38)} />
-        </div>
-      )}
 
-      <div className="vault-picker-card">
-        <motion.h1
-          className="product-name"
-          variants={logoVariants}
-          initial={reduceMotion ? false : "hidden"}
-          animate="show"
-          whileHover={reduceMotion ? undefined : { scale: 1.02 }}
-          transition={SPRING}
-        >
+      <aside className="welcome-sidebar" aria-label="Your vaults">
+        <div className="welcome-brand">
           <Wordmark />
-        </motion.h1>
+        </div>
+        <p className="welcome-eyebrow">Your vaults</p>
+        <div className="welcome-vault-list">
+          {entries.length > 0 ? (
+            entries.map(renderEntry)
+          ) : (
+            <div className="welcome-vault-empty">
+              <strong>No vaults yet</strong>
+              Create one on the right, or open a folder of <code>.md</code> files you already
+              have.
+            </div>
+          )}
+        </div>
+        <div className="welcome-identity">
+          {session ? (
+            <LazyAvatar label={userLabel} image={session.user.image} />
+          ) : (
+            <span className="welcome-signed-out-avatar" aria-hidden="true">
+              <PersonGlyph />
+            </span>
+          )}
+          <span className="welcome-identity-copy">
+            <span className="welcome-identity-name">
+              {authStatus === "unknown" ? "Checking account…" : userLabel}
+            </span>
+            {session && <span className="welcome-identity-hint">Ready to sync</span>}
+          </span>
+          {!session && (
+            <button
+              type="button"
+              className="primary sm welcome-signin"
+              disabled={busy || authStatus === "unknown" || inFlow}
+              aria-expanded={signInOpen}
+              onClick={() => {
+                setSignInFor("open");
+                setSignInOpen(true);
+              }}
+            >
+              Sign in
+            </button>
+          )}
+          <ThemeToggle />
+        </div>
+      </aside>
 
-        <motion.div
-          className="vault-actions"
-          initial={reduceMotion ? false : { opacity: 0, y: 12 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={reduceMotion ? undefined : revealTransition(REVEAL_DELAY)}
-        >
-          <AnimatePresence mode="wait" initial={false}>
-            {landingVault ? (
+      <main
+        className={`welcome-document${entries.length === 0 || landingVault ? " is-centered" : ""}`}
+      >
+        <div className="welcome-page">
+          <div className="welcome-heading">
+            <h1>{entries.length > 0 ? welcomeGreeting() : "Welcome to Noam."}</h1>
+            <p>
+              {entries.length > 0
+                ? "Pick up where you left off, or start somewhere new."
+                : "A vault is any folder of Markdown files on this Mac. Create one, open a folder you already have, or join a team with a code."}
+            </p>
+          </div>
+
+          {error && <p className="error">{error}</p>}
+
+          {!inFlow && continueEntry && (
+            <div className="welcome-continue">
+              <span className="welcome-action-icon" aria-hidden="true">
+                {continueSynced ? <CloudGlyph /> : <FolderGlyph />}
+              </span>
+              <span className="welcome-continue-copy">
+                <span className="welcome-eyebrow">Continue where you left off</span>
+                <span className="welcome-continue-name">
+                  <span className="welcome-continue-name-text" title={continueEntry.name}>
+                    {continueEntry.name}
+                  </span>
+                  <span className={`ws-badge ${continueSynced ? "synced" : "local"}`}>
+                    {continueTag}
+                  </span>
+                </span>
+                <span className="welcome-continue-path">
+                  {continueEntry.path ? tidyPath(continueEntry.path) : "Synced · sign in to open"}
+                  {continueEntry.kind === "local" && continueEntry.openedAt > 0
+                    ? ` · ${relativeTime(continueEntry.openedAt)}`
+                    : ""}
+                </span>
+              </span>
+              <button
+                type="button"
+                className={`primary${opening === continueEntry.key ? " is-busy" : ""}`}
+                disabled={busy}
+                aria-busy={opening === continueEntry.key || undefined}
+                onClick={() => void openEntry(continueEntry)}
+              >
+                <span className="async-btn-label">
+                  {opening === continueEntry.key ? "Opening…" : "Open"}
+                </span>
+                {opening === continueEntry.key && <Spinner size="xs" tone="on-accent" />}
+              </button>
+            </div>
+          )}
+
+          <div className="welcome-flow">
+            <AnimatePresence mode="wait" initial={false}>
+              {landingVault ? (
               // ---- Signed in, opening (or creating) their vault. This screen
               //      is still up only because there is no vault yet; say so,
               //      or a working sign-in is indistinguishable from one that
@@ -721,166 +831,89 @@ export function VaultPicker() {
                 </div>
               </motion.form>
             ) : (
-              // ---- Default: two primary actions ----
               <motion.div
                 key="actions"
-                className="vault-primary-actions"
+                className="welcome-action-cards"
                 initial={reduceMotion ? false : { opacity: 0 }}
                 animate={{ opacity: 1 }}
                 exit={reduceMotion ? undefined : { opacity: 0 }}
                 transition={SPRING}
               >
-                <motion.button
-                  className="primary hero"
-                  disabled={busy}
-                  onClick={startNewVault}
-                  whileHover={reduceMotion ? undefined : { scale: 1.04, y: -1 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.96 }}
-                  transition={SPRING}
-                >
-                  New vault
-                </motion.button>
-                <motion.button
-                  className={`ghost-pill lg${busy ? " is-busy" : ""}`}
-                  disabled={busy}
-                  aria-busy={busy || undefined}
-                  onClick={pickExisting}
-                  whileHover={reduceMotion ? undefined : { scale: 1.03, y: -1 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                  transition={SPRING}
-                >
-                  <span className="async-btn-label">
-                    {busy ? "Opening…" : "Open existing"}
+                <div className="welcome-action-card">
+                  <span className="welcome-action-icon is-primary" aria-hidden="true">
+                    <PlusGlyph />
                   </span>
-                  {busy && <Spinner size="xs" tone="neutral" />}
-                </motion.button>
-                {/*
-                  Third peer action: create / open / JOIN. It sits up here with
-                  the other two rather than down in the quiet register with the
-                  sign-in link, because for the person it's aimed at — a
-                  teammate who was handed a code — it IS the primary action.
-                  Reaching a team used to mean making a vault you didn't want
-                  and then finding the code box in Vault settings, which reads
-                  as "this app is for solo notes, and teams are a setting".
-                */}
-                <motion.button
-                  className="ghost-pill lg"
-                  disabled={busy}
-                  onClick={startJoin}
-                  whileHover={reduceMotion ? undefined : { scale: 1.03, y: -1 }}
-                  whileTap={reduceMotion ? undefined : { scale: 0.97 }}
-                  transition={SPRING}
-                >
-                  Join a team
-                </motion.button>
+                  <span className="welcome-action-copy">
+                    <span className="welcome-action-title">New vault</span>
+                    <span className="welcome-action-hint">
+                      A fresh folder seeded with a few starter notes.
+                    </span>
+                  </span>
+                  <button className="primary" disabled={busy} onClick={startNewVault}>
+                    Create
+                  </button>
+                </div>
+                <div className="welcome-action-card">
+                  <span className="welcome-action-icon" aria-hidden="true">
+                    <FolderGlyph />
+                  </span>
+                  <span className="welcome-action-copy">
+                    <span className="welcome-action-title">Open existing</span>
+                    <span className="welcome-action-hint">
+                      Any folder of Markdown files on this device. It stays where it is.
+                    </span>
+                  </span>
+                  <button
+                    className={`ghost-pill${busy ? " is-busy" : ""}`}
+                    disabled={busy}
+                    aria-busy={busy || undefined}
+                    onClick={pickExisting}
+                  >
+                    <span className="async-btn-label">
+                      {busy ? "Opening…" : "Choose folder"}
+                    </span>
+                    {busy && <Spinner size="xs" tone="neutral" />}
+                  </button>
+                </div>
+                <div className="welcome-action-card">
+                  <span className="welcome-action-icon" aria-hidden="true">
+                    <PeopleGlyph />
+                  </span>
+                  <span className="welcome-action-copy">
+                    <span className="welcome-action-title">Join a team</span>
+                    <span className="welcome-action-hint">
+                      Redeem a join code from a teammate and land in their vault.
+                    </span>
+                  </span>
+                  <button className="ghost-pill" disabled={busy} onClick={startJoin}>
+                    Enter code
+                  </button>
+                </div>
               </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+              )}
+            </AnimatePresence>
+          </div>
 
-        {error && <p className="error">{error}</p>}
-
-        {!inFlow && entries.length > 0 && (
-          <motion.div
-            className="recent-list"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={
-              reduceMotion ? undefined : revealTransition(REVEAL_DELAY + 0.15)
-            }
-          >
-            <p className="recent-heading">Recent vaults</p>
-            <div className="recent-scroll">{shownRecents.map(renderEntry)}</div>
-            {hiddenRecents > 0 && (
+          {!inFlow && (
+            <p className="hint welcome-hint">
+              A vault is any folder of <code>.md</code> files.{" "}
               <button
-                className="recent-more"
+                type="button"
+                className="linkish"
                 disabled={busy}
-                onClick={() => setShowAllVaults(true)}
+                aria-expanded={pathOpen}
+                onClick={() => setPathOpen((v) => !v)}
               >
-                {`Show all (${entries.length})`}
+                Open by path
               </button>
-            )}
-          </motion.div>
-        )}
+            </p>
+          )}
 
-        {!inFlow && (
-          <motion.p
-            className="hint"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={
-              reduceMotion ? undefined : revealTransition(REVEAL_DELAY + 0.3)
-            }
-          >
-            A vault is any folder of <code>.md</code> files.{" "}
-            <button
-              type="button"
-              className="linkish"
-              disabled={busy}
-              aria-expanded={pathOpen}
-              onClick={() => setPathOpen((v) => !v)}
-            >
-              Open by path
-            </button>
-          </motion.p>
-        )}
+        </div>
+      </main>
 
-        {/*
-          Sign-in lives with the hint text, under the primary actions, because
-          that is where someone looks after deciding the two buttons above
-          aren't what they came for.
-
-          Before this existed the ONLY route to an account from this screen was
-          clicking a "Remote" vault card — and those come from a locally-cached
-          org list, so a fresh install had none and therefore no route at all.
-          Signing in meant first creating a local vault you didn't want, purely
-          to reach the sidebar menu: exactly backwards for a teammate whose
-          whole reason for opening the app is to join a shared vault.
-
-          A quiet link rather than a third button beside "New vault" / "Open
-          existing": an account is optional in a local-first app and shouldn't
-          compete with the primary choice.
-        */}
-        {!inFlow && authStatus !== "signed-in" && (
-          <motion.p
-            className="hint picker-signin"
-            initial={reduceMotion ? false : { opacity: 0, y: 8 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={
-              reduceMotion ? undefined : revealTransition(REVEAL_DELAY + 0.36)
-            }
-          >
-            Have an account?{" "}
-            <button
-              type="button"
-              className="linkish"
-              // "unknown" is the pre-restore state — the session is still being
-              // read from the keychain, so offering sign-in would flash a
-              // control that's about to become unnecessary.
-              disabled={busy || authStatus === "unknown"}
-              onClick={() => {
-                setSignInFor("open");
-                setSignInOpen(true);
-              }}
-            >
-              Sign in
-            </button>{" "}
-            to sync and collaborate.
-          </motion.p>
-        )}
-      </div>
-
-      {/* Every vault in one scrollable list, grouped by what they ARE: synced
-          vaults (they live on the server; a session opens them) versus plain
-          local folders that exist only on this device. One flat list read as
-          "everything here is on this device", which is exactly wrong for the
-          synced half. A modal on purpose: revealing the list in place reflowed
-          the centered card (see the showAllVaults comment above). Rows are the
-          same recent-cards as the inline list, so opening/removing behaves
-          identically. */}
       {/* "Open by path" — the escape hatch for what the native folder dialog
-          can't select (a drive root as the vault, #75). A modal like "Show all":
-          revealing a form in place reflowed the centered card. */}
+          can't select (a drive root as the vault, #75). */}
       {pathOpen && (
         <div className="modal-backdrop" onClick={closePathOpen}>
           <div
@@ -942,42 +975,6 @@ export function VaultPicker() {
           </div>
         </div>
       )}
-      {showAllVaults && (
-        <div className="modal-backdrop" onClick={() => setShowAllVaults(false)}>
-          <div
-            className="modal vault-list-modal"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="modal-header">
-              <span>
-                All vaults <span className="muted">({entries.length})</span>
-              </span>
-              <button
-                className="icon-btn"
-                aria-label="Close"
-                onClick={() => setShowAllVaults(false)}
-              >
-                ✕
-              </button>
-            </div>
-            <div className="vault-list-scroll">
-              {entries.some(isSyncedEntry) && (
-                <>
-                  <p className="vault-list-section">Synced vaults</p>
-                  {entries.filter(isSyncedEntry).map(renderEntry)}
-                </>
-              )}
-              {entries.some((e) => !isSyncedEntry(e)) && (
-                <>
-                  <p className="vault-list-section">On this device only</p>
-                  {entries.filter((e) => !isSyncedEntry(e)).map(renderEntry)}
-                </>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
       {signInOpen && !authPrompt && (
         <Suspense fallback={null}>
           <AuthDialog

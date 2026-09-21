@@ -5,6 +5,7 @@
 use crate::index::Index;
 use crate::oauth::OauthResult;
 use crate::watcher::VaultWatcher;
+use std::collections::HashSet;
 use std::path::PathBuf;
 use std::sync::mpsc::Receiver;
 use std::sync::{Arc, Mutex};
@@ -12,10 +13,20 @@ use std::sync::{Arc, Mutex};
 #[derive(Default)]
 pub struct AppState {
     pub inner: Mutex<Inner>,
+    /// Serializes revision-checked note mutations with the editor's ordinary
+    /// write path. Without this, an identity insertion could validate old bytes
+    /// while a concurrent `write_note` publishes new ones, then overwrite them.
+    pub note_writes: Mutex<()>,
     /// Pending Google-OAuth loopback handoff: `google_oauth_listen` parks the
     /// receiver here; `google_oauth_await` takes it out and blocks on it. Its
     /// own mutex so it never contends with the vault/index lock.
     pub oauth_rx: Mutex<Option<Receiver<OauthResult>>>,
+    /// Absolute paths the user picked in a native save dialog and that have not
+    /// been written yet. `write_external_file` is the ONE command that escapes
+    /// the vault, so a path is only writable while it sits in here: the dialog
+    /// is the authorization, and a single write consumes it. Without this the
+    /// renderer could name any file the process can write.
+    pub approved_writes: Mutex<HashSet<PathBuf>>,
     /// The parsed app `config.json`, cached after its first read.
     ///
     /// Its OWN mutex, deliberately: a config read must never queue behind the

@@ -63,6 +63,109 @@ export function writeMentionSound(enabled: boolean): void {
   }
 }
 
+// ---- Note heading colour ---------------------------------------------------
+
+export type HeadingColorMode = "themed" | "plain";
+
+const HEADING_COLOR_KEY = "context.headingColor";
+
+/** Distinct theme colours are the default; only an explicit opt-out is plain. */
+export function readHeadingColorMode(): HeadingColorMode {
+  try {
+    return localStorage.getItem(HEADING_COLOR_KEY) === "plain" ? "plain" : "themed";
+  } catch {
+    return "themed";
+  }
+}
+
+function paintHeadingColor(mode: HeadingColorMode): void {
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.headingColor = mode;
+  }
+}
+
+/** Persist and apply the device-local heading palette. */
+export function setHeadingColorMode(mode: HeadingColorMode): void {
+  try {
+    localStorage.setItem(HEADING_COLOR_KEY, mode);
+  } catch {
+    /* localStorage unavailable — the choice stays in-memory only */
+  }
+  paintHeadingColor(mode);
+}
+
+/** Paint the saved choice before React's first frame. */
+export function initHeadingColor(): void {
+  paintHeadingColor(readHeadingColorMode());
+}
+
+// ---- Accent theme -----------------------------------------------------------
+
+/**
+ * The colour world the chrome is painted in: the accent family, the surfaces
+ * it sits on and everything derived from either (selection, links, focus,
+ * heading inks, graph nodes). A fixed set, never a picker — each one is a
+ * hand-tuned token block on `[data-accent]` in `styles/tokens.css`, measured
+ * for AA contrast in light AND dark. Device-local like the theme.
+ *
+ * "ink" is the brand world (Paper & Ink) and the default; "violet" is the
+ * original palette, kept as an option and pixel-identical to what it replaced.
+ * The app icon and the in-app logo never follow this choice.
+ */
+export type AccentTheme = "ink" | "violet" | "sea" | "terracotta" | "moss";
+
+export const DEFAULT_ACCENT_THEME: AccentTheme = "ink";
+
+export const ACCENT_THEMES: ReadonlyArray<{
+  id: AccentTheme;
+  label: string;
+  hint: string;
+}> = [
+  { id: "ink", label: "Ink", hint: "Charcoal and pencil on paper" },
+  { id: "violet", label: "Violet", hint: "Violet on cool grey" },
+  { id: "sea", label: "Sea", hint: "Teal on cool white" },
+  { id: "terracotta", label: "Terracotta", hint: "Terracotta and ochre on sand" },
+  { id: "moss", label: "Moss", hint: "Forest green on cream" },
+];
+
+const ACCENT_THEME_KEY = "context.accentTheme";
+
+export function isAccentTheme(v: unknown): v is AccentTheme {
+  return ACCENT_THEMES.some((t) => t.id === v);
+}
+
+/** An absent, corrupt or unreadable value is the brand world. */
+export function readAccentTheme(): AccentTheme {
+  try {
+    const v = localStorage.getItem(ACCENT_THEME_KEY);
+    return isAccentTheme(v) ? v : DEFAULT_ACCENT_THEME;
+  } catch {
+    return DEFAULT_ACCENT_THEME;
+  }
+}
+
+/** Stamp `data-accent` next to `data-theme`; tokens.css does the rest. */
+function paintAccentTheme(theme: AccentTheme): void {
+  if (typeof document !== "undefined") {
+    document.documentElement.dataset.accent = theme;
+  }
+}
+
+/** Persist and apply the device-local accent world. */
+export function setAccentTheme(theme: AccentTheme): void {
+  try {
+    localStorage.setItem(ACCENT_THEME_KEY, theme);
+  } catch {
+    /* localStorage unavailable — the choice stays in-memory only */
+  }
+  paintAccentTheme(theme);
+}
+
+/** Paint the saved world before React's first frame, like the theme. */
+export function initAccentTheme(): void {
+  paintAccentTheme(readAccentTheme());
+}
+
 // ---- Which server this device's account lives on -----------------------------
 
 const SERVER_CHOICE_KEY = "context.serverChoice";
@@ -164,6 +267,172 @@ export const PROPERTIES_MODES: ReadonlyArray<{
   { id: "source", label: "Source", hint: "Shown as plain YAML" },
 ];
 
+// ---- Per-note Properties collapse -----------------------------------------
+
+const PROPERTIES_COLLAPSED_KEY = "context.propertiesCollapsed";
+
+interface PropertiesCollapsedPrefs {
+  version: 3;
+  /** Paths awaiting a document identity, retained for upgrades and unopened notes. */
+  vaults: Record<string, Record<string, true>>;
+  docs: Record<string, Record<string, boolean>>;
+}
+
+function collapsedEntries(value: unknown): Record<string, true> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, collapsed]) => collapsed === true),
+  ) as Record<string, true>;
+}
+
+function documentCollapseEntries(value: unknown): Record<string, boolean> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value).filter(([, collapsed]) => typeof collapsed === "boolean"),
+  ) as Record<string, boolean>;
+}
+
+function emptyPropertiesCollapsedPrefs(): PropertiesCollapsedPrefs {
+  return { version: 3, vaults: {}, docs: {} };
+}
+
+function readPropertiesCollapsedPrefs(vaultId: string): {
+  prefs: PropertiesCollapsedPrefs;
+  migrated: boolean;
+} {
+  const raw = localStorage.getItem(PROPERTIES_COLLAPSED_KEY);
+  if (!raw) return { prefs: emptyPropertiesCollapsedPrefs(), migrated: false };
+
+  const value: unknown = JSON.parse(raw);
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const record = value as Record<string, unknown>;
+    if (
+      (record.version === 2 || record.version === 3) &&
+      record.vaults &&
+      typeof record.vaults === "object" &&
+      !Array.isArray(record.vaults)
+    ) {
+      const vaults = Object.fromEntries(
+        Object.entries(record.vaults).map(([id, entries]) => [
+          id,
+          collapsedEntries(entries),
+        ]),
+      );
+      const docs =
+        record.version === 3 && record.docs && typeof record.docs === "object" && !Array.isArray(record.docs)
+          ? Object.fromEntries(Object.entries(record.docs).map(([id, entries]) => [
+              id,
+              documentCollapseEntries(entries),
+            ]))
+          : {};
+      return { prefs: { version: 3, vaults, docs }, migrated: record.version === 2 };
+    }
+
+    // T5 stored one flat path map for the whole device. The first vault opened
+    // after this upgrade is the only unambiguous owner, so move the entire map
+    // into that vault once. Replacing the value atomically also prevents a
+    // second vault from claiming the same legacy paths.
+    return {
+      prefs: {
+        version: 3,
+        vaults: { [propertiesCollapseVaultKey(vaultId)]: collapsedEntries(value) },
+        docs: {},
+      },
+      migrated: true,
+    };
+  }
+
+  return { prefs: emptyPropertiesCollapsedPrefs(), migrated: false };
+}
+
+function propertiesCollapseKey(path: string): string {
+  return path.replace(/\\/g, "/").toLowerCase();
+}
+
+function propertiesCollapseVaultKey(vaultId: string): string {
+  return vaultId.replace(/\\/g, "/");
+}
+
+/** Whether this note's Properties panel is folded on this device. */
+export function readPropertiesCollapsed(vaultId: string, path: string, docId?: string): boolean {
+  const vaultKey = propertiesCollapseVaultKey(vaultId);
+  if (!vaultKey) return false;
+  try {
+    const { prefs, migrated } = readPropertiesCollapsedPrefs(vaultId);
+    const key = propertiesCollapseKey(path);
+    const legacy = prefs.vaults[vaultKey]?.[key] === true;
+    if (docId && legacy) {
+      const values = { ...(prefs.docs[vaultKey] ?? {}) };
+      // An explicit expanded state is newer than any remaining path entry.
+      if (!Object.prototype.hasOwnProperty.call(values, docId)) values[docId] = true;
+      prefs.docs[vaultKey] = values;
+      delete prefs.vaults[vaultKey][key];
+      if (Object.keys(prefs.vaults[vaultKey]).length === 0) delete prefs.vaults[vaultKey];
+    }
+    if (migrated || (docId && legacy)) {
+      localStorage.setItem(PROPERTIES_COLLAPSED_KEY, JSON.stringify(prefs));
+    }
+    return docId ? prefs.docs[vaultKey]?.[docId] === true : legacy;
+  } catch {
+    // Missing, denied or corrupt storage means every note starts expanded.
+    return false;
+  }
+}
+
+/** Remember one note's fold state without changing the global display mode. */
+export function writePropertiesCollapsed(
+  vaultId: string,
+  path: string,
+  collapsed: boolean,
+  docId?: string,
+): void {
+  const vaultKey = propertiesCollapseVaultKey(vaultId);
+  if (!vaultKey) return;
+  try {
+    const { prefs } = readPropertiesCollapsedPrefs(vaultId);
+    const values = { ...(prefs.vaults[vaultKey] ?? {}) };
+    const key = propertiesCollapseKey(path);
+    if (docId) {
+      prefs.docs[vaultKey] = { ...(prefs.docs[vaultKey] ?? {}), [docId]: collapsed };
+      delete values[key];
+    } else if (collapsed) values[key] = true;
+    else delete values[key];
+    if (Object.keys(values).length > 0) prefs.vaults[vaultKey] = values;
+    else delete prefs.vaults[vaultKey];
+    localStorage.setItem(
+      PROPERTIES_COLLAPSED_KEY,
+      JSON.stringify(prefs),
+    );
+  } catch {
+    /* localStorage unavailable — the panel stays expanded next time */
+  }
+}
+
+/** Follow confirmed file/folder moves for preferences not yet migrated to doc IDs. */
+export function remapPropertiesCollapsed(vaultId: string, from: string, to: string): void {
+  const vaultKey = propertiesCollapseVaultKey(vaultId);
+  const source = propertiesCollapseKey(from);
+  const destination = propertiesCollapseKey(to);
+  if (!vaultKey || !source || source === destination) return;
+  try {
+    const { prefs, migrated } = readPropertiesCollapsedPrefs(vaultId);
+    const values = { ...(prefs.vaults[vaultKey] ?? {}) };
+    let changed = migrated;
+    for (const path of Object.keys(values)) {
+      if (path !== source && !path.startsWith(source + "/")) continue;
+      delete values[path];
+      values[destination + path.slice(source.length)] = true;
+      changed = true;
+    }
+    if (!changed) return;
+    if (Object.keys(values).length > 0) prefs.vaults[vaultKey] = values;
+    else delete prefs.vaults[vaultKey];
+    localStorage.setItem(PROPERTIES_COLLAPSED_KEY, JSON.stringify(prefs));
+  } catch {
+    // A device preference must never prevent a file move.
+  }
+}
+
 // ---- Default Markdown view mode --------------------------------------------
 
 const DEFAULT_VIEW_MODE_KEY = "context.defaultViewMode";
@@ -198,7 +467,7 @@ export const VIEW_MODE_OPTIONS: ReadonlyArray<{
   hint: string;
 }> = [
   { id: "live", label: "Live Preview", hint: "Rendered Markdown while you edit" },
-  { id: "source", label: "Source", hint: "Literal Markdown with syntax highlighting" },
+  { id: "source", label: "Raw", hint: "Literal Markdown with syntax highlighting" },
   { id: "reading", label: "Reading", hint: "Rendered and read-only" },
 ];
 

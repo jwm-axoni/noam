@@ -1,3 +1,5 @@
+import { ACCESS_CHECK_MAX } from "@noam/contracts/access";
+
 // The ONE typed HTTP boundary to the Noam server. Every `fetch`
 // to the server lives here — auth, organizations, registry, shares, sync-token.
 // Components and managers call these methods; they never call `fetch` directly.
@@ -533,14 +535,12 @@ export const HEALTH_TIMEOUT_MS = 6000;
 /**
  * Most doc ids one {@link ContextApi.accessCheck} call may carry.
  *
- * MIRRORS the server's `ACCESS_CHECK_MAX` (`http/routes/registry.ts`), which
- * answers 400 above it. The two cannot import from each other — separate
- * packages — so the equality is pinned by a test that reads the server source
- * (`__tests__/accessCheckBound.test.ts`). Drift here is not cosmetic: the client
- * treats a 400 as "no answer", so one oversized request turns every revocation
- * on a vault this large into a permanent, repeating failure.
+ * Shared with the server through `@noam/contracts`. The server answers 400
+ * above it, while the client treats a 400 as "no answer". One oversized request
+ * would otherwise turn every revocation on a vault this large into a permanent,
+ * repeating failure.
  */
-export const ACCESS_CHECK_MAX = 2000;
+export { ACCESS_CHECK_MAX };
 
 /**
  * Abort an access-check that has not answered in this long.

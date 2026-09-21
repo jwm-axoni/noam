@@ -11,8 +11,9 @@
 // the bridge's normal seed-from-file (pure local-first).
 
 import { Awareness } from "y-protocols/awareness";
-import type { NoteBridge } from "../bridge";
-import { bridgeManager, createTauriBridgeIO, sha256Hex } from "../bridge/adapter";
+import { NoteBridge } from "../bridge";
+import { BridgeManager, bridgeManager, createTauriBridgeIO, sha256Hex } from "../bridge/adapter";
+import type { BridgeIO } from "../bridge/types";
 import type { NoteLastEdited, SessionInfo } from "../api";
 import * as ipc from "../ipc";
 import { markOnce } from "../perf";
@@ -46,6 +47,34 @@ import { VoicePlayer } from "../voice/playback";
 import { VoiceRoster, type VoiceSpeaker } from "../voice/roster";
 
 export type { VoiceSpeaker };
+
+export interface TextSpanChange {
+  from: number;
+  to: number;
+  insert: string;
+}
+
+export type BackgroundTextPlan =
+  | { ok: true; changes: readonly TextSpanChange[] }
+  | { ok: false; reason: "unsupported-yaml" | "conflict" };
+
+export type BackgroundTextMutationResult =
+  | { ok: true }
+  | {
+      ok: false;
+      reason: "stale" | "forbidden" | "unsupported-yaml" | "conflict" | "write-failed";
+    };
+
+export type BackgroundTextReconciler = (source: string) => BackgroundTextPlan;
+
+export interface SyncManagerOptions {
+  /** Test hook for local-only background document mutations. */
+  backgroundBridgeIO?: BridgeIO;
+  backgroundBridgeIOForEpoch?: (epoch: number) => BridgeIO;
+  /** Test hook for the bridge that already owns the open note. */
+  currentBridge?: () => NoteBridge | null;
+  bridgeOwner?: BridgeManager;
+}
 
 /** Basename of a vault-relative path (for the upload's x-file-name hint). */
 function baseName(relPath: string): string {
@@ -244,7 +273,20 @@ const DOC_STATUS_OWNS_BADGE: ReadonlySet<SyncStatus> = new Set<SyncStatus>([
 export class SyncManager implements InboundHost {
   readonly registry = new VaultRegistry(api);
 
-  constructor() {
+  private readonly bridgeOwner: BridgeManager;
+  private readonly backgroundBridgeIOForEpoch: (epoch: number) => BridgeIO;
+  private readonly currentBridge: () => NoteBridge | null;
+  /** Per-document serialization for local fallbacks that have no resident store. */
+  private readonly backgroundMutationChains = new Map<string, Promise<void>>();
+  /** Identity reconciliation stays attached for later remote Yjs merges. */
+  private readonly backgroundReconcilers = new WeakSet<object>();
+
+  constructor(options: SyncManagerOptions = {}) {
+    this.backgroundBridgeIOForEpoch = options.backgroundBridgeIOForEpoch
+      ?? (options.backgroundBridgeIO ? () => options.backgroundBridgeIO! : createTauriBridgeIO);
+    this.bridgeOwner = options.bridgeOwner
+      ?? (options.backgroundBridgeIO ? new BridgeManager(options.backgroundBridgeIO) : bridgeManager);
+    this.currentBridge = options.currentBridge ?? (() => this.bridgeOwner.currentBridge());
     // The registry owns the only {relPath → docId} map there is, and the sidebar
     // needs it to badge a row (every sync fact is keyed by docId). Mirror it out
     // reactively — coalesced — instead of letting the UI read it imperatively
@@ -1425,6 +1467,183 @@ export class SyncManager implements InboundHost {
       console.warn(`[sync] couldn't read the doc behind ${relPath}`, e);
       return null;
     }
+  }
+
+  /**
+   * Apply minimal spans to a non-navigated note through its one live Y.Doc.
+   * The planner runs inside the Yjs transaction, so a teammate's already-landed
+   * fields are part of the plan and concurrent fields merge as independent ops.
+   */
+  async mutateBackgroundText(
+    relPath: string,
+    fallbackDocId: string,
+    expectedEpoch: number,
+    plan: (source: string) => BackgroundTextPlan,
+    isAllowed: () => boolean = () => true,
+    authorize?: () => Promise<boolean>,
+    expectedFileIdentity?: string,
+    reconcile?: BackgroundTextReconciler,
+  ): Promise<BackgroundTextMutationResult> {
+    const key = `${expectedEpoch}\0${relPath}`;
+    const previous = this.backgroundMutationChains.get(key) ?? Promise.resolve();
+    const run = previous
+      .catch(() => {})
+      .then(() => this.mutateBackgroundTextNow(
+        relPath,
+        fallbackDocId,
+        expectedEpoch,
+        plan,
+        isAllowed,
+        authorize,
+        expectedFileIdentity,
+        reconcile,
+      ));
+    const tail = run.then(
+      () => undefined,
+      () => undefined,
+    );
+    this.backgroundMutationChains.set(key, tail);
+    try {
+      return await run;
+    } finally {
+      if (this.backgroundMutationChains.get(key) === tail) {
+        this.backgroundMutationChains.delete(key);
+      }
+    }
+  }
+
+  private async mutateBackgroundTextNow(
+    relPath: string,
+    fallbackDocId: string,
+    expectedEpoch: number,
+    plan: (source: string) => BackgroundTextPlan,
+    isAllowed: () => boolean,
+    authorize?: () => Promise<boolean>,
+    expectedFileIdentity?: string,
+    reconcile?: BackgroundTextReconciler,
+  ): Promise<BackgroundTextMutationResult> {
+    const scope = vaultScopes.current();
+    if (scope && (scope.vaultEpoch !== expectedEpoch || !scope.isCurrent())) {
+      return { ok: false, reason: "stale" };
+    }
+    const mapping = this.registry.getMapping(relPath);
+    if (mapping && mapping.docId !== fallbackDocId) {
+      return { ok: false, reason: "stale" };
+    }
+    const docId = mapping?.docId ?? fallbackDocId;
+    const mutate = async (bridge: NoteBridge): Promise<BackgroundTextMutationResult> => {
+      // The bridge may take time to acquire. Revalidate remote edit authority
+      // after that wait, immediately before the local transaction, then keep
+      // the synchronous vault/path guard inside the transaction itself.
+      if (authorize && !(await authorize())) {
+        return { ok: false, reason: "forbidden" };
+      }
+      let result: BackgroundTextMutationResult = { ok: true };
+      bridge.edit((text) => {
+        if (!isAllowed()) {
+          result = { ok: false, reason: "forbidden" };
+          return;
+        }
+        const next = plan(text.toString());
+        if (!next.ok) {
+          result = next;
+          return;
+        }
+        for (const change of [...next.changes].sort((a, b) => b.from - a.from)) {
+          if (change.to > change.from) text.delete(change.from, change.to - change.from);
+          if (change.insert) text.insert(change.from, change.insert);
+        }
+      });
+      if (!result.ok) return result;
+      if (reconcile) {
+        this.installBackgroundReconciler(bridge, reconcile, isAllowed, authorize);
+      }
+      await bridge.flushEgest(expectedFileIdentity);
+      await bridge.whenPersisted();
+      if (bridge.pendingWriteFailures > 0) return { ok: false, reason: "write-failed" };
+      if (scope && !scope.isCurrent()) return { ok: false, reason: "stale" };
+      return { ok: true };
+    };
+
+    try {
+      const open = this.currentBridge();
+      if (open?.docId === docId) return await mutate(open);
+      if (mapping && this.docStore) {
+        const lease = await this.docStore.acquireLease(docId, relPath, {
+          seedFromFile: false,
+          markRecent: true,
+        });
+        try {
+          return await mutate(lease.bridge);
+        } finally {
+          await lease.release();
+        }
+      }
+      return await this.bridgeOwner.withNoteBridge(
+        relPath,
+        docId,
+        {
+          seedFromFile: true,
+          io: this.backgroundBridgeIOForEpoch(expectedEpoch),
+        },
+        mutate,
+      );
+    } catch (error) {
+      console.warn(`[sync] couldn't update ${relPath} in the background`, error);
+      return { ok: false, reason: "write-failed" };
+    }
+  }
+
+  private installBackgroundReconciler(
+    bridge: NoteBridge,
+    reconcile: BackgroundTextReconciler,
+    isAllowed: () => boolean,
+    authorize?: () => Promise<boolean>,
+  ): void {
+    if (this.backgroundReconcilers.has(bridge.text)) return;
+    this.backgroundReconcilers.add(bridge.text);
+    const origin = {};
+    let dirty = false;
+    let running = false;
+
+    const drain = async (): Promise<void> => {
+      if (running) return;
+      running = true;
+      try {
+        while (dirty) {
+          dirty = false;
+          const pending = reconcile(bridge.text.toString());
+          if (!pending.ok || pending.changes.length === 0) continue;
+          if (!isAllowed()) continue;
+          try {
+            if (authorize && !(await authorize())) continue;
+          } catch {
+            continue;
+          }
+          if (!isAllowed()) continue;
+          bridge.doc.transact(() => {
+            if (!isAllowed()) return;
+            const repair = reconcile(bridge.text.toString());
+            if (!repair.ok) return;
+            for (const change of [...repair.changes].sort((a, b) => b.from - a.from)) {
+              if (change.to > change.from) {
+                bridge.text.delete(change.from, change.to - change.from);
+              }
+              if (change.insert) bridge.text.insert(change.from, change.insert);
+            }
+          }, origin);
+        }
+      } finally {
+        running = false;
+        if (dirty) void drain();
+      }
+    };
+
+    bridge.text.observe((_event, transaction) => {
+      if (transaction.origin === origin) return;
+      dirty = true;
+      queueMicrotask(() => void drain());
+    });
   }
 
   /**

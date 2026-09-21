@@ -26,6 +26,15 @@ describe("placeMenu", () => {
     expect(p.top).toBe(376);
   });
 
+  it("lets an upward-preferring popover fall below when the top edge is blocked", () => {
+    const p = placeMenu(
+      { x: 100, y: 80, flipY: 52, preferY: "up" },
+      { width: 200, height: 100 },
+      VIEWPORT,
+    );
+    expect(p.top).toBe(80);
+  });
+
   it("clamps into view when neither direction fits", () => {
     const tall = { width: 200, height: 700 };
     // Slid up to the lowest position that still fits, rather than pinned to the
@@ -44,6 +53,14 @@ describe("placeMenu", () => {
   it("flips to the left of the anchor rather than off the right edge", () => {
     const p = placeMenu({ x: 1150, y: 100 }, MENU, VIEWPORT);
     expect(p.left).toBe(950);
+  });
+
+  it("clamps a stale point anchor after the viewport shrinks", () => {
+    const menu = { width: 210, height: 139 };
+    const viewport = { width: 500, height: 400 };
+    const p = placeMenu({ x: 880, y: 676, flipY: 676 }, menu, viewport);
+    expect(p.left + menu.width).toBeLessThanOrEqual(viewport.width);
+    expect(p.top + menu.height).toBeLessThanOrEqual(viewport.height);
   });
 
   it("keeps the top-left corner visible when the menu is wider than the window", () => {

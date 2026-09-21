@@ -1,8 +1,27 @@
 import { describe, expect, it } from "vitest";
-import { applyLayoutOperation, findPanelTab } from "./operations";
+import { applyLayoutOperation, findPanelTab, isPanelVisible } from "./operations";
 import { CENTER_NOTE_GROUP_ID, createDefaultLayout } from "./types";
 
 describe("layout operations", () => {
+  it("opens one dockable Properties inspector and reuses it", () => {
+    const opened = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    const found = findPanelTab(opened, "properties");
+    expect(found?.groupId).toBe("group:right:properties");
+    expect(opened.zones.right.userCollapsed).toBe(false);
+
+    const reopened = applyLayoutOperation(opened, {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    expect(Object.values(reopened.panels).filter((panel) => panel.type === "properties"))
+      .toHaveLength(1);
+  });
+
   it("opens history in a reserved right-zone group and reuses the singleton", () => {
     const opened = applyLayoutOperation(createDefaultLayout(), {
       type: "open-panel",
@@ -170,5 +189,136 @@ describe("layout operations", () => {
     expect(right.zones.left.preferredWidth).toBe(220);
     expect(right.zones.right.preferredWidth).toBe(560);
     expect(right.zones.center.preferredWidth).toBe(0);
+  });
+});
+
+// The ActivityBar rail buttons are toggles: open when closed, collapse when
+// open+active, switch when open+other-active. That decision needs to know
+// not just "is this tab active in its own group" but "is that group actually
+// the one on screen" — a left/right zone can hold two groups without room to
+// render them side by side, in which case only the zone's `focusedGroupId`
+// group is visible (see `DockZone`'s `is-temporarily-hidden`).
+describe("isPanelVisible (rail toggle visibility)", () => {
+  it("is false before the panel has ever been opened", () => {
+    expect(isPanelVisible(createDefaultLayout(), "properties")).toBe(false);
+  });
+
+  it("is true once opened and it is the sole occupant of its zone", () => {
+    const opened = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    expect(isPanelVisible(opened, "properties")).toBe(true);
+  });
+
+  it("is false for a panel whose tab is buried behind another active tab in the same group", () => {
+    let layout = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    // Opening a second right-dock panel with no existing split joins it as a
+    // new tab in the same group and makes IT the active tab.
+    layout = applyLayoutOperation(layout, {
+      type: "open-panel",
+      panelType: "backlinks",
+      zone: "right",
+    });
+    expect(isPanelVisible(layout, "properties")).toBe(false);
+    expect(isPanelVisible(layout, "backlinks")).toBe(true);
+  });
+
+  it("is false for a panel that is tab-active in its own group when that group is the unfocused half of an unsplit zone", () => {
+    let layout = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "history",
+      zone: "right",
+    });
+    const history = findPanelTab(layout, "history")!;
+    layout = applyLayoutOperation(layout, {
+      type: "open-panel",
+      panelType: "outline",
+      zone: "right",
+    });
+    const outline = findPanelTab(layout, "outline")!;
+    layout = applyLayoutOperation(layout, {
+      type: "split-group",
+      zone: "right",
+      groupId: outline.groupId,
+      tabId: outline.tab.id,
+      axis: "x",
+      availableSize: 500,
+    });
+    expect(layout.zones.right.groupIds).toHaveLength(2);
+    // The split leaves `history` the sole (and therefore active) tab of the
+    // original group, but focus moved to the newly split-off outline group.
+    expect(layout.focusedGroupId).not.toBe(history.groupId);
+    expect(isPanelVisible(layout, "history")).toBe(false);
+    expect(isPanelVisible(layout, "outline")).toBe(true);
+  });
+});
+
+describe("set-zone-collapsed (right-dock rail toggle)", () => {
+  it("collapses an open zone and reopens it", () => {
+    const opened = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    expect(opened.zones.right.userCollapsed).toBe(false);
+
+    const collapsed = applyLayoutOperation(opened, {
+      type: "set-zone-collapsed",
+      zone: "right",
+      collapsed: true,
+    });
+    expect(collapsed.zones.right.userCollapsed).toBe(true);
+    // The panel is untouched — collapsing hides the dock, not the tab state.
+    expect(isPanelVisible(collapsed, "properties")).toBe(true);
+
+    const reopened = applyLayoutOperation(collapsed, {
+      type: "set-zone-collapsed",
+      zone: "right",
+      collapsed: false,
+    });
+    expect(reopened.zones.right.userCollapsed).toBe(false);
+  });
+
+  it("is a no-op on an empty zone (nothing to collapse)", () => {
+    const layout = createDefaultLayout();
+    expect(applyLayoutOperation(layout, {
+      type: "set-zone-collapsed",
+      zone: "right",
+      collapsed: true,
+    })).toBe(layout);
+  });
+
+  it("switching to another tab in the same group re-opens a collapsed zone", () => {
+    let layout = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    layout = applyLayoutOperation(layout, {
+      type: "open-panel",
+      panelType: "backlinks",
+      zone: "right",
+    });
+    layout = applyLayoutOperation(layout, {
+      type: "set-zone-collapsed",
+      zone: "right",
+      collapsed: true,
+    });
+    const properties = findPanelTab(layout, "properties")!;
+    layout = applyLayoutOperation(layout, {
+      type: "activate-tab",
+      groupId: properties.groupId,
+      tabId: properties.tab.id,
+    });
+    // Mirrors ActivityBar's own explicit set-zone-collapsed(false) on switch;
+    // activate-tab alone already clears it too (belt and suspenders).
+    expect(layout.zones.right.userCollapsed).toBe(false);
+    expect(isPanelVisible(layout, "properties")).toBe(true);
   });
 });

@@ -1,3 +1,5 @@
+/* SPDX-License-Identifier: Apache-2.0 */
+
 /* Unified settings owns its modal geometry and scrolling here. Feature bodies
    (billing, access, versioning, and import/export) keep their feature styles in
    App.css until those features move to dedicated stylesheets. */
@@ -216,6 +218,127 @@
 .setting-row-copy {
   min-width: 0;
   max-width: 640px;
+}
+
+.theme-preset-setting {
+  grid-template-columns: 1fr;
+  align-items: start;
+}
+
+.theme-accent-setting {
+  grid-template-columns: minmax(0, 1fr) minmax(240px, auto);
+}
+
+.theme-accent-grid {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--sp-2);
+}
+
+.theme-accent-choice {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 30px;
+  padding: 3px 8px 3px 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.theme-accent-choice.selected {
+  border-color: var(--accent);
+  color: var(--text-primary);
+  box-shadow: var(--focus-ring);
+}
+
+.theme-accent-choice:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-accent-swatch {
+  width: 18px;
+  height: 18px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-pill);
+}
+
+.theme-preset-grid {
+  width: 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
+  gap: var(--sp-3);
+}
+
+.theme-preset-card {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--sp-1);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+  color: var(--text-primary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.theme-preset-card:hover {
+  border-color: var(--border-strong);
+  background: var(--bg-hover);
+}
+
+.theme-preset-card.selected {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+.theme-preset-card:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 2px;
+}
+
+.theme-preset-preview {
+  width: 100%;
+  height: 34px;
+  display: grid;
+  grid-template-columns: 1fr 1.8fr 1fr;
+  overflow: hidden;
+  margin-bottom: var(--sp-1);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+}
+
+.theme-preset-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+
+.theme-preset-description {
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  line-height: 1.35;
+}
+
+@media (max-width: 720px) {
+  .theme-preset-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .theme-accent-setting {
+    grid-template-columns: 1fr;
+  }
+
+  .theme-accent-grid {
+    justify-content: flex-start;
+  }
 }
 
 .setting-row-label {
@@ -633,4 +756,130 @@
   .settings-content {
     animation-duration: 0s;
   }
+}
+
+/* ---- Appearance → Accent ----
+   One tile per colour world. The swatch is the only element that carries a
+   `data-accent` of its own, so tokens.css paints it in that world's surface
+   and accent for the current theme; the ring and label around it stay in the
+   theme the user is looking at. Native radios keep the group keyboardable
+   (arrow keys move, one tab stop) without any script. */
+.accent-picker {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  margin: 0;
+  padding: 0;
+  border: 0;
+  min-width: 0;
+}
+
+.accent-option {
+  position: relative;
+  display: inline-flex;
+  min-width: 0;
+  cursor: pointer;
+}
+
+.accent-option input {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  margin: 0;
+  opacity: 0;
+  cursor: pointer;
+}
+
+.accent-option-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--sp-2);
+  padding: var(--sp-2) var(--sp-3);
+  border-radius: var(--radius-md);
+  border: 1px solid transparent;
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  font-weight: var(--type-weight-medium);
+  line-height: var(--type-leading-chrome);
+  transition:
+    background var(--t-fast) var(--ease),
+    border-color var(--t-fast) var(--ease),
+    color var(--t-fast) var(--ease);
+}
+
+.accent-option:hover .accent-option-body {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.accent-option.on .accent-option-body {
+  border-color: var(--border-strong);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  box-shadow: var(--shadow-sm);
+}
+
+.accent-option input:focus-visible + .accent-option-body {
+  border-color: var(--accent);
+  box-shadow: var(--focus-ring);
+}
+
+/* The world's canvas as a tile with its accent as the dot: the same two
+   colours the sidebar and a primary button would show. */
+.accent-option-swatch {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-app);
+  border: 1px solid var(--border-strong);
+  box-sizing: border-box;
+}
+
+.accent-option-dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 0 2px var(--bg-surface);
+  transition: transform var(--t-med) var(--ease-spring);
+}
+
+.accent-option:hover .accent-option-dot,
+.accent-option.on .accent-option-dot {
+  transform: scale(1.15);
+}
+
+/* The selected tile is also marked without colour: a check drawn in the
+   theme's own ink on the swatch corner. */
+.accent-option.on .accent-option-swatch {
+  border-color: var(--text-primary);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .accent-option-dot {
+    transition: none;
+  }
+  .accent-option:hover .accent-option-dot,
+  .accent-option.on .accent-option-dot {
+    transform: none;
+  }
+}
+
+/* Screen-reader-only text (the accent group's legend and per-option hints). */
+.visually-hidden {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip: rect(0 0 0 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
 }

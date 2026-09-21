@@ -15,6 +15,16 @@ export type { YjsState } from "./ipcCodec";
 /** Open an external URL (markdown links) in the user's default browser. */
 export const openExternal = (url: string) => openUrl(url);
 
+/** Open a vault file in its platform-default application, or reveal it when the
+ * opener's home-directory scope excludes an external-volume vault. */
+export const openFileExternally = async (path: string): Promise<void> => {
+  try {
+    await openPath(path);
+  } catch {
+    await revealItemInDir(path);
+  }
+};
+
 /**
  * Show a vault folder in the OS file manager (Finder / Explorer / xdg).
  *
@@ -140,11 +150,25 @@ export interface TreeNode {
   modified?: number;
 }
 
+export interface InspectDocumentIdentityResult {
+  documentId: string;
+  sourceRevision: string;
+  sourceFileIdentity: string;
+  insertionRequired: boolean;
+}
+
+export interface NoteSnapshot {
+  content: string;
+  fileIdentity: string;
+}
+
 export interface SearchResult {
   id: string;
   path: string;
   title: string;
   snippet: string;
+  icon?: string | null;
+  iconColor?: string | null;
 }
 
 export interface Backlink {
@@ -154,14 +178,159 @@ export interface Backlink {
   linkText: string;
 }
 
+export type KnowledgeRelationshipDirection = "outgoing" | "incoming";
+
+export type LocalKnowledgeQuery =
+  | { kind: "properties"; noteId: string }
+  | { kind: "labels"; noteId: string }
+  | { kind: "backlinks"; noteId: string }
+  | {
+      kind: "relationships";
+      noteId: string;
+      direction: KnowledgeRelationshipDirection;
+      relationshipIds?: string[];
+    }
+  | {
+      kind: "propertyEquals";
+      propertyId: string;
+      valueType: string;
+      normalizedValue: string;
+    }
+  | { kind: "labelled"; labelId: string; propertyId?: string | null }
+  | { kind: "indexState"; noteId: string };
+
+export type LocalKnowledgeItem =
+  | {
+      kind: "property";
+      noteId: string;
+      path: string;
+      propertyId: string;
+      ordinal: number;
+      valueType: string;
+      normalizedValue: string;
+      textValue: string | null;
+      numberValue: number | null;
+      booleanValue: boolean | null;
+      rawJson: string;
+    }
+  | {
+      kind: "label";
+      noteId: string;
+      path: string;
+      propertyId: string;
+      labelId: string;
+      ordinal: number;
+      isTag: boolean;
+    }
+  | {
+      kind: "backlink";
+      backlinkId: number;
+      sourceNoteId: string;
+      sourcePath: string;
+      sourceTitle: string;
+      linkText: string;
+    }
+  | {
+      kind: "relationship";
+      edgeId: string;
+      relationshipId: string;
+      sourceNoteId: string;
+      sourcePath: string;
+      targetDocumentId: string;
+      targetNoteId: string | null;
+      targetPath: string | null;
+      resolution: "resolved" | "missing_reference" | "duplicate_document_identity" | string;
+      ordinal: number;
+    }
+  | { kind: "note"; noteId: string; path: string }
+  | {
+      kind: "indexState";
+      noteId: string;
+      path: string;
+      portableDocumentId: string | null;
+      identityStatus: string;
+      sourceRevision: string | null;
+      indexRevision: string | null;
+      indexStatus: string;
+      generation: number;
+    };
+
+export interface LocalKnowledgePage {
+  items: LocalKnowledgeItem[];
+  nextCursor: string | null;
+  generation: number;
+}
+
+/**
+ * The derived task index (Rust `tasks.rs`). Filters are ANDed; an empty
+ * `statuses` means any status. Dates are floating `YYYY-MM-DD` strings and are
+ * compared as strings, exactly like the rest of the task pipeline.
+ */
+export interface LocalTaskQuery {
+  statuses?: string[];
+  dueBefore?: string | null;
+  dueAfter?: string | null;
+  dueOn?: string | null;
+  dueNone?: boolean;
+  /** Vault-relative path PREFIX, compared case-insensitively. */
+  pathPrefix?: string | null;
+  tag?: string | null;
+  textContains?: string | null;
+  noteId?: string | null;
+  taskId?: string | null;
+  seriesId?: string | null;
+}
+
+/**
+ * One indexed task line. `line`, `charFrom` and `charTo` are HINTS: they say
+ * where the line WAS when it was indexed. Every write re-finds the line in live
+ * text through `lib/tasks/adapter.ts`; an offset from here never reaches one.
+ */
+export interface LocalTaskRow {
+  noteId: string;
+  path: string;
+  taskId: string | null;
+  seriesId: string | null;
+  line: number;
+  charFrom: number;
+  charTo: number;
+  sourceText: string;
+  status: string;
+  text: string;
+  priority: string | null;
+  due: string | null;
+  scheduled: string | null;
+  start: string | null;
+  done: string | null;
+  cancelled: string | null;
+  created: string | null;
+  recurrence: string | null;
+  section: string[];
+  indent: string;
+  tags: string[];
+}
+
+export interface LocalTaskPage {
+  items: LocalTaskRow[];
+  /** `null` when this page is the last one. */
+  nextOffset: number | null;
+  total: number;
+  generation: number;
+}
+
+/** Mirrors `tasks::MAX_PAGE_SIZE`; a larger page is refused, not clamped. */
+export const MAX_TASK_PAGE_SIZE = 500;
+
 export interface NoteMeta {
   id: string;
   path: string;
   title: string;
+  /** Last-modified time as Unix seconds, matching the Rust index contract. */
   mtime: number;
   sha256: string;
   frontmatter: string | null;
   type?: string | null;
+  kind?: string | null;
   tags: string[];
 }
 
@@ -169,6 +338,10 @@ export interface NoteTitle {
   id: string;
   path: string;
   title: string;
+  icon?: string | null;
+  iconColor?: string | null;
+  kind?: string | null;
+  cover?: string | null;
 }
 
 export interface GraphNodeMeta {
@@ -176,6 +349,7 @@ export interface GraphNodeMeta {
   path: string;
   title: string;
   type: string | null;
+  kind?: string | null;
 }
 
 export interface ResolvedLink {
@@ -203,6 +377,8 @@ export interface ImportSummary {
   files: number;
   /** Files/dirs skipped (ignored names, unreadable sources, …). */
   skipped: number;
+  /** Non-note files outside attachments/. They are local-only, not blob-synced. */
+  localOnly: number;
 }
 
 // ---- Vault ----------------------------------------------------------------
@@ -296,6 +472,8 @@ export const listChildren = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<TreeNode[]>("list_children", { path, expectedEpoch: expectedEpoch ?? null });
 export const readNote = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<string>("read_note", { path, expectedEpoch: expectedEpoch ?? null });
+export const readNoteSnapshot = (path: string, expectedEpoch?: VaultEpoch) =>
+  invoke<NoteSnapshot>("read_note_snapshot", { path, expectedEpoch: expectedEpoch ?? null });
 /**
  * Is this note file on disk RIGHT NOW? A disk question, not an index one.
  *
@@ -336,8 +514,47 @@ export const writeTrashCopy = (
  */
 export const rebindNoteId = (path: string, docId: string, expectedEpoch?: VaultEpoch) =>
   invoke<boolean>("rebind_note_id", { path, docId, expectedEpoch: expectedEpoch ?? null });
-export const writeNote = (path: string, content: string, expectedEpoch?: VaultEpoch) =>
-  invoke<void>("write_note", { path, content, expectedEpoch: expectedEpoch ?? null });
+export const writeNoteWithIdentity = (
+  path: string,
+  content: string,
+  expectedEpoch?: VaultEpoch,
+  expectedDocumentId?: string,
+  expectedSourceRevision?: string,
+  expectedFileIdentity?: string,
+) => invoke<string>("write_note", {
+  path,
+  content,
+  expectedEpoch: expectedEpoch ?? null,
+  expectedDocumentId: expectedDocumentId ?? null,
+  expectedSourceRevision: expectedSourceRevision ?? null,
+  expectedFileIdentity: expectedFileIdentity ?? null,
+});
+export const writeNote = async (
+  path: string,
+  content: string,
+  expectedEpoch?: VaultEpoch,
+): Promise<void> => {
+  await writeNoteWithIdentity(path, content, expectedEpoch);
+};
+/**
+ * Inspect a note's portable identity before or after the live Yjs mutation.
+ * Rust rereads the file and accepts the decision only while both this vault
+ * epoch and the caller's full source SHA-256 match.
+ */
+export const inspectDocumentIdentity = (
+  path: string,
+  expectedLocalNoteId: string,
+  syncedDocumentId: string | null,
+  expectedSourceRevision: string,
+  expectedEpoch: number,
+) =>
+  invoke<InspectDocumentIdentityResult>("inspect_document_identity", {
+    path,
+    expectedLocalNoteId,
+    syncedDocumentId,
+    expectedSourceRevision,
+    expectedEpoch,
+  });
 /** Create a note only if the path is free. Resolves true when it was created,
  *  false when a file was already there (untouched). The registry materializes
  *  server-only notes through THIS, never `writeNote`, so a wrong "this device
@@ -350,6 +567,38 @@ export const writeNoteIfMissing = (
   invoke<boolean>("write_note_if_missing", {
     path,
     content,
+    expectedEpoch: expectedEpoch ?? null,
+  });
+/** What {@link writeNoteIfUnchanged} answers: whether the write happened, and
+ *  the sha256 of what is on disk now. */
+export interface WriteNoteOutcome {
+  ok: boolean;
+  currentSha256: string;
+}
+/**
+ * Write a note only while its bytes still hash to `expectedSha256` — the
+ * compare and the write happen together in Rust, under the same mutex the
+ * ordinary note write takes.
+ *
+ * The closed-note write path for workflows and task actions. They plan an edit
+ * against text they read a moment ago, and `readNote`-hash-then-`writeNote`
+ * leaves a window in which an external writer publishes its own version and
+ * this write erases it. `ok: false` is a `stale-target`, never a retry: the
+ * plan was made against text that no longer exists.
+ *
+ * The hash is `bridge/adapter.ts sha256Hex` of the text {@link readNote}
+ * returned (Rust hashes the same bytes, with no newline normalisation).
+ */
+export const writeNoteIfUnchanged = (
+  path: string,
+  expectedSha256: string,
+  contents: string,
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<WriteNoteOutcome>("write_note_if_unchanged", {
+    path,
+    expectedSha256,
+    contents,
     expectedEpoch: expectedEpoch ?? null,
   });
 export const createNote = (parent: string, name: string, expectedEpoch?: VaultEpoch) =>
@@ -414,6 +663,48 @@ export const searchNotes = (query: string) =>
   invoke<SearchResult[]>("search_notes", { query });
 export const getBacklinks = (noteId: string) =>
   invoke<Backlink[]>("get_backlinks", { noteId });
+export const queryKnowledge = (
+  query: LocalKnowledgeQuery,
+  page: { limit?: number; cursor?: string | null } = {},
+) =>
+  invoke<LocalKnowledgePage>("query_knowledge", {
+    query:
+      query.kind === "relationships"
+        ? { ...query, relationshipIds: query.relationshipIds ?? [] }
+        : query,
+    page: { limit: page.limit ?? 25, cursor: page.cursor ?? null },
+  });
+/**
+ * One bounded page from the derived task index.
+ *
+ * Epoch-checked like the other queries: a page asked for by a panel that
+ * belongs to the vault we just closed is refused rather than answered from the
+ * new one. Every optional filter is spelled out here because the Rust side
+ * denies unknown fields — a typo is a refusal, not a silently wider result.
+ */
+export const queryTasks = (
+  query: LocalTaskQuery = {},
+  page: { limit?: number; offset?: number } = {},
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<LocalTaskPage>("query_tasks", {
+    query: {
+      statuses: query.statuses ?? [],
+      dueBefore: query.dueBefore ?? null,
+      dueAfter: query.dueAfter ?? null,
+      dueOn: query.dueOn ?? null,
+      dueNone: query.dueNone ?? false,
+      pathPrefix: query.pathPrefix ?? null,
+      tag: query.tag ?? null,
+      textContains: query.textContains ?? null,
+      noteId: query.noteId ?? null,
+      taskId: query.taskId ?? null,
+      seriesId: query.seriesId ?? null,
+    },
+    page: { limit: page.limit ?? 100, offset: page.offset ?? 0 },
+    expectedEpoch: expectedEpoch ?? null,
+  });
+
 /** Every resolved graph edge (source id -> target id) in one call — backs the
  *  Graph view instead of one getBacklinks per note. */
 export const getGraphEdges = (expectedEpoch?: VaultEpoch) =>
@@ -565,6 +856,10 @@ export const listAttachments = (expectedEpoch?: VaultEpoch) =>
 /** Read a dropped/picked host file by absolute path (not vault-scoped). */
 export const readExternalFile = (path: string) =>
   invoke<ArrayBuffer>("read_external_file", { path }).then((b) => new Uint8Array(b));
+
+/** Write text to an absolute host path chosen through `saveFile` (not vault-scoped). */
+export const writeExternalFile = (path: string, contents: string) =>
+  invoke<void>("write_external_file", { path, contents });
 
 // ---- OS keychain (Phase 2 auth, spec 04 §7) -------------------------------
 // Session tokens live in the OS keychain, never in localStorage/plaintext.

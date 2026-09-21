@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { useMemo } from "react";
 import { ITEM_COLORS, itemColorValue } from "../../lib/appearance";
 import * as ipc from "../../lib/ipc";

@@ -75,6 +75,28 @@ export function itemLockRows(locks: readonly Share[]): Share[] {
   return locks.filter((l) => shareResourceType(l) !== "vault");
 }
 
+/** Restriction rows that apply to this user rather than another member. */
+export function restrictionRowsForUser(
+  rows: readonly Share[],
+  currentUserId: string | undefined,
+): Share[] {
+  return rows.filter((row) =>
+    (row.permission === "locked" || row.permission === "denied") &&
+    (sharePrincipalType(row) === "org" || sharePrincipalId(row) === currentUserId),
+  );
+}
+
+/** Explicit deny/lock on a hidden resource, evaluated for the current user. */
+export function resourceLockedForUser(
+  locks: readonly Share[],
+  resourceId: string,
+  currentUserId: string | undefined,
+  denies: readonly Share[] = [],
+): boolean {
+  return restrictionRowsForUser([...locks, ...denies], currentUserId)
+    .some((lock) => shareResourceId(lock) === resourceId);
+}
+
 /**
  * Resolve lock rows to tree paths. When several locks hit the same node the
  * strongest scope wins: "all" > "vault" > "you" > "member".

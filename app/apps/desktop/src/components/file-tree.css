@@ -125,13 +125,14 @@
     box-shadow 120ms var(--ease);
 }
 
-/* The row wrapper is absolutely positioned by react-window via `top`; since
-   arborist keys rows by node id, the same element is reused when the order
-   changes, so animating `top` glides rows to their new home on a reorder (and
-   settles siblings when a folder expands/collapses). */
+/* React Arborist reuses absolutely positioned wrappers while rows reorder.
+   Keep their positions immediate. Animating `top` left stale composited copies
+   behind in WKWebView after sorting or an icon metadata write, which painted
+   two filenames in the same slot and made the Files pane look detached from
+   its frame. */
 .tree-rowwrap {
-  transition: top var(--t-med) var(--ease);
-  will-change: top;
+  transition: none;
+  will-change: auto;
 }
 
 /* The row you've picked up — lift and dim it so the drag reads as tactile. */
@@ -150,9 +151,6 @@
 @media (prefers-reduced-motion: reduce) {
   .filetree-scroll {
     scroll-behavior: auto;
-  }
-  .tree-rowwrap {
-    transition: none;
   }
   .tree-row.dragging {
     transition: none;
@@ -395,9 +393,14 @@
   opacity: 1;
   transform: translateX(0);
 }
-.tree-rename-input {
+.tree-rename-wrap {
   flex: 1;
   min-width: 0;
+  position: relative;
+}
+.tree-rename-input {
+  width: 100%;
+  box-sizing: border-box;
   user-select: text;
   background: var(--bg-surface);
   border: 1px solid var(--accent);
@@ -408,6 +411,25 @@
   padding: 1px var(--sp-2);
   outline: none;
   box-shadow: var(--focus-ring);
+}
+.tree-rename-input[aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.tree-rename-error {
+  position: absolute;
+  z-index: 8;
+  top: calc(100% + var(--sp-1));
+  left: 0;
+  max-width: min(320px, calc(100vw - 32px));
+  padding: var(--sp-1) var(--sp-2);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  border-radius: var(--radius-sm);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-md);
+  color: var(--danger);
+  font-size: var(--type-label-size);
+  line-height: var(--type-leading-tight);
+  white-space: normal;
 }
 
 .tree-row.opening {

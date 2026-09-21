@@ -14,6 +14,17 @@ function byTitle(a: NoteTitle, b: NoteTitle): number {
   return a.title < b.title ? -1 : a.title > b.title ? 1 : a.path < b.path ? -1 : a.path > b.path ? 1 : 0;
 }
 
+function sameRow(a: NoteTitle, b: NoteTitle): boolean {
+  return (
+    a.id === b.id &&
+    a.title === b.title &&
+    (a.icon ?? null) === (b.icon ?? null) &&
+    (a.iconColor ?? null) === (b.iconColor ?? null) &&
+    (a.kind ?? null) === (b.kind ?? null) &&
+    (a.cover ?? null) === (b.cover ?? null)
+  );
+}
+
 /**
  * Apply fresh rows for changed notes and drop removed paths, keeping the array
  * sorted the way the index lists it. Returns the SAME array when nothing changed
@@ -36,7 +47,7 @@ export function applyTitlePatch(
     const f = fresh.get(t.path);
     if (f) {
       fresh.delete(t.path);
-      if (f.id !== t.id || f.title !== t.title) changed = true;
+      if (!sameRow(f, t)) changed = true;
       next.push(f);
     } else {
       next.push(t);

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 export const SETTINGS_GROUP_IDS = [
   "options",
   "vault",
@@ -100,6 +102,18 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
         keywords: ["color scheme", "light mode", "dark mode"],
       },
       {
+        id: "accent",
+        label: "Accent",
+        description: "Choose the colour world for controls, selection and links.",
+        keywords: ["colour", "color", "brand", "palette", "ink", "violet", "sea", "terracotta", "moss"],
+      },
+      {
+        id: "heading-color",
+        label: "Heading colour",
+        description: "Choose themed or plain colours for note headings.",
+        keywords: ["markdown", "header", "heading color"],
+      },
+      {
         id: "note-typography",
         label: "Note typography",
         description: "Typography used to read and edit notes.",
@@ -145,7 +159,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
       {
         id: "default-view-mode",
         label: "Default view mode",
-        description: "Choose Live Preview, Source, or Reading for newly opened notes.",
+        description: "Choose Live Preview, Raw, or Reading for newly opened notes.",
         keywords: ["markdown", "reading", "source", "live preview"],
       },
       {

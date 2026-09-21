@@ -21,7 +21,11 @@
     "process:default",
     {
       "identifier": "clipboard-manager:allow-write-text",
-      "comment": "Write-only clipboard for copy-link actions. navigator.clipboard rejects writes once an await has outlived WebKit's transient user activation (exactly what happens when the click first mints the link server-side); the native call is gesture-free. Read stays ungranted — the app never needs to see the clipboard."
+      "comment": "Clipboard write for copy-link actions. navigator.clipboard rejects writes once an await has outlived WebKit's transient user activation (exactly what happens when the click first mints the link server-side); the native call is gesture-free."
+    },
+    {
+      "identifier": "clipboard-manager:allow-read-text",
+      "comment": "Clipboard read for exactly one place: the Paste from clipboard button in a workflow prompt (src/components/workflows/clipboard.ts). The workflow engine never reads the clipboard itself; {{clipboard}} only ever holds text a person pasted through that button."
     },
     {
       "identifier": "core:window:allow-set-focus",

@@ -31,6 +31,8 @@ export class NoteBridge {
 
   /** Hash of the bytes we last wrote to disk; the ingest echo guard (spec 03 §5). */
   private lastWrittenHash: string | null = null;
+  private lastFileIdentity: string | null = null;
+  private pendingExpectedFileIdentity: string | null = null;
 
   /** Count of updates in the persisted log since the last snapshot/compaction. */
   private logLength = 0;
@@ -197,6 +199,14 @@ export class NoteBridge {
     return b;
   }
 
+  private async readFileSnapshot(): Promise<{
+    content: string;
+    fileIdentity: string | null;
+  }> {
+    if (this.io.readFileSnapshot) return this.io.readFileSnapshot(this._path);
+    return { content: await this.io.readFile(this._path), fileIdentity: null };
+  }
+
   private async hydrate(): Promise<void> {
     const state = await this.io.persistence.loadState(this.docId);
     const hasPersisted = state.snapshot != null || state.updates.length > 0;
@@ -236,7 +246,9 @@ export class NoteBridge {
       this.subscribe();
       let fileText = "";
       try {
-        fileText = await this.io.readFile(this._path);
+        const snapshot = await this.readFileSnapshot();
+        fileText = snapshot.content;
+        this.lastFileIdentity = snapshot.fileIdentity;
       } catch (e) {
         this.reportError(e, "seed:readFile");
         fileText = "";
@@ -269,7 +281,9 @@ export class NoteBridge {
     if (this.destroyed || this.text.length > 0) return false;
     let fileText = "";
     try {
-      fileText = await this.io.readFile(this._path);
+      const snapshot = await this.readFileSnapshot();
+      fileText = snapshot.content;
+      this.lastFileIdentity = snapshot.fileIdentity;
     } catch (e) {
       this.reportError(e, "seed:readFile");
       return false;
@@ -367,8 +381,11 @@ export class NoteBridge {
     this.ingestDirty = false;
 
     let fileText: string;
+    let fileIdentity: string | null;
     try {
-      fileText = await this.io.readFile(this._path);
+      const snapshot = await this.readFileSnapshot();
+      fileText = snapshot.content;
+      fileIdentity = snapshot.fileIdentity;
     } catch (e) {
       this.reportError(e, "ingest:readFile");
       return false;
@@ -394,12 +411,16 @@ export class NoteBridge {
     this.oversizeReported = false;
 
     const fileHash = await this.hash(fileText);
-    if (fileHash === this.lastWrittenHash) return false; // our own write echoing back → DROP
+    if (fileHash === this.lastWrittenHash && fileIdentity === this.lastFileIdentity) {
+      return false;
+    }
 
     const current = this.text.toString();
     if (current === fileText) {
       // Already converged (e.g. we ingested this exact change already).
       this.lastWrittenHash = fileHash;
+      this.lastFileIdentity = fileIdentity;
+      this.pendingExpectedFileIdentity = null;
       return false;
     }
 
@@ -476,6 +497,9 @@ export class NoteBridge {
     this.doc.transact(() => {
       applyDiff(this.text, diffs);
     }, ORIGIN_DISK);
+    this.lastWrittenHash = fileHash;
+    this.lastFileIdentity = fileIdentity;
+    this.pendingExpectedFileIdentity = null;
     return true;
   }
 
@@ -532,10 +556,18 @@ export class NoteBridge {
       // A write that had been failing no longer needs to land: the bytes it was
       // retrying to put on disk are already there.
       this.clearWriteFailure();
+      this.pendingExpectedFileIdentity = null;
       return;
     }
     try {
-      await this.io.writeFileAtomic(this._path, content);
+      const fileIdentity = await this.io.writeFileAtomic(
+        this._path,
+        content,
+        this.docId,
+        this.lastWrittenHash ?? undefined,
+        this.pendingExpectedFileIdentity ?? this.lastFileIdentity ?? undefined,
+      );
+      this.lastFileIdentity = fileIdentity ?? null;
     } catch (e) {
       // The .md on disk is the durable source of truth, so a lost write is a
       // data-safety event, not a log line: tell the UI, and retry with backoff
@@ -551,6 +583,7 @@ export class NoteBridge {
       return;
     }
     this.lastWrittenHash = hash;
+    this.pendingExpectedFileIdentity = null;
     this.clearWriteFailure();
     // Indexing is derived state: a failure here is worth a log, not a re-write.
     if (this.io.reindex) {
@@ -600,8 +633,9 @@ export class NoteBridge {
    * Flush a pending egest now (used on close / explicit save). No-op when
    * nothing is pending, so closing an untouched note performs no write.
    */
-  async flushEgest(): Promise<void> {
+  async flushEgest(expectedFileIdentity?: string): Promise<void> {
     if (this.egestTimer == null) return;
+    if (expectedFileIdentity) this.pendingExpectedFileIdentity = expectedFileIdentity;
     this.clearT(this.egestTimer);
     this.egestTimer = null;
     await this.drainEgest();

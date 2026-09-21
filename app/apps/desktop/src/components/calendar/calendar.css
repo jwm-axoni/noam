@@ -1,0 +1,145 @@
+/* Calendar panel: tokens only (`styles/tokens.css`), so light, dark and every
+   accent preset come for free. Sized to fit the app's 220px minimum panel
+   width with no horizontal overflow — the grid is 7 equal columns and every
+   cell is allowed to shrink. */
+
+.calendar-panel {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-width: 0;
+  color: var(--text-primary);
+  font-size: var(--fs-sm);
+}
+
+.calendar-panel-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  padding: var(--sp-2);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.calendar-panel-title {
+  flex: 1;
+  min-width: 0;
+  text-align: center;
+  font-weight: var(--type-weight-semibold);
+  font-size: var(--fs-sm);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.calendar-nav-btn,
+.calendar-today-btn {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: var(--text-secondary);
+  border-radius: var(--radius-sm);
+  padding: 2px var(--sp-1);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+
+.calendar-nav-btn:hover,
+.calendar-today-btn:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.calendar-panel-grid-wrap {
+  flex: 1;
+  min-height: 0;
+  min-width: 0;
+  overflow: auto;
+  padding: var(--sp-2);
+}
+
+.calendar-grid {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.calendar-grid-row {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 2px;
+  min-width: 0;
+}
+
+.calendar-grid-weekday {
+  text-align: center;
+  font-size: var(--type-micro-size);
+  color: var(--text-tertiary);
+  padding-bottom: 2px;
+}
+
+.calendar-day {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  aspect-ratio: 1;
+  min-width: 0;
+  border-radius: var(--radius-sm);
+  color: var(--text-primary);
+  cursor: pointer;
+}
+
+.calendar-day:hover {
+  background: var(--bg-hover);
+}
+
+.calendar-day:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.calendar-day[aria-selected="true"] {
+  background: var(--accent-soft);
+}
+
+.calendar-day-outside {
+  color: var(--text-faint);
+}
+
+.calendar-day-today .calendar-day-number {
+  font-weight: var(--type-weight-bold);
+  color: var(--accent);
+}
+
+.calendar-day-has-note::after {
+  content: "";
+  position: absolute;
+  bottom: 3px;
+  left: 50%;
+  translate: -50% 0;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--accent);
+}
+
+.calendar-day-number {
+  font-size: var(--type-caption-size);
+  line-height: 1;
+}
+
+.calendar-day-count {
+  position: absolute;
+  top: 1px;
+  right: 1px;
+  min-width: 12px;
+  padding: 0 3px;
+  border-radius: var(--radius-pill);
+  background: var(--warning);
+  color: var(--text-on-accent);
+  font-size: var(--type-tiny-size);
+  line-height: 14px;
+  text-align: center;
+}

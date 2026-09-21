@@ -8,22 +8,14 @@
 /** How node fill colors are derived. */
 export type ColorMode = "type" | "folder" | "degree" | "uniform";
 
-/**
- * What the graph draws. **Pinned to `global`** — the graph is the whole vault.
- *
- * The `local` mode (the open note's neighborhood, N hops out) is gone from the
- * UI: two scopes meant the view could show two different things under the same
- * name, and the one people actually wanted was always the whole vault. The union
- * type survives so the renderer's non-WebGL fallback branch (which is written
- * against `scope`) keeps type-checking; nothing sets it to `"local"` any more.
- */
+/** What the graph draws: the whole vault or the open note's neighborhood. */
 export type GraphScope = "local" | "global";
 
 export interface GraphSettings {
   // ---- Scope ----
   /** Draw the open note's local neighborhood, or the whole vault. */
   scope: GraphScope;
-  /** Vestigial: local scope has no UI. Retained so persisted blobs still parse. */
+  /** Number of link hops shown in local scope. */
   localDepth: number;
 
   // ---- Forces (physics) ----
@@ -41,7 +33,12 @@ export interface GraphSettings {
   nodeSize: number;
   /** Multiplier on edge line width. */
   edgeThickness: number;
-  /** Multiplier on the zoom level at which labels fade in (higher = labels sooner). */
+  /**
+   * Label density, 0..2. Names are visible at rest and thinned by screen-space
+   * collisions (see lib/graph/labels.ts); this sets how much clear space each
+   * one demands, so turning it up packs more names in. 0 keeps only the pinned
+   * labels — the open note, the hovered node and search matches.
+   */
   labelScale: number;
   /** Node fill color strategy. */
   colorMode: ColorMode;
@@ -62,7 +59,7 @@ export interface GraphSettings {
 // actually designed to look right at, so they are the defaults.
 export const DEFAULT_SETTINGS: GraphSettings = {
   scope: "global",
-  localDepth: 1, // vestigial; `scope` is pinned to global
+  localDepth: 1,
   charge: -10.8,
   linkDistance: 337,
   linkStrength: 0.44,
@@ -99,6 +96,10 @@ function validColorMode(value: unknown): value is ColorMode {
   return value === "type" || value === "folder" || value === "degree" || value === "uniform";
 }
 
+function validScope(value: unknown): value is GraphScope {
+  return value === "global" || value === "local";
+}
+
 /** Load persisted settings, merged over defaults (tolerant of missing/old keys). */
 export function loadSettings(instanceId?: string): GraphSettings {
   try {
@@ -118,14 +119,12 @@ export function loadSettings(instanceId?: string): GraphSettings {
     }
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<GraphSettings>;
-    // `scope` is forced regardless of what was stored: local mode no longer has
-    // a control, so a saved `"local"` would strand someone in a scope they can't
-    // see the toggle for and can't get out of.
     return {
       ...DEFAULT_SETTINGS,
       ...parsed,
       colorMode: validColorMode(parsed.colorMode) ? parsed.colorMode : DEFAULT_SETTINGS.colorMode,
-      scope: "global",
+      scope: validScope(parsed.scope) ? parsed.scope : DEFAULT_SETTINGS.scope,
+      localDepth: parsed.localDepth === 2 ? 2 : 1,
     };
   } catch {
     return { ...DEFAULT_SETTINGS };

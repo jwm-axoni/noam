@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 const FOCUSABLE_SELECTOR = [
   "a[href]",
   "area[href]",

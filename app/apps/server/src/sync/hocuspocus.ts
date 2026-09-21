@@ -119,6 +119,7 @@ export function createSyncServer(
   port: number = config.hocuspocusPort,
   onDocChanged?: DocChangedHook,
   onDocEdited?: DocEditedHook,
+  scheduleDocIndex: (docId: string) => Promise<void> = scheduleIndex,
 ): Server<SyncContext> {
   return new Server<SyncContext>({
     name: "noam-sync",
@@ -286,7 +287,11 @@ export function createSyncServer(
       // Re-derive links + embedding for this note (debounced, best-effort).
       // Also covers lazy indexing: a doc missing from note_index gets a row on
       // its next store.
-      scheduleIndex(parsed.docId);
+      try {
+        await scheduleDocIndex(parsed.docId);
+      } catch (err) {
+        console.error(`[indexer] failed to mark ${parsed.docId} stale:`, err);
+      }
       // Fan the incremental update out to vault-channel subscribers (spec 05).
       // The `update` is the exact delta this connection applied — replay it to
       // background clients so their disk stays current without opening the note.

@@ -8,6 +8,12 @@ import { orgRole } from "../../permissions/lookup.js";
 import { effectivePermission } from "../../permissions/resolver.js";
 import { getSession } from "../session.js";
 import { renderNoteHtml } from "../../render/note-html.js";
+import {
+  publicNoteAssetReferences,
+  publicNoteReferencesAsset,
+  redactPrivateCoverSources,
+  renderPresentation,
+} from "../../render/presentation.js";
 import type { DocWriter } from "../../mcp/doc-writer.js";
 
 /**
@@ -265,6 +271,29 @@ const PAGE_CSS = `
            font-size: 0.85rem; color: var(--text-secondary); }
   footer a { color: inherit; }
   h1.doc-title { font-size: 1.7rem; margin: 0; }
+  .doc-heading { display: flex; align-items: center; gap: 12px; min-width: 0; }
+  .doc-title { overflow-wrap: anywhere; }
+  .note-icon { width: 36px; height: 36px; object-fit: contain; font-size: 30px; flex: none; }
+  .note-icon-lucide { display: block; }
+  .icon-color-violet { color: #7c5cff; }
+  .icon-color-blue { color: #2f7de1; }
+  .icon-color-teal { color: #0d9488; }
+  .icon-color-green { color: #3f9d54; }
+  .icon-color-amber { color: #d99114; }
+  .icon-color-orange { color: #e0702f; }
+  .icon-color-rose { color: #d94f77; }
+  .icon-color-slate { color: #64748b; }
+  .note-cover { display: block; width: 100%; object-fit: cover; border-radius: 8px; margin-bottom: 24px; }
+  .note-cover-linen { background: repeating-linear-gradient(0deg, transparent 0 3px, #8276640d 3px 4px), #e7dfcf; }
+  .note-cover-graphite { background: linear-gradient(135deg, #27292d, #52565c); }
+  .note-cover-moss { background: linear-gradient(135deg, #617861, #b9c6a4); }
+  .note-cover-dusk { background: linear-gradient(135deg, #645874, #b69298); }
+  article mark { color: #202028; background: #f7e8a1; border-radius: 2px; }
+  article mark[data-noam-color="green"] { background: #c6e8bb; }
+  article mark[data-noam-color="blue"] { background: #bfdcf5; }
+  article mark[data-noam-color="pink"] { background: #f5c5da; }
+  article mark[data-noam-color="purple"] { background: #ddccf2; }
+  @media (max-width: 520px) { .page-top { align-items: flex-start; flex-direction: column; } }
 `;
 
 function pageShell(title: string, inner: string): string {
@@ -356,10 +385,15 @@ export function createPublicPageRoutes(deps: PublicPageDeps): Hono {
     // null = content never reached this server; render as empty, not a miss —
     // the link is real and the note exists.
     const md = (await deps.docWriter.peekContent(row.vault_id, row.doc_id)) ?? "";
-    const { bodyHtml } = renderNoteHtml(md, {
-      assetUrl: (rel) =>
-        `/p/${token}/a/${rel.split("/").map(encodeURIComponent).join("/")}`,
-    });
+    const publicAssetReferences = publicNoteAssetReferences(md);
+    const renderOptions = {
+      assetUrl: (rel: string) =>
+        publicAssetReferences.has(rel)
+          ? `/p/${token}/a/${rel.split("/").map(encodeURIComponent).join("/")}`
+          : null,
+    };
+    const { bodyHtml } = renderNoteHtml(redactPrivateCoverSources(md), renderOptions);
+    const { iconHtml, coverHtml } = renderPresentation(md, renderOptions);
     const title = noteTitle(row);
     // The private-link flow, one click away: /open/note bounces into the app,
     // where the viewer's own session and ACL decide what they see — the button
@@ -368,7 +402,7 @@ export function createPublicPageRoutes(deps: PublicPageDeps): Hono {
     return c.html(
       pageShell(
         title,
-        `<div class="page-top"><h1 class="doc-title">${esc(title)}</h1><a class="open-app" href="${esc(openHref)}">Open in ${esc(BRAND_NAME)}</a></div>\n<article>${bodyHtml}</article>`,
+        `${coverHtml}<div class="page-top"><div class="doc-heading">${iconHtml}<h1 class="doc-title">${esc(title)}</h1></div><a class="open-app" href="${esc(openHref)}">Open in ${esc(BRAND_NAME)}</a></div>\n<article>${bodyHtml}</article>`,
       ),
       200,
       PAGE_HEADERS,
@@ -400,7 +434,7 @@ export function createPublicPageRoutes(deps: PublicPageDeps): Hono {
     }
 
     const md = await deps.docWriter.peekContent(row.vault_id, row.doc_id);
-    if (!md || !md.includes(relPath)) return miss(c);
+    if (!md || !publicNoteReferencesAsset(md, relPath)) return miss(c);
 
     const { rows } = await pool.query<{ id: string; mime: string | null }>(
       "SELECT id, mime FROM blobs WHERE vault_id = $1 AND rel_path = $2",

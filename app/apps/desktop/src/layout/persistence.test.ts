@@ -55,6 +55,26 @@ describe("layout persistence", () => {
     expect(persisted.focusedGroupId).toBe(CENTER_NOTE_GROUP_ID);
   });
 
+  it("round-trips a collapsed right dock (rail toggle survives reload)", () => {
+    let layout = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel",
+      panelType: "properties",
+      zone: "right",
+    });
+    layout = applyLayoutOperation(layout, {
+      type: "set-zone-collapsed",
+      zone: "right",
+      collapsed: true,
+    });
+    expect(layout.zones.right.userCollapsed).toBe(true);
+
+    const restored = validatePersistedLayout(serializableLayout(layout));
+    // The panel/tab survives collapse — restoring must not silently re-expand
+    // the dock (a stale "expanded" restore would defeat the rail's memory).
+    expect(restored?.zones.right.userCollapsed).toBe(true);
+    expect(findPanelTab(restored!, "properties")).not.toBeNull();
+  });
+
   it("persists durable graph preferences but not search or camera state", () => {
     let layout = applyLayoutOperation(createDefaultLayout(), {
       type: "open-panel",

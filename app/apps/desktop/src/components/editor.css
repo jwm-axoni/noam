@@ -26,6 +26,99 @@
   padding: var(--sp-2) var(--sp-6);
 }
 
+.editor-note-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+.editor-note-actions button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  padding: 0;
+  border: 0;
+  border-radius: var(--radius-sm);
+  background: transparent;
+  color: var(--text-tertiary);
+  cursor: pointer;
+}
+
+.editor-note-actions button:hover,
+.editor-note-actions button.active {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.editor-note-actions button:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.editor-note-actions svg {
+  width: var(--icon-md-size);
+  height: var(--icon-md-size);
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.editor-actions-overflow {
+  position: relative;
+  display: none;
+}
+
+.editor-actions-overflow summary {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--radius-sm);
+  color: var(--text-tertiary);
+  cursor: pointer;
+  list-style: none;
+}
+
+.editor-actions-overflow summary::-webkit-details-marker {
+  display: none;
+}
+
+.editor-actions-overflow summary:hover,
+.editor-actions-overflow[open] summary {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.editor-actions-menu {
+  position: absolute;
+  top: calc(100% + var(--sp-1));
+  right: 0;
+  z-index: 170;
+  display: flex;
+  flex-direction: column;
+  width: max-content;
+  min-width: 168px;
+  padding: var(--sp-1);
+  border: 1px solid var(--border-strong);
+  border-radius: var(--radius-md);
+  background: var(--bg-surface);
+  box-shadow: var(--shadow-lg);
+}
+
+.editor-note-actions .editor-actions-menu button {
+  justify-content: flex-start;
+  width: 100%;
+  height: 32px;
+  padding: 0 var(--sp-2);
+  color: var(--text-secondary);
+  white-space: nowrap;
+}
+
 /* When a lock banner and the presence stack coexist, they share one row:
    the banner takes the width it needs on the left, the avatar sits at the
    far right on the same level. The banner is shortened just enough to clear
@@ -45,6 +138,16 @@
 .editor-topbar .editor-toolbar {
   flex: 0 0 auto;
   padding: 0;
+}
+
+@media (max-width: 760px) {
+  .editor-note-actions .editor-action-secondary {
+    display: none;
+  }
+
+  .editor-actions-overflow {
+    display: block;
+  }
 }
 
 .editor-column .editor-host {

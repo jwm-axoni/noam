@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignColors, PALETTE, TYPE_COLORS } from "./graphColor";
+import { assignColors, degreeRamp, PALETTE, TYPE_COLORS } from "./graphColor";
 import type { GraphNode } from "./buildGraph";
 
 // The degree ramp's job is to make link-degree *visible*. It was doing the
@@ -59,6 +59,17 @@ function heavyTailed(): GraphNode[] {
 }
 
 describe("assignColors — degree", () => {
+  it("derives every tier from the active accent in light and dark worlds", () => {
+    const violetLight = degreeRamp("#6558f5", "light");
+    const seaLight = degreeRamp("#0d747e", "light");
+    const violetDark = degreeRamp("#8f84ff", "dark");
+
+    expect(violetLight).not.toEqual(seaLight);
+    expect(violetLight[1]).toBe("#6558f5");
+    expect(violetDark[1]).toBe("#8f84ff");
+    expect(violetLight).not.toEqual(violetDark);
+  });
+
   it("spreads a heavy-tailed vault across tiers instead of piling into one", () => {
     // The regression: with linear thirds of [1, 1259] the tiers came out as
     // 1–420 → everything, 421–839 → nothing, 840–1259 → the hub. Log tiers put

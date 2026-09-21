@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import { describe, expect, it } from "vitest";
 import {
   availableSettingsSections,
@@ -47,6 +49,18 @@ describe("settings search", () => {
     expect(searchSettings("theme")[0]).toMatchObject({
       sectionId: "appearance",
       settingId: "theme",
+    });
+    expect(searchSettings("heading color")[0]).toMatchObject({
+      sectionId: "appearance",
+      settingId: "heading-color",
+    });
+    expect(searchSettings("accent")[0]).toMatchObject({
+      sectionId: "appearance",
+      settingId: "accent",
+    });
+    expect(searchSettings("terracotta")[0]).toMatchObject({
+      sectionId: "appearance",
+      settingId: "accent",
     });
     expect(searchSettings("wide note text")[0]).toMatchObject({
       sectionId: "editor",

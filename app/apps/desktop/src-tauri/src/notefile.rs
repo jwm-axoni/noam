@@ -4,13 +4,398 @@
 
 use crate::error::{AppError, AppResult};
 use crate::vault::resolve_in_vault;
+use serde::Serialize;
 use sha2::{Digest, Sha256};
-use std::path::Path;
+use std::{
+    io::{Read, Write},
+    path::{Path, PathBuf},
+};
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteSnapshot {
+    pub content: String,
+    pub file_identity: String,
+}
+
+#[cfg(unix)]
+fn metadata_identity(metadata: &std::fs::Metadata) -> String {
+    use std::os::unix::fs::MetadataExt;
+    format!("{}:{}", metadata.dev(), metadata.ino())
+}
+
+#[cfg(windows)]
+fn metadata_identity(metadata: &std::fs::Metadata) -> String {
+    use std::os::windows::fs::MetadataExt;
+    format!(
+        "{}:{}",
+        metadata.volume_serial_number().unwrap_or(0),
+        metadata.file_index().unwrap_or(0)
+    )
+}
+
+#[cfg(not(any(unix, windows)))]
+fn metadata_identity(metadata: &std::fs::Metadata) -> String {
+    format!("{}:{:?}", metadata.len(), metadata.created().ok())
+}
 
 /// Read a `.md` note to a string (vault-relative path).
 pub fn read_note(vault: &Path, rel: &str) -> AppResult<String> {
     let abs = resolve_in_vault(vault, rel)?;
     Ok(std::fs::read_to_string(&abs)?)
+}
+
+pub fn read_note_snapshot(vault: &Path, rel: &str) -> AppResult<NoteSnapshot> {
+    let abs = resolve_in_vault(vault, rel)?;
+    let mut file = std::fs::File::open(&abs)?;
+    let file_identity = metadata_identity(&file.metadata()?);
+    let mut content = String::new();
+    file.read_to_string(&mut content)?;
+    Ok(NoteSnapshot {
+        content,
+        file_identity,
+    })
+}
+
+pub fn note_file_identity(vault: &Path, rel: &str) -> AppResult<String> {
+    let abs = resolve_in_vault(vault, rel)?;
+    Ok(metadata_identity(&std::fs::metadata(abs)?))
+}
+
+/// Replace the contents of exactly the file inspected by the caller.
+///
+/// The replacement is prepared and synced before an atomic platform exchange.
+/// The displaced file is then checked against both caller guards. A mismatch is
+/// restored only while the published candidate remains at the canonical path.
+pub fn write_note_if_unchanged(
+    vault: &Path,
+    rel: &str,
+    content: &str,
+    expected_revision: &str,
+    expected_file_identity: &str,
+) -> AppResult<String> {
+    write_note_if_unchanged_before_publish(
+        vault,
+        rel,
+        content,
+        expected_revision,
+        expected_file_identity,
+        || {},
+    )
+}
+
+fn write_note_if_unchanged_before_publish<F>(
+    vault: &Path,
+    rel: &str,
+    content: &str,
+    expected_revision: &str,
+    expected_file_identity: &str,
+    before_publish: F,
+) -> AppResult<String>
+where
+    F: FnOnce(),
+{
+    write_note_if_unchanged_with_hooks(
+        GuardedNoteWrite {
+            vault,
+            rel,
+            content,
+            expected_revision,
+            expected_file_identity,
+        },
+        GuardedWriteHooks {
+            before_guard: || {},
+            before_publish,
+            before_restore: || {},
+            cleanup_displaced: |path: &Path| std::fs::remove_file(path),
+        },
+    )
+}
+
+struct GuardedNoteWrite<'a> {
+    vault: &'a Path,
+    rel: &'a str,
+    content: &'a str,
+    expected_revision: &'a str,
+    expected_file_identity: &'a str,
+}
+
+struct GuardedWriteHooks<F, G, H, C> {
+    before_guard: F,
+    before_publish: G,
+    before_restore: H,
+    cleanup_displaced: C,
+}
+
+fn write_note_if_unchanged_with_hooks<F, G, H, C>(
+    write: GuardedNoteWrite<'_>,
+    hooks: GuardedWriteHooks<F, G, H, C>,
+) -> AppResult<String>
+where
+    F: FnOnce(),
+    G: FnOnce(),
+    H: FnOnce(),
+    C: FnOnce(&Path) -> std::io::Result<()>,
+{
+    let GuardedNoteWrite {
+        vault,
+        rel,
+        content,
+        expected_revision,
+        expected_file_identity,
+    } = write;
+    let GuardedWriteHooks {
+        before_guard,
+        before_publish,
+        before_restore,
+        cleanup_displaced,
+    } = hooks;
+    let abs = resolve_in_vault(vault, rel)?;
+    let parent = abs
+        .parent()
+        .ok_or_else(|| AppError::new("note has no parent directory"))?;
+    let file_name = abs
+        .file_name()
+        .and_then(|name| name.to_str())
+        .ok_or_else(|| AppError::new("invalid file name"))?;
+    let nonce = uuid::Uuid::new_v4();
+    let candidate = parent.join(format!(".{file_name}.identity.candidate-{nonce}"));
+    let guard = parent.join(format!(".{file_name}.identity.guard-{nonce}"));
+    let mut candidate_file = std::fs::OpenOptions::new()
+        .create_new(true)
+        .write(true)
+        .open(&candidate)?;
+    candidate_file.write_all(content.as_bytes())?;
+    candidate_file.sync_all()?;
+    drop(candidate_file);
+    let published_identity = metadata_identity(&std::fs::metadata(&candidate)?);
+
+    before_guard();
+    if let Err(error) = validate_guarded_file(&abs, expected_revision, expected_file_identity) {
+        let _ = std::fs::remove_file(&candidate);
+        return Err(error);
+    }
+
+    before_publish();
+    if let Err(error) = publish_note_exchange(&abs, &candidate, &guard) {
+        let _ = std::fs::remove_file(&candidate);
+        let _ = std::fs::remove_file(&guard);
+        return Err(error);
+    }
+
+    let displaced = displaced_note_path(&candidate, &guard);
+    if let Err(validation_error) =
+        validate_guarded_file(&displaced, expected_revision, expected_file_identity)
+    {
+        let published_revision = sha256_hex(content);
+        if let Err(published_error) =
+            validate_guarded_file(&abs, &published_revision, &published_identity)
+        {
+            return Err(AppError::new(format!(
+                "{validation_error}; rollback refused: {published_error}; displaced note preserved at {}",
+                displaced.display(),
+            )));
+        }
+        before_restore();
+        if let Err(restore_error) = restore_note_exchange(&abs, &candidate, &guard) {
+            return Err(AppError::new(format!(
+                "{validation_error}; restore failed: {restore_error}; original note preserved at {}",
+                displaced.display(),
+            )));
+        }
+        if let Err(raced_error) =
+            validate_guarded_file(&candidate, &published_revision, &published_identity)
+        {
+            if let Err(republish_error) = publish_note_exchange(&abs, &candidate, &guard) {
+                return Err(AppError::new(format!(
+                    "{validation_error}; rollback raced: {raced_error}; republish failed: {republish_error}"
+                )));
+            }
+            let displaced = displaced_note_path(&candidate, &guard);
+            return Err(AppError::new(format!(
+                "{validation_error}; rollback raced: {raced_error}; displaced note preserved at {}",
+                displaced.display(),
+            )));
+        }
+        let _ = std::fs::remove_file(&candidate);
+        let _ = std::fs::remove_file(&guard);
+        return Err(validation_error);
+    }
+
+    validate_guarded_file(&abs, &sha256_hex(content), &published_identity).map_err(|error| {
+        AppError::new(format!(
+            "identity publication changed: {error}; old note preserved at {}",
+            displaced.display(),
+        ))
+    })?;
+    if let Err(error) = cleanup_displaced(&displaced) {
+        log::warn!(
+            "identity published but old note cleanup failed: {error}; old note preserved at {}",
+            displaced.display(),
+        );
+    }
+    Ok(published_identity)
+}
+
+fn validate_guarded_file(
+    path: &Path,
+    expected_revision: &str,
+    expected_file_identity: &str,
+) -> AppResult<()> {
+    let mut file = std::fs::File::open(path)?;
+    let opened_identity = metadata_identity(&file.metadata()?);
+    if opened_identity != expected_file_identity {
+        return Err(AppError::new("note file changed"));
+    }
+    let mut current = String::new();
+    file.read_to_string(&mut current)?;
+    if sha256_hex(&current) != expected_revision {
+        return Err(AppError::new("note content changed"));
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "macos")]
+fn exchange_paths(first: &Path, second: &Path) -> AppResult<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    const RENAME_SWAP: u32 = 0x00000002;
+    unsafe extern "C" {
+        fn renamex_np(from: *const i8, to: *const i8, flags: u32) -> i32;
+    }
+
+    let first = CString::new(first.as_os_str().as_bytes())
+        .map_err(|_| AppError::new("invalid source path"))?;
+    let second = CString::new(second.as_os_str().as_bytes())
+        .map_err(|_| AppError::new("invalid target path"))?;
+    if unsafe { renamex_np(first.as_ptr(), second.as_ptr(), RENAME_SWAP) } != 0 {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
+#[cfg(target_os = "linux")]
+fn exchange_paths(first: &Path, second: &Path) -> AppResult<()> {
+    use std::ffi::CString;
+    use std::os::unix::ffi::OsStrExt;
+
+    const AT_FDCWD: i32 = -100;
+    const RENAME_EXCHANGE: u32 = 0x00000002;
+    unsafe extern "C" {
+        fn renameat2(
+            olddirfd: i32,
+            oldpath: *const i8,
+            newdirfd: i32,
+            newpath: *const i8,
+            flags: u32,
+        ) -> i32;
+    }
+
+    let first = CString::new(first.as_os_str().as_bytes())
+        .map_err(|_| AppError::new("invalid source path"))?;
+    let second = CString::new(second.as_os_str().as_bytes())
+        .map_err(|_| AppError::new("invalid target path"))?;
+    if unsafe {
+        renameat2(
+            AT_FDCWD,
+            first.as_ptr(),
+            AT_FDCWD,
+            second.as_ptr(),
+            RENAME_EXCHANGE,
+        )
+    } != 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
+#[cfg(windows)]
+fn replace_file(target: &Path, replacement: &Path, backup: &Path) -> AppResult<()> {
+    use std::os::windows::ffi::OsStrExt;
+
+    unsafe extern "system" {
+        fn ReplaceFileW(
+            replaced: *const u16,
+            replacement: *const u16,
+            backup: *const u16,
+            flags: u32,
+            exclude: *mut std::ffi::c_void,
+            reserved: *mut std::ffi::c_void,
+        ) -> i32;
+    }
+
+    let target: Vec<u16> = target.as_os_str().encode_wide().chain(Some(0)).collect();
+    let replacement: Vec<u16> = replacement
+        .as_os_str()
+        .encode_wide()
+        .chain(Some(0))
+        .collect();
+    let backup: Vec<u16> = backup.as_os_str().encode_wide().chain(Some(0)).collect();
+    if unsafe {
+        ReplaceFileW(
+            target.as_ptr(),
+            replacement.as_ptr(),
+            backup.as_ptr(),
+            0,
+            std::ptr::null_mut(),
+            std::ptr::null_mut(),
+        )
+    } == 0
+    {
+        return Err(std::io::Error::last_os_error().into());
+    }
+    Ok(())
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn publish_note_exchange(target: &Path, candidate: &Path, _guard: &Path) -> AppResult<()> {
+    exchange_paths(target, candidate)
+}
+
+#[cfg(windows)]
+fn publish_note_exchange(target: &Path, candidate: &Path, guard: &Path) -> AppResult<()> {
+    replace_file(target, candidate, guard)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn publish_note_exchange(_target: &Path, _candidate: &Path, _guard: &Path) -> AppResult<()> {
+    Err(AppError::new(
+        "guarded note writes are unsupported on this platform",
+    ))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn restore_note_exchange(target: &Path, candidate: &Path, _guard: &Path) -> AppResult<()> {
+    exchange_paths(target, candidate)
+}
+
+#[cfg(windows)]
+fn restore_note_exchange(target: &Path, candidate: &Path, guard: &Path) -> AppResult<()> {
+    replace_file(target, guard, candidate)
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn restore_note_exchange(_target: &Path, _candidate: &Path, _guard: &Path) -> AppResult<()> {
+    Err(AppError::new(
+        "guarded note writes are unsupported on this platform",
+    ))
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn displaced_note_path(candidate: &Path, _guard: &Path) -> PathBuf {
+    candidate.to_path_buf()
+}
+
+#[cfg(windows)]
+fn displaced_note_path(_candidate: &Path, guard: &Path) -> PathBuf {
+    guard.to_path_buf()
+}
+
+#[cfg(not(any(target_os = "macos", target_os = "linux", windows)))]
+fn displaced_note_path(candidate: &Path, _guard: &Path) -> PathBuf {
+    candidate.to_path_buf()
 }
 
 /// Atomic write: write to a temp file in the same dir, then rename over the
@@ -361,7 +746,9 @@ pub fn delete_file(vault: &Path, rel: &str) -> AppResult<()> {
     // `.context/config.json` is refused on its own merits rather than surviving
     // because it happens to be a file.
     if crate::vault::rel_path_is_ignored(rel) {
-        return Err(AppError::new(format!("refusing to delete an ignored path: {rel}")));
+        return Err(AppError::new(format!(
+            "refusing to delete an ignored path: {rel}"
+        )));
     }
     let abs = resolve_in_vault(vault, rel)?;
     if !abs.exists() {
@@ -417,6 +804,169 @@ mod tests {
     use super::*;
 
     #[test]
+    fn guarded_write_does_not_touch_a_same_byte_replacement_after_check() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_note(tmp.path(), "A.md", "same bytes").unwrap();
+        let expected_identity = note_file_identity(tmp.path(), "A.md").unwrap();
+        let replacement = tmp.path().join("replacement.md");
+
+        let error = write_note_if_unchanged_before_publish(
+            tmp.path(),
+            "A.md",
+            "identity added",
+            &sha256_hex("same bytes"),
+            &expected_identity,
+            || {
+                std::fs::write(&replacement, "same bytes").unwrap();
+                std::fs::rename(&replacement, tmp.path().join("A.md")).unwrap();
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.0, "note file changed");
+        assert_eq!(read_note(tmp.path(), "A.md").unwrap(), "same bytes");
+        assert_ne!(
+            note_file_identity(tmp.path(), "A.md").unwrap(),
+            expected_identity
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn guarded_write_keeps_the_path_present_and_preserves_a_third_party_change() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_note(tmp.path(), "A.md", "original").unwrap();
+        let expected_identity = note_file_identity(tmp.path(), "A.md").unwrap();
+
+        let error = write_note_if_unchanged_with_hooks(
+            GuardedNoteWrite {
+                vault: tmp.path(),
+                rel: "A.md",
+                content: "identity added",
+                expected_revision: &sha256_hex("original"),
+                expected_file_identity: &expected_identity,
+            },
+            GuardedWriteHooks {
+                before_guard: || {},
+                before_publish: || {
+                    assert_eq!(read_note(tmp.path(), "A.md").unwrap(), "original");
+                    std::fs::write(tmp.path().join("A.md"), "third party").unwrap();
+                },
+                before_restore: || {},
+                cleanup_displaced: |path: &Path| std::fs::remove_file(path),
+            },
+        )
+        .unwrap_err();
+
+        assert_eq!(error.0, "note content changed");
+        assert_eq!(read_note(tmp.path(), "A.md").unwrap(), "third party");
+        assert!(!std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .any(|entry| {
+                let name = entry.file_name();
+                let name = name.to_string_lossy();
+                name.contains(".identity.candidate-") || name.contains(".identity.guard-")
+            }));
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn guarded_rollback_leaves_a_newer_external_save_canonical() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_note(tmp.path(), "A.md", "original").unwrap();
+        let expected_identity = note_file_identity(tmp.path(), "A.md").unwrap();
+        let newer = tmp.path().join("newer.md");
+
+        let error = write_note_if_unchanged_with_hooks(
+            GuardedNoteWrite {
+                vault: tmp.path(),
+                rel: "A.md",
+                content: "identity added",
+                expected_revision: &sha256_hex("original"),
+                expected_file_identity: &expected_identity,
+            },
+            GuardedWriteHooks {
+                before_guard: || {},
+                before_publish: || std::fs::write(tmp.path().join("A.md"), "third party").unwrap(),
+                before_restore: || {
+                    std::fs::write(&newer, "newer save").unwrap();
+                    std::fs::rename(&newer, tmp.path().join("A.md")).unwrap();
+                },
+                cleanup_displaced: |path: &Path| std::fs::remove_file(path),
+            },
+        )
+        .unwrap_err();
+
+        assert!(error.0.contains("rollback raced"), "{}", error.0);
+        assert_eq!(read_note(tmp.path(), "A.md").unwrap(), "newer save");
+        let displaced = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".identity.candidate-")
+            })
+            .expect("displaced note");
+        assert_eq!(
+            std::fs::read_to_string(displaced.path()).unwrap(),
+            "third party"
+        );
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn guarded_write_returns_success_when_displaced_cleanup_fails() {
+        let tmp = tempfile::tempdir().unwrap();
+        write_note(tmp.path(), "A.md", "original").unwrap();
+        let expected_identity = note_file_identity(tmp.path(), "A.md").unwrap();
+
+        let published_identity = write_note_if_unchanged_with_hooks(
+            GuardedNoteWrite {
+                vault: tmp.path(),
+                rel: "A.md",
+                content: "identity added",
+                expected_revision: &sha256_hex("original"),
+                expected_file_identity: &expected_identity,
+            },
+            GuardedWriteHooks {
+                before_guard: || {},
+                before_publish: || {},
+                before_restore: || {},
+                cleanup_displaced: |_: &Path| {
+                    Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "cleanup blocked",
+                    ))
+                },
+            },
+        )
+        .unwrap();
+
+        assert_eq!(read_note(tmp.path(), "A.md").unwrap(), "identity added");
+        assert_eq!(
+            note_file_identity(tmp.path(), "A.md").unwrap(),
+            published_identity
+        );
+        let displaced = std::fs::read_dir(tmp.path())
+            .unwrap()
+            .filter_map(Result::ok)
+            .find(|entry| {
+                entry
+                    .file_name()
+                    .to_string_lossy()
+                    .contains(".identity.candidate-")
+            })
+            .expect("displaced note");
+        assert_eq!(
+            std::fs::read_to_string(displaced.path()).unwrap(),
+            "original"
+        );
+    }
+
+    #[test]
     fn delete_file_removes_a_file_and_refuses_a_directory() {
         // The revocation removal is the one delete with no recoverable copy, so
         // it must be structurally incapable of taking a tree with it — including
@@ -431,16 +981,28 @@ mod tests {
         assert!(tmp.path().join("Docs").is_dir());
 
         let err = delete_file(tmp.path(), "Docs").unwrap_err();
-        assert!(err.0.contains("refusing to delete a directory"), "{}", err.0);
+        assert!(
+            err.0.contains("refusing to delete a directory"),
+            "{}",
+            err.0
+        );
         assert!(tmp.path().join("Docs").is_dir());
 
         // `.context/` and everything in it, file or directory. The vault's doc-id
         // map and CRDT store live there; the no-undo delete must not be able to
         // reach them even if a caller hands it the path.
         let err = delete_file(tmp.path(), ".context").unwrap_err();
-        assert!(err.0.contains("refusing to delete an ignored path"), "{}", err.0);
+        assert!(
+            err.0.contains("refusing to delete an ignored path"),
+            "{}",
+            err.0
+        );
         let err = delete_file(tmp.path(), ".context/config.json").unwrap_err();
-        assert!(err.0.contains("refusing to delete an ignored path"), "{}", err.0);
+        assert!(
+            err.0.contains("refusing to delete an ignored path"),
+            "{}",
+            err.0
+        );
         assert!(tmp.path().join(".context/config.json").exists());
 
         // A path that isn't there is a no-op, like `delete_path` — an inbound

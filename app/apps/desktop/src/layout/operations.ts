@@ -580,3 +580,24 @@ export function findPanelTab(layout: LayoutV1, type: PanelType) {
   const location = panelLocation(layout, panel.id);
   return location ? { ...location, panel } : null;
 }
+
+/**
+ * Whether a panel is not just its group's active tab but actually the one
+ * on screen right now. A left/right zone can hold two groups without room to
+ * split them side by side (`DockZone`'s `is-temporarily-hidden`), in which
+ * case only the zone's `focusedGroupId` group renders — a panel can be
+ * "active" within its own (hidden) group while a sibling group is what the
+ * user actually sees. The rail (`ActivityBar`) needs this distinction: a
+ * tab-active-but-hidden panel must be brought to front on click, not treated
+ * as already open and collapsed.
+ */
+export function isPanelVisible(layout: LayoutV1, type: PanelType): boolean {
+  const found = findPanelTab(layout, type);
+  if (!found) return false;
+  const group = layout.groups[found.groupId];
+  if (group?.activeTabId !== found.tab.id) return false;
+  const zoneId = zoneForGroup(layout, found.groupId);
+  if (!zoneId) return false;
+  const siblings = layout.zones[zoneId].groupIds;
+  return siblings.length <= 1 || layout.focusedGroupId === found.groupId;
+}
