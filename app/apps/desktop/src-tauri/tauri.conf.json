@@ -34,7 +34,7 @@
   "bundle": {
     "active": true,
     "targets": "all",
-    "createUpdaterArtifacts": false,
+    "createUpdaterArtifacts": true,
     "icon": [
       "icons/32x32.png",
       "icons/128x128.png",
@@ -53,6 +53,12 @@
       "desktop": {
         "schemes": ["noam"]
       }
+    },
+    "updater": {
+      "pubkey": "dW50cnVzdGVkIGNvbW1lbnQ6IG1pbmlzaWduIHB1YmxpYyBrZXk6IDMzQUE1RkU1M0ZCQUE4QjEKUldTeHFMby81VitxTSsvTkZSbXlnS21vTWdRS0E2NkYwaThPN2R0QkxjZzFPNWcvUXJHVjZRNlgK",
+      "endpoints": [
+        "https://github.com/jwm-axoni/noam/releases/latest/download/latest.json"
+      ]
     }
   }
 }

@@ -1,0 +1,115 @@
+name: Release
+
+# Manual-only for now (docs/RELEASE.md): a human dispatches a release, reviews the
+# resulting DRAFT GitHub Release, then publishes it. No automatic tag/push trigger
+# yet. The version comes from app/apps/desktop/src-tauri/tauri.conf.json.
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write # create the GitHub Release + upload assets
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  # Gate a release on the same publication checks that guard main, so a release
+  # can never ship from a tree that would fail the guardrails.
+  publication-readiness:
+    name: publication-readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Test repository guards
+        run: |
+          node scripts/check-publication.test.mjs
+          node scripts/check-push.test.mjs
+          node scripts/install-git-guards.test.mjs
+      - name: Scan current repository contents
+        run: node scripts/check-publication.mjs --scope tree --fail-on-review
+      - name: Scan all committed content
+        run: node scripts/check-publication.mjs --scope range --range HEAD --fail-on-review
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
+
+  build-macos:
+    name: build-macos (Developer ID + notarized + updater-signed)
+    needs: publication-readiness
+    runs-on: macos-latest
+    steps:
+      - name: Check out
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+
+      - name: Enable pnpm (pinned via packageManager)
+        run: corepack enable
+
+      - name: Set up Rust
+        # TODO: pin to a commit SHA to match the checkout/node/gitleaks steps above.
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        # TODO: pin to a commit SHA.
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: app/apps/desktop/src-tauri
+
+      - name: Install dependencies
+        working-directory: app
+        run: pnpm install --frozen-lockfile
+
+      - name: Verify version consistency
+        working-directory: app/apps/desktop
+        run: |
+          conf=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          pkg=$(node -p "require('./package.json').version")
+          cargo=$(grep -m1 '^version' src-tauri/Cargo.toml | sed -E 's/.*"(.*)".*/\1/')
+          echo "tauri.conf.json=$conf  package.json=$pkg  Cargo.toml=$cargo"
+          if [ "$conf" != "$pkg" ] || [ "$conf" != "$cargo" ]; then
+            echo "::error::Version mismatch — tauri.conf.json, package.json and Cargo.toml must agree before a release."
+            exit 1
+          fi
+
+      - name: Build, sign, notarize, and draft the release
+        # TODO: pin to a commit SHA.
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          # Updater artifact signing (root of trust for auto-update).
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}
+          # Apple Developer ID signing + notarization.
+          APPLE_CERTIFICATE: ${{ secrets.APPLE_CERTIFICATE }}
+          APPLE_CERTIFICATE_PASSWORD: ${{ secrets.APPLE_CERTIFICATE_PASSWORD }}
+          APPLE_SIGNING_IDENTITY: ${{ secrets.APPLE_SIGNING_IDENTITY }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_PASSWORD: ${{ secrets.APPLE_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        with:
+          projectPath: app/apps/desktop
+          tagName: v__VERSION__
+          releaseName: "Noam v__VERSION__"
+          releaseDraft: true
+          prerelease: false
+          # tauri-action uploads the .dmg, the .app.tar.gz + .sig, and generates
+          # and uploads latest.json (the manifest the in-app updater polls).
