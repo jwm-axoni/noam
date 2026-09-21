@@ -100,6 +100,7 @@ describe("view mode facet and reveal", () => {
     const doc = "---\nstatus: draft\n---\nBody";
     const { view } = mount(doc, "reading", {
       header: {
+        vaultId: "vault-a",
         path: "Note.md",
         mode: "visible",
         renameTo: async () => null,
@@ -136,6 +137,7 @@ describe("Source presentation", () => {
     ].join("\n");
     const { view } = mount(doc, "source");
 
+    expect(view.dom.classList.contains("cm-source")).toBe(true);
     expect(shown(view)).toBe(doc);
     expect(
       view.dom.querySelector(
@@ -149,6 +151,7 @@ describe("Source presentation", () => {
     const doc = "---\nstatus: draft\n---\nBody";
     const { view } = mount(doc, "source", {
       header: {
+        vaultId: "vault-a",
         path: "Note.md",
         mode: "visible",
         renameTo: async () => null,

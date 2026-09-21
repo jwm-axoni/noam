@@ -1,0 +1,14 @@
+[
+  { "id": "markdown", "extensions": ["md"], "mimes": ["text/markdown"], "importRule": "note", "preview": "note", "embed": "link", "platform": "all", "fallback": "source" },
+  { "id": "text", "extensions": ["markdown", "mdx", "txt"], "mimes": ["text/plain"], "importRule": "note", "preview": "text", "embed": "card", "platform": "all", "fallback": "external" },
+  { "id": "html", "extensions": ["html", "htm"], "mimes": ["text/html"], "importRule": "html", "preview": "html", "embed": "link", "platform": "all", "fallback": "external" },
+  { "id": "image", "extensions": ["png", "jpg", "jpeg", "jfif", "gif", "webp", "svg", "avif"], "mimes": ["image/png", "image/jpeg", "image/gif", "image/webp", "image/svg+xml", "image/avif"], "importRule": "asset", "preview": "image", "embed": "inline", "platform": "webview", "fallback": "external" },
+  { "id": "convertible-image", "extensions": ["heic", "heif", "tif", "tiff"], "mimes": ["image/heic", "image/heif", "image/tiff"], "importRule": "asset", "preview": "external", "embed": "card", "platform": "convert-on-attachment-import", "fallback": "external" },
+  { "id": "pdf", "extensions": ["pdf"], "mimes": ["application/pdf"], "importRule": "asset", "preview": "pdf", "embed": "inline", "platform": "pdfjs", "fallback": "external" },
+  { "id": "audio", "extensions": ["mp3", "wav", "m4a", "ogg"], "mimes": ["audio/mpeg", "audio/wav", "audio/mp4", "audio/ogg"], "importRule": "asset", "preview": "audio", "embed": "player", "platform": "codec-dependent", "fallback": "external" },
+  { "id": "video", "extensions": ["mp4", "webm", "mov"], "mimes": ["video/mp4", "video/webm", "video/quicktime"], "importRule": "asset", "preview": "video", "embed": "player", "platform": "codec-dependent", "fallback": "external" },
+  { "id": "json", "extensions": ["json"], "mimes": ["application/json"], "importRule": "asset", "preview": "json", "embed": "card", "platform": "all", "fallback": "external" },
+  { "id": "csv", "extensions": ["csv"], "mimes": ["text/csv"], "importRule": "asset", "preview": "csv", "embed": "card", "platform": "all", "fallback": "external" },
+  { "id": "office", "extensions": ["doc", "docx", "xls", "xlsx", "ppt", "pptx", "odt", "ods", "odp"], "mimes": ["application/msword", "application/vnd.openxmlformats-officedocument.wordprocessingml.document", "application/vnd.ms-excel", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", "application/vnd.ms-powerpoint", "application/vnd.openxmlformats-officedocument.presentationml.presentation"], "importRule": "asset", "preview": "external", "embed": "card", "platform": "external-app", "fallback": "external" },
+  { "id": "canvas", "extensions": ["canvas"], "mimes": [], "importRule": "asset", "preview": "external", "embed": "card", "platform": "external-app", "fallback": "external" }
+]

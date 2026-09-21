@@ -12,7 +12,7 @@
 import { cursorCharLeft, cursorCharRight } from "@codemirror/commands";
 import { EditorState, type Transaction } from "@codemirror/state";
 import { EditorView } from "@codemirror/view";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { createEditorState } from "../index";
 
 beforeAll(() => {
@@ -34,7 +34,7 @@ interface Mounted {
   txs: Transaction[];
 }
 
-function mount(doc: string): Mounted {
+function mount(doc: string, onOpenLink?: (href: string) => void): Mounted {
   const parent = document.createElement("div");
   document.body.appendChild(parent);
   const txs: Transaction[] = [];
@@ -43,6 +43,7 @@ function mount(doc: string): Mounted {
       doc,
       getTitles: () => [],
       onNavigate: () => {},
+      onOpenLink,
       extraExtensions: [
         EditorView.updateListener.of((u) => txs.push(...u.transactions)),
       ],
@@ -342,6 +343,21 @@ describe("the editable table widget", () => {
     const link = view.dom.querySelector<HTMLElement>(".cm-md-table .cm-wikilink")!;
     expect(link.textContent).toBe("Alias");
     expect(link.dataset.target).toBe("Note A");
+    view.destroy();
+  });
+
+  it("routes an ordinary link through the app callback", async () => {
+    const onOpenLink = vi.fn();
+    const { view } = mount(
+      ["| a |", "| --- |", "| [JSON](attachments/Sample.json) |"].join("\n"),
+      onOpenLink,
+    );
+    await settle();
+    const link = view.dom.querySelector<HTMLElement>(".cm-md-table .cm-md-link");
+    expect(link).not.toBeNull();
+    click(link!);
+    await settle();
+    expect(onOpenLink).toHaveBeenCalledExactlyOnceWith("attachments/Sample.json");
     view.destroy();
   });
 

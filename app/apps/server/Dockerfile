@@ -31,13 +31,12 @@ RUN pnpm fetch
 
 COPY app/apps/server ./apps/server
 COPY app/apps/desktop/package.json ./apps/desktop/package.json
+COPY app/packages/contracts ./packages/contracts
 RUN pnpm install --frozen-lockfile --offline --filter server
 RUN pnpm --filter server run build
 # `pnpm deploy` emits a self-contained server bundle (source + dist +
 # migrations + prod-only hard-linked node_modules) that survives a cross-stage
 # COPY — and, unlike the old npm layout, contains none of desktop's deps.
-# --legacy: neither workspace package depends on the other, so the
-# inject-workspace-packages machinery pnpm 10 otherwise requires is moot.
 RUN pnpm --filter server --prod deploy --legacy /out
 
 # ---- runtime: node + the deployed bundle, no package manager ---------------

@@ -1,8 +1,15 @@
 // Slash-command block menu. Type `/` at the start of a line to open a menu of
-// block templates (headings, lists, tasks, quote, code, table, divider). It
-// reuses CodeMirror's autocomplete surface, so it looks and keys like the
-// `[[wiki-link]]` menu. Each option replaces the `/query` it was triggered from
-// with the block's markdown and parks the caret where you'd start typing.
+// block templates (headings, lists, tasks, quote, code, table, divider) plus
+// the vault's own workflows. It reuses CodeMirror's autocomplete surface, so it
+// looks and keys like the `[[wiki-link]]` menu. A block option replaces the
+// `/query` it was triggered from with the block's markdown and parks the caret
+// where you'd start typing; a workflow option removes the `/query` and hands
+// off to the shared run flow.
+//
+// The workflows arrive through an INJECTED source rather than an import of the
+// command service. This file has to stay testable in plain Node — and the run
+// flow is React — so the only thing it knows is a list, a runner and "which
+// note is open".
 
 import type {
   Completion,
@@ -70,6 +77,75 @@ const BLOCKS: Block[] = [
   { label: "Divider", detail: "---", keywords: "hr rule separator", insert: "---\n", caret: 4 },
 ];
 
+/** One workflow, as the slash menu needs to see it. */
+export interface SlashWorkflowItem {
+  id: string;
+  name: string;
+  description?: string;
+  /** `slash: false` keeps a workflow out of this menu. Default true. */
+  slash?: boolean;
+  /** A workflow with an error-severity issue is never offered here. */
+  runnable: boolean;
+}
+
+/** Editor context a workflow run starts from. */
+export interface SlashRunContext {
+  currentPath?: string;
+  selection?: string;
+}
+
+export interface SlashWorkflowSource {
+  /** Every registered workflow; this module applies the `slash`/runnable rule. */
+  list(): readonly SlashWorkflowItem[];
+  /** Start the shared run flow (the prompt dialog). */
+  run(id: string, ctx: SlashRunContext): void;
+  /** Vault-relative path of the note being edited, or null. */
+  currentPath(): string | null;
+}
+
+let workflowSource: SlashWorkflowSource | null = null;
+
+/**
+ * Wire the vault's workflows into the slash menu. Called once when the command
+ * service is built, and with `null` on vault teardown.
+ */
+export function setSlashWorkflowSource(source: SlashWorkflowSource | null): void {
+  workflowSource = source;
+}
+
+/** The workflows this menu may offer, in the order the service listed them. */
+export function slashWorkflows(): SlashWorkflowItem[] {
+  return (workflowSource?.list() ?? []).filter((w) => w.runnable && w.slash !== false);
+}
+
+/**
+ * Remove the `/query` and start the run. The selection is read BEFORE the
+ * delete, and a selection that is only the trigger text is no selection at all.
+ */
+function applyWorkflow(
+  item: SlashWorkflowItem,
+): (view: EditorView, c: Completion, from: number, to: number) => void {
+  return (view, _c, from, to) => {
+    if (view.state.readOnly) return;
+    const range = view.state.selection.main;
+    const selection =
+      range.empty || (range.from >= from && range.to <= to)
+        ? ""
+        : view.state.sliceDoc(range.from, range.to);
+    view.dispatch({
+      changes: { from, to, insert: "" },
+      selection: EditorSelection.cursor(from),
+      scrollIntoView: true,
+      userEvent: "input.complete",
+    });
+    const path = workflowSource?.currentPath() ?? null;
+    workflowSource?.run(item.id, {
+      ...(path ? { currentPath: path } : {}),
+      ...(selection ? { selection } : {}),
+    });
+  };
+}
+
 const COMPLETIONS: Completion[] = BLOCKS.map((b) => ({
   label: `/${b.label}`,
   detail: b.detail,
@@ -98,6 +174,19 @@ export function slashCompletions(context: CompletionContext): CompletionResult |
       b.label.toLowerCase().includes(typed) || b.keywords.includes(typed)
     );
   });
+
+  // Workflows are built per call: the registry re-scans whenever a `.md`
+  // changes, so a cached list would offer a command the vault no longer has.
+  for (const item of slashWorkflows()) {
+    const name = item.name.toLowerCase();
+    if (typed && !name.includes(typed) && !item.id.toLowerCase().includes(typed)) continue;
+    options.push({
+      label: `/${item.name}`,
+      detail: item.description ?? "Workflow",
+      type: "function",
+      apply: applyWorkflow(item),
+    });
+  }
 
   return { from: before.from, to: before.to, options, filter: false };
 }

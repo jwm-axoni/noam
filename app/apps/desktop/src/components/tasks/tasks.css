@@ -1,0 +1,202 @@
+/* The Tasks panel at 220 px: two lines per row, nothing that needs a scrollbar
+   sideways. Every colour is a theme variable, so all presets and both schemes
+   come for free. */
+
+.tasks-panel {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  height: 100%;
+  gap: 6px;
+  padding: 8px;
+  overflow: hidden;
+}
+
+.tasks-query {
+  display: flex;
+  gap: 4px;
+  align-items: flex-start;
+}
+
+.tasks-query-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.4;
+  padding: 4px 6px;
+  color: var(--text);
+  background: var(--bg-input, var(--bg-2));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tasks-query-apply,
+.task-filter-chip,
+.task-filter-save {
+  font-size: 11px;
+  padding: 3px 7px;
+  color: var(--text-muted, var(--text));
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+}
+
+.tasks-query-apply:hover,
+.task-filter-chip:hover,
+.task-filter-save:hover {
+  color: var(--text);
+  background: var(--bg-3, var(--bg-2));
+}
+
+.task-filters-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.task-filters-new {
+  display: flex;
+  gap: 4px;
+  margin-top: 4px;
+}
+
+.task-filter-name {
+  flex: 1 1 auto;
+  min-width: 0;
+  font: inherit;
+  font-size: 12px;
+  padding: 3px 6px;
+  color: var(--text);
+  background: var(--bg-input, var(--bg-2));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tasks-warnings,
+.tasks-notice {
+  font-size: 11px;
+  line-height: 1.4;
+  padding: 5px 7px;
+  border-radius: 6px;
+  background: var(--bg-2);
+  border: 1px solid var(--border);
+  color: var(--text);
+}
+
+.tasks-warnings ul {
+  margin: 2px 0 0;
+  padding-left: 14px;
+  word-break: break-word;
+}
+
+.tasks-list {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+.tasks-group-label {
+  position: sticky;
+  top: 0;
+  margin: 6px 0 2px;
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: none;
+  color: var(--text-muted, var(--text));
+  background: var(--bg);
+  padding: 2px 0;
+}
+
+.task-row {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  padding: 3px 4px;
+  border-radius: 6px;
+  cursor: default;
+}
+
+.task-row:focus-visible,
+.task-row:focus {
+  outline: 2px solid var(--accent, currentColor);
+  outline-offset: -2px;
+}
+
+.task-row.done .task-text {
+  text-decoration: line-through;
+  color: var(--text-muted, var(--text));
+}
+
+.task-row-main {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  min-width: 0;
+}
+
+.task-check {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  margin-top: 2px;
+  font-size: 10px;
+  line-height: 1;
+  color: var(--text);
+  background: var(--bg-input, var(--bg-2));
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  cursor: pointer;
+}
+
+.task-check:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+.task-text {
+  flex: 1 1 auto;
+  min-width: 0;
+  font-size: 12px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
+.task-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  padding-left: 20px;
+  font-size: 10.5px;
+  color: var(--text-muted, var(--text));
+}
+
+.task-note {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 100%;
+}
+
+.task-locked {
+  font-weight: 600;
+}
+
+.task-date-input {
+  margin: 2px 0 0 20px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text);
+  background: var(--bg-input, var(--bg-2));
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+
+.tasks-empty {
+  margin: 12px 4px;
+  font-size: 12px;
+  color: var(--text-muted, var(--text));
+}

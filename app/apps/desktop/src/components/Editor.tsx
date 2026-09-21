@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from "react";
 import "./editor.css";
-import { convertFileSrc } from "@tauri-apps/api/core";
+import "./highlight-toolbar.css";
 import { closeCompletion } from "@codemirror/autocomplete";
 import { keymap, EditorView } from "@codemirror/view";
 import { WORKSPACE_RESIZE_EVENT } from "../layout/types";
@@ -18,7 +18,8 @@ import {
 import { foldEffectsFor, parseNoteUiState, persistFolds } from "../lib/editor/folding";
 import { propertiesMode as propertiesModeFacet } from "../lib/editor/frontmatter";
 import { loadTypes } from "../lib/frontmatter/types";
-import { setActiveNote } from "../lib/editor/activeView";
+import { loadKnowledgeCatalog } from "../lib/knowledge/catalogStore";
+import { notifyActiveNoteChanged, setActiveNote } from "../lib/editor/activeView";
 import { bindActiveNote } from "../lib/editor/activeNoteBinding";
 import { saveAttachment } from "../lib/attachments";
 import { bridgeManager, type NoteBridge } from "../lib/bridge";
@@ -33,6 +34,10 @@ import * as ipc from "../lib/ipc";
 import { HtmlView } from "./HtmlView";
 import { FilePreview } from "./FilePreview";
 import { previewKind } from "../lib/preview";
+import {
+  openMarkdownLink,
+  resolveVaultAsset,
+} from "../lib/fileTypes/assetResolver";
 import { relativeAgo } from "./Identity";
 import { EditorEmpty, EditorSkeleton } from "./EditorPlaceholders";
 import { characterSvg } from "./Avatar";
@@ -101,22 +106,8 @@ function readPeers(awareness: Awareness): Peer[] {
  * vault dir is granted to the asset-protocol scope on open (Rust side).
  */
 function makeResolveAsset(vaultPath: string | null, notePath: string) {
-  return (src: string): string => {
-    if (!src || /^(https?:|data:|blob:|asset:|tauri:|mailto:)/i.test(src)) return src;
-    if (!vaultPath) return src;
-    const noteDir = notePath.includes("/")
-      ? notePath.slice(0, notePath.lastIndexOf("/"))
-      : "";
-    const rootRelative = src.startsWith("/");
-    const segs = rootRelative || !noteDir ? [] : noteDir.split("/");
-    for (const part of src.split("/")) {
-      if (part === "" || part === ".") continue;
-      if (part === "..") segs.pop();
-      else segs.push(part);
-    }
-    const abs = `${vaultPath.replace(/\/$/, "")}/${segs.join("/")}`;
-    return convertFileSrc(abs);
-  };
+  return (source: string, sourceKind: "url" | "path" = "url"): string =>
+    resolveVaultAsset({ vaultPath, documentPath: notePath, source, sourceKind });
 }
 
 /** Max slots in the stacked avatar row before the rest collapse into "+N". */
@@ -530,7 +521,8 @@ export function Editor() {
       // The fold state is fetched ALONGSIDE the bridge, never after it: it has
       // to be in hand by the time the view is constructed, so the folds can be
       // applied in the same tick and no unfolded frame ever paints.
-      const uiEpoch = useStore.getState().vault?.epoch;
+      const openVault = useStore.getState().vault;
+      const uiEpoch = openVault?.epoch;
       const [bridge, storedUiState] = await Promise.all([
         bridgeManager.openNote(notePath, docId, { seedFromFile: !willSync }),
         ipc.getNoteUiState(docId, uiEpoch).catch(() => null),
@@ -571,6 +563,7 @@ export function Editor() {
       // the panel renders from inferred types until they arrive.
       const epoch = useStore.getState().vault?.epoch;
       void loadTypes(epoch);
+      void loadKnowledgeCatalog(epoch);
       let propertyKeys: string[] = [];
       const propertyValues = new Map<string, string[]>();
       void ipc
@@ -582,11 +575,26 @@ export function Editor() {
 
       const getTitles = () => useStore.getState().titles;
       const onNavigate = (target: string) => void navigate(target);
+      const onOpenLink = (source: string) => {
+        void openMarkdownLink({
+          documentPath: notePath,
+          source,
+          openLocal: (path) => useStore.getState().openNoteByPath(path),
+          openExternal: ipc.openExternal,
+        }).catch((error) => {
+          console.error("markdown link navigation failed", error);
+        });
+      };
       const resolveAsset = makeResolveAsset(
         useStore.getState().vault?.path ?? null,
         notePath,
       );
-      const presentationOptions = { getTitles, onNavigate, resolveAsset };
+      const presentationOptions = {
+        getTitles,
+        onNavigate,
+        onOpenLink,
+        resolveAsset,
+      };
       viewModeExtensionsRef.current = (mode) =>
         presentationExtensions(mode, presentationOptions);
 
@@ -594,6 +602,10 @@ export function Editor() {
         doc: bridge.text.toString(),
         collab: true,
         header: {
+          // Device-local preferences use the absolute folder from the open
+          // vault context, matching the app's other vault-scoped UI prefs.
+          vaultId: openVault?.path ?? "",
+          docId,
           path: notePath,
           mode: useStore.getState().propertiesMode,
           modeCompartment: propsMode,
@@ -610,6 +622,7 @@ export function Editor() {
             }
           },
           noteExists: (p) => ipc.noteExists(p, useStore.getState().vault?.epoch),
+          resolveAsset,
           getPropertyKeys: () => propertyKeys,
           getPropertyValues: (key) => {
             const cached = propertyValues.get(key);
@@ -633,6 +646,7 @@ export function Editor() {
           compartment: viewModeCompartment,
         },
         onNavigate,
+        onOpenLink,
         resolveAsset,
         saveAttachment,
         extraExtensions: [
@@ -650,6 +664,7 @@ export function Editor() {
           EditorView.updateListener.of((update) => {
             if (!update.docChanged) return;
             notifyEditorOutlineChanged();
+            notifyActiveNoteChanged();
             publishDocumentStats(true);
           }),
           // View-only grants / locks: the editor cannot be typed into (spec
@@ -692,7 +707,7 @@ export function Editor() {
       });
       switchingNoteRef.current = false;
       setViewMounted(true);
-      setActiveNote(bindActiveNote(view)); // let out-of-tree drops embed into this note
+      setActiveNote(bindActiveNote(view, notePath)); // let out-of-tree drops embed into this note
       if (!ro && st.viewMode !== "reading" && !titleWantsFocus) view.focus();
 
       // Live "who's here" avatar row + incoming pings addressed to this user.
@@ -851,6 +866,7 @@ export function Editor() {
         editableExtensions(readOnly || viewMode === "reading"),
       ),
     });
+    notifyActiveNoteChanged();
     if (wasReadOnly && !readOnly && viewMode !== "reading") view.focus();
   }, [readOnly, viewMode]);
 
@@ -915,8 +931,7 @@ export function Editor() {
 
   return (
     <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
-      {(readOnly || showToolbar) && (
-        <div className="editor-topbar">
+      <div className="editor-topbar">
           {readOnly && (
             <div
               className={`editor-lockbanner${itemLock ? " locked" : " viewonly"}`}
@@ -945,8 +960,34 @@ export function Editor() {
               </span>
             </div>
           )}
-          {showToolbar && (
-            <div className="editor-toolbar">
+          <div className="editor-toolbar">
+            <div className="editor-note-actions" role="toolbar" aria-label="Note tools">
+              <button
+                type="button"
+                className="editor-action-secondary"
+                aria-label={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
+                aria-pressed={editorMeasure === "full"}
+                title={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
+                onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+              >
+                <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3" /></svg>
+              </button>
+              <details className="editor-actions-overflow">
+                <summary aria-label="More note tools" title="More note tools">
+                  <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="1" /><circle cx="12" cy="12" r="1" /><circle cx="19" cy="12" r="1" /></svg>
+                </summary>
+                <div className="editor-actions-menu">
+                  <button
+                    type="button"
+                    onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+                  >
+                    {editorMeasure === "full" ? "Normal note width" : "Full note width"}
+                  </button>
+                </div>
+              </details>
+            </div>
+            {showToolbar && (
+              <>
               <div
                 className="presence-controls"
                 ref={presenceRef}
@@ -986,10 +1027,10 @@ export function Editor() {
                   🔔 {pingFrom} pinged you
                 </span>
               )}
-            </div>
-          )}
-        </div>
-      )}
+              </>
+            )}
+          </div>
+      </div>
       {/* The host must stay mounted whether or not the view exists — the effect
           above needs `hostRef.current` to attach CodeMirror to — so the skeleton
           overlays it rather than replacing it. The wrapper is the positioning

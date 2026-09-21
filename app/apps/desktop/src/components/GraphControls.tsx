@@ -14,6 +14,7 @@ export interface GraphControlsProps {
   onChange: (patch: Partial<GraphSettings>) => void;
   onReset: () => void;
   legend: LegendEntry[];
+  hasCurrentNote: boolean;
 }
 
 /** Numeric settings that get a labeled range slider, with friendly labels. */
@@ -48,7 +49,7 @@ function formatValue(key: SliderKey, value: number): string {
 }
 
 export function GraphControls(props: GraphControlsProps): React.JSX.Element {
-  const { idPrefix, settings, onChange, onReset, legend } = props;
+  const { idPrefix, settings, onChange, onReset, legend, hasCurrentNote } = props;
 
   // One slider row: friendly label, native range input, live numeric readout.
   const slider = (key: SliderKey) => {
@@ -75,9 +76,61 @@ export function GraphControls(props: GraphControlsProps): React.JSX.Element {
 
   return (
     <div className="graph-controls">
-      {/* No Scope section. The graph is the whole vault, always — a Local/Global
-          toggle meant this panel could be showing one of two different graphs
-          under one name, and the whole-vault view is the one that was wanted. */}
+      <div className="graph-control-group">
+        <div className="graph-control-group-title">Scope</div>
+        <div
+          className="graph-seg graph-scope-seg"
+          role="group"
+          aria-label="Graph scope"
+        >
+          <button
+            type="button"
+            className={"graph-seg-btn" + (settings.scope === "global" ? " is-active" : "")}
+            aria-pressed={settings.scope === "global"}
+            onClick={() => onChange({ scope: "global" })}
+          >
+            Vault
+          </button>
+          <button
+            type="button"
+            className={"graph-seg-btn" + (settings.scope === "local" ? " is-active" : "")}
+            aria-pressed={settings.scope === "local"}
+            disabled={!hasCurrentNote}
+            title={
+              hasCurrentNote
+                ? "Show the current note and its links"
+                : "Open a note to use this scope"
+            }
+            onClick={() => onChange({ scope: "local" })}
+          >
+            Current note
+          </button>
+        </div>
+        {!hasCurrentNote && (
+          <div className="graph-control-hint">Open a note to use Current note.</div>
+        )}
+        {settings.scope === "local" && hasCurrentNote && (
+          <div className="graph-control-row">
+            <label>Depth</label>
+            <div className="graph-seg" role="group" aria-label="Local graph depth">
+              {[1, 2].map((depth) => (
+                <button
+                  key={depth}
+                  type="button"
+                  className={
+                    "graph-seg-btn" + (settings.localDepth === depth ? " is-active" : "")
+                  }
+                  aria-pressed={settings.localDepth === depth}
+                  onClick={() => onChange({ localDepth: depth })}
+                >
+                  {depth}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+      </div>
+
       <div className="graph-control-group">
         <div className="graph-control-group-title">Forces</div>
         {slider("charge")}

@@ -21,6 +21,7 @@ import type { NoteTitle } from "../ipc";
 import { blockDecorations } from "./blocks";
 import { codeFenceFlair } from "./codeFence";
 import { codeLanguages } from "./codeLanguages";
+import { coloredHighlights } from "./coloredHighlight";
 import { folding, preserveFoldsAcrossModes } from "./folding";
 import { formattingKeymap } from "./formatting";
 import { frontmatterDecorations } from "./frontmatter";
@@ -48,6 +49,8 @@ export interface CreateEditorOptions {
    */
   getTags?: () => TagSuggestion[];
   onNavigate: (target: string) => void;
+  /** Route an ordinary `[label](destination)` through the owning application. */
+  onOpenLink?: (href: string) => void;
   /** Phase-0 buffer callback; omitted for CRDT-managed notes (yCollab syncs). */
   onChange?: (doc: string) => void;
   /** Later phases (Yjs binding) append here. */
@@ -139,18 +142,27 @@ export function readOnlyGuardedKeymap(bindings: readonly KeyBinding[]): KeyBindi
  */
 export function presentationExtensions(
   mode: ViewMode,
-  opts: Pick<CreateEditorOptions, "getTitles" | "onNavigate" | "resolveAsset">,
+  opts: Pick<
+    CreateEditorOptions,
+    "getTitles" | "onNavigate" | "onOpenLink" | "resolveAsset"
+  >,
 ): Extension[] {
   const live = mode !== "source";
   return [
     viewModeFacet.of(mode),
     ...(mode === "reading"
       ? [editableExtensions(true), EditorView.editorAttributes.of({ class: "cm-reading" })]
-      : []),
+      : mode === "source"
+        ? [EditorView.editorAttributes.of({ class: "cm-source" })]
+        : []),
     ...(live
       ? [
           blockDecorations,
-          livePreview({ resolveAsset: opts.resolveAsset, onNavigate: opts.onNavigate }),
+          livePreview({
+            resolveAsset: opts.resolveAsset,
+            onNavigate: opts.onNavigate,
+            onOpenLink: opts.onOpenLink,
+          }),
           tableAtomicRanges,
           checkboxes,
           codeFenceFlair,
@@ -237,6 +249,9 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
       codeLanguages,
     }),
     markdownHighlight,
+    // Noam's fixed-palette HTML marks render in Source, Live and Reading. The
+    // selection toolbar and commands remain ordinary editor transactions.
+    coloredHighlights(),
     // Stable across presentation reconfiguration: switching Source back to
     // Live while the DOM is still focused must not forget that the caret is
     // active until the next blur/focus pair.

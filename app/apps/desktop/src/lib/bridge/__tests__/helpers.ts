@@ -17,6 +17,10 @@ export class FakeFs {
   private files = new Map<string, string>();
   writeCount = 0;
   readCount = 0;
+  lastExpectedDocumentId: string | undefined;
+  lastExpectedSourceRevision: string | undefined;
+  lastExpectedFileIdentity: string | undefined;
+  private revision = 0;
 
   constructor(seed?: Record<string, string>) {
     if (seed) for (const [p, c] of Object.entries(seed)) this.files.set(p, c);
@@ -29,14 +33,30 @@ export class FakeFs {
     return v;
   }
 
-  async writeFileAtomic(path: string, content: string): Promise<void> {
+  async readFileSnapshot(path: string): Promise<{ content: string; fileIdentity: string }> {
+    return { content: await this.readFile(path), fileIdentity: String(this.revision) };
+  }
+
+  async writeFileAtomic(
+    path: string,
+    content: string,
+    expectedDocumentId?: string,
+    expectedSourceRevision?: string,
+    expectedFileIdentity?: string,
+  ): Promise<string> {
     this.writeCount++;
+    this.lastExpectedDocumentId = expectedDocumentId;
+    this.lastExpectedSourceRevision = expectedSourceRevision;
+    this.lastExpectedFileIdentity = expectedFileIdentity;
     this.files.set(path, content);
+    this.revision++;
+    return String(this.revision);
   }
 
   /** Simulate an out-of-band external edit (AI, git, another editor). */
   externalWrite(path: string, content: string): void {
     this.files.set(path, content);
+    this.revision++;
   }
 
   get(path: string): string | undefined {
@@ -113,7 +133,15 @@ export function makeHarness(seed?: Record<string, string>): Harness {
   const errors: unknown[] = [];
   const io: BridgeIO = {
     readFile: (p) => fs.readFile(p),
-    writeFileAtomic: (p, c) => fs.writeFileAtomic(p, c),
+    readFileSnapshot: (p) => fs.readFileSnapshot(p),
+    writeFileAtomic: (p, c, expectedDocumentId, expectedSourceRevision, expectedFileIdentity) =>
+      fs.writeFileAtomic(
+        p,
+        c,
+        expectedDocumentId,
+        expectedSourceRevision,
+        expectedFileIdentity,
+      ),
     sha256: sha256Hex,
     persistence,
     onError: (e) => {

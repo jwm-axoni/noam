@@ -2,8 +2,14 @@ import { describe, expect, it } from "vitest";
 import { assembleGraph, applyGraphDelta } from "./buildGraph";
 import type { GraphNodeMeta } from "../ipc";
 
-function title(id: string, path: string, titleText: string, type: string | null = null): GraphNodeMeta {
-  return { id, path, title: titleText, type };
+function title(
+  id: string,
+  path: string,
+  titleText: string,
+  type: string | null = null,
+  kind: string | null = null,
+): GraphNodeMeta {
+  return { id, path, title: titleText, type, kind };
 }
 
 const edge = (source: string, target: string) => ({ source, target });
@@ -66,6 +72,20 @@ describe("assembleGraph", () => {
   it("returns an empty graph for an empty vault", () => {
     const graph = assembleGraph([], []);
     expect(graph).toEqual({ nodes: [], edges: [] });
+  });
+
+  it("omits folder presentation companions and their edges", () => {
+    const graph = assembleGraph(
+      [
+        title("note", "Notes/Visible.md", "Visible"),
+        title("folder", "Notes/_noam-folder.md", "Folder", null, "folder-presentation"),
+      ],
+      [edge("note", "folder"), edge("folder", "note")],
+    );
+    expect(graph).toEqual({
+      nodes: [{ id: "note", path: "Notes/Visible.md", title: "Visible", type: null, linkCount: 0 }],
+      edges: [],
+    });
   });
 });
 

@@ -1,0 +1,50 @@
+{
+  "manifest": {
+    "format": "noam-package",
+    "formatVersion": 1,
+    "id": "starter-pack",
+    "name": "Starter pack",
+    "description": "A daily note workflow, its template and one asset.",
+    "version": "1.2.0",
+    "minAppVersion": "0.1.0",
+    "workflowSchemaVersion": 1,
+    "dependencies": [
+      {
+        "kind": "template",
+        "path": "Templates/Daily.md"
+      }
+    ],
+    "entries": [
+      {
+        "path": "Workflows/Daily note.md",
+        "kind": "workflow",
+        "sha256": "24f598b08a12e11088c213af24c3a298a8ccaab3adb863228eb90ea1d91d7add",
+        "id": "daily-note"
+      },
+      {
+        "path": "Templates/Daily.md",
+        "kind": "template",
+        "sha256": "475d0bb08b32e591a3f630ff065b3a0d5d864cafaa171143e2f785702229746e"
+      },
+      {
+        "path": "attachments/starter-logo.png",
+        "kind": "asset",
+        "sha256": "4ffd8bb30991e3a6f28d1d03f1aedcd02ccf8e0cc16bb9e969e7bc2bda1ddf03"
+      }
+    ]
+  },
+  "files": {
+    "Workflows/Daily note.md": {
+      "encoding": "utf8",
+      "content": "---\nnoam_kind: workflow\n---\n\n# Daily note\n\nCreates today's journal entry.\n\n```json noam-workflow\n{\n  \"version\": 1,\n  \"id\": \"daily-note\",\n  \"name\": \"Daily note\",\n  \"description\": \"Create today's daily note from the shared template.\",\n  \"variables\": [\n    {\n      \"name\": \"value\",\n      \"label\": \"Title\",\n      \"type\": \"text\",\n      \"required\": false\n    }\n  ],\n  \"requires\": {\n    \"templates\": [\n      \"Templates/Daily.md\"\n    ]\n  },\n  \"steps\": [\n    {\n      \"type\": \"create-note\",\n      \"path\": \"Journal/{{date:YYYY-MM-DD}}.md\",\n      \"template\": \"Templates/Daily.md\",\n      \"onExists\": \"open\",\n      \"open\": true\n    }\n  ]\n}\n```\n"
+    },
+    "Templates/Daily.md": {
+      "encoding": "utf8",
+      "content": "# {{date:YYYY-MM-DD}}\n\n## Notes\n\n## Tasks\n"
+    },
+    "attachments/starter-logo.png": {
+      "encoding": "base64",
+      "content": "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJ"
+    }
+  }
+}

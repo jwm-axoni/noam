@@ -1,0 +1,333 @@
+/* Named palettes layer over tokens.css. Display mode and palette are separate:
+   data-theme chooses light/dark, while data-theme-preset chooses these values. */
+
+:root[data-theme-preset="minimal"] {
+  --bg-app: #f3f5f7;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f7f8f9;
+  --bg-hover: #edf0f2;
+  --bg-active: #e2e6e9;
+  --text-primary: #202428;
+  --text-secondary: #646b72;
+  --text-tertiary: #92989e;
+  --text-faint: #b9bec3;
+  --accent: #4f6f91;
+  --accent-hover: #3d5c7c;
+  --accent-soft: #e8eef4;
+  --accent-soft-hover: #dbe5ee;
+  --accent-gradient: linear-gradient(135deg, #6f8ba6 0%, #4f6f91 100%);
+  --link: #356c9c;
+  --border: rgba(31, 38, 45, 0.09);
+  --border-strong: rgba(31, 38, 45, 0.16);
+  --focus-ring: 0 0 0 3px rgba(79, 111, 145, 0.28);
+  --graph-void-core: #fafbfc;
+  --graph-void-mid: #eef1f3;
+  --graph-void-rim: #dde2e6;
+  --graph-node: #4f6f91;
+  --graph-node-strong: #3d5c7c;
+  --graph-node-glow: rgba(79, 111, 145, 0.55);
+  --graph-node-dim: rgba(79, 111, 145, 0.48);
+  --graph-link-dim: rgba(79, 111, 145, 0.28);
+}
+
+:root[data-theme-preset="minimal"][data-theme="dark"] {
+  --bg-app: #121416;
+  --bg-surface: #1b1e21;
+  --bg-subtle: #17191c;
+  --bg-hover: #25292d;
+  --bg-active: #30353a;
+  --text-primary: #f0f2f3;
+  --text-secondary: #aab0b5;
+  --text-tertiary: #737a80;
+  --text-faint: #575e64;
+  --accent: #8aa8c4;
+  --accent-hover: #a2bdd4;
+  --accent-soft: rgba(138, 168, 196, 0.16);
+  --accent-soft-hover: rgba(138, 168, 196, 0.24);
+  --link: #84b7df;
+  --border: rgba(240, 242, 243, 0.09);
+  --border-strong: rgba(240, 242, 243, 0.17);
+  --focus-ring: 0 0 0 3px rgba(138, 168, 196, 0.34);
+}
+
+:root[data-theme-preset="graphite"],
+:root[data-theme-preset="black"] {
+  --bg-app: #d9dcdf;
+  --bg-surface: #f7f8f8;
+  --bg-subtle: #eceeef;
+  --bg-hover: #e0e3e5;
+  --bg-active: #d3d7da;
+  --text-primary: #24272a;
+  --text-secondary: #62686d;
+  --text-tertiary: #8c9297;
+  --text-faint: #afb4b8;
+  --accent: #646b73;
+  --accent-hover: #4f565d;
+  --accent-soft: #e0e3e5;
+  --accent-soft-hover: #d3d7da;
+  --accent-gradient: linear-gradient(135deg, #7e858c 0%, #646b73 100%);
+  --decor-gradient: linear-gradient(135deg, #646b73 0%, #92989e 120%);
+  --link: #4d667c;
+  --border: rgba(24, 28, 31, 0.11);
+  --border-strong: rgba(24, 28, 31, 0.19);
+  --focus-ring: 0 0 0 3px rgba(100, 107, 115, 0.3);
+  --graph-void-core: #f1f2f3;
+  --graph-void-mid: #d9dcdf;
+  --graph-void-rim: #c5c9cc;
+  --graph-vignette: rgba(24, 28, 31, 0.13);
+  --graph-node: #646b73;
+  --graph-node-strong: #4f565d;
+  --graph-node-glow: rgba(100, 107, 115, 0.58);
+  --graph-node-dim: rgba(100, 107, 115, 0.5);
+  --graph-link-dim: rgba(100, 107, 115, 0.3);
+}
+
+:root[data-theme-preset="graphite"][data-theme="dark"] {
+  --bg-app: #17191b;
+  --bg-surface: #24272a;
+  --bg-subtle: #1e2123;
+  --bg-hover: #2e3235;
+  --bg-active: #393d41;
+  --text-primary: #f0f1f2;
+  --text-secondary: #b0b4b7;
+  --text-tertiary: #797f84;
+  --text-faint: #5d6368;
+  --accent: #a3a8ad;
+  --accent-hover: #babec2;
+  --accent-soft: rgba(163, 168, 173, 0.15);
+  --accent-soft-hover: rgba(163, 168, 173, 0.23);
+  --link: #98b3c9;
+  --border: rgba(240, 241, 242, 0.1);
+  --border-strong: rgba(240, 241, 242, 0.18);
+  --focus-ring: 0 0 0 3px rgba(163, 168, 173, 0.34);
+  --graph-void-core: #222528;
+  --graph-void-mid: #121416;
+  --graph-void-rim: #08090a;
+  --graph-node: #a3a8ad;
+  --graph-node-strong: #babec2;
+}
+
+:root[data-theme-preset="black"][data-theme="dark"] {
+  --bg-app: #000000;
+  --bg-surface: #0a0a0a;
+  --bg-subtle: #050505;
+  --bg-hover: #171717;
+  --bg-active: #232323;
+  --text-primary: #f5f5f5;
+  --text-secondary: #b5b5b5;
+  --text-tertiary: #767676;
+  --text-faint: #565656;
+  --accent: #b7b7b7;
+  --accent-hover: #d0d0d0;
+  --accent-soft: rgba(183, 183, 183, 0.14);
+  --accent-soft-hover: rgba(183, 183, 183, 0.22);
+  --accent-gradient: linear-gradient(135deg, #d0d0d0 0%, #929292 100%);
+  --decor-gradient: linear-gradient(135deg, #a8a8a8 0%, #6f6f6f 120%);
+  --link: #a8c6df;
+  --border: rgba(255, 255, 255, 0.1);
+  --border-strong: rgba(255, 255, 255, 0.2);
+  --focus-ring: 0 0 0 3px rgba(183, 183, 183, 0.38);
+  --graph-void-core: #101010;
+  --graph-void-mid: #050505;
+  --graph-void-rim: #000000;
+  --graph-vignette: rgba(0, 0, 0, 0.72);
+  --graph-node: #b7b7b7;
+  --graph-node-strong: #d0d0d0;
+  --graph-node-glow: rgba(183, 183, 183, 0.65);
+  --graph-node-dim: rgba(183, 183, 183, 0.52);
+  --graph-link-dim: rgba(183, 183, 183, 0.32);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.65);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.72);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.8);
+}
+
+/* The five long-standing palettes in tokens.css and these three additions all
+   implement the same world contract. Shared graph-state values stay readable
+   over the graph's dark status card; palette-specific canvas and node values
+   remain in the blocks above. */
+:root[data-theme-preset="minimal"],
+:root[data-theme-preset="graphite"],
+:root[data-theme-preset="black"] {
+  --graph-vignette: rgba(24, 32, 40, 0.12);
+  --graph-state-text: rgba(240, 244, 248, 0.76);
+  --graph-state-heading: #f7f9fb;
+  --graph-state-surface: rgba(22, 26, 30, 0.58);
+  --graph-state-code: #c3d4e2;
+  --graph-state-code-bg: rgba(130, 160, 184, 0.18);
+  --graph-state-code-border: rgba(130, 160, 184, 0.32);
+  --graph-link-rest: rgb(96, 106, 114);
+  --text-on-accent: #ffffff;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: var(--text-primary);
+  --heading-2-color: #525d67;
+  --heading-3-color: #315f87;
+  --heading-4-color: #356b5a;
+  --heading-5-color: #795619;
+  --heading-6-color: #72495e;
+  --decor-gradient: linear-gradient(135deg, var(--accent) 0%, #92989e 120%);
+  --shadow-sm: 0 1px 2px rgba(24, 30, 36, 0.07);
+  --shadow-md: 0 8px 24px rgba(24, 30, 36, 0.11);
+  --shadow-lg: 0 16px 40px rgba(24, 30, 36, 0.18);
+}
+
+:root[data-theme="dark"][data-theme-preset="minimal"],
+:root[data-theme="dark"][data-theme-preset="graphite"],
+:root[data-theme="dark"][data-theme-preset="black"] {
+  --graph-void-core: #202428;
+  --graph-void-mid: #111315;
+  --graph-void-rim: #050607;
+  --graph-vignette: rgba(0, 0, 0, 0.66);
+  --graph-state-text: rgba(240, 244, 248, 0.76);
+  --graph-state-heading: #f7f9fb;
+  --graph-state-surface: rgba(22, 26, 30, 0.74);
+  --graph-state-code: #c3d4e2;
+  --graph-state-code-bg: rgba(130, 160, 184, 0.18);
+  --graph-state-code-border: rgba(130, 160, 184, 0.32);
+  --graph-node: var(--accent);
+  --graph-node-strong: var(--accent-hover);
+  --graph-node-glow: color-mix(in srgb, var(--accent) 62%, transparent);
+  --graph-node-dim: color-mix(in srgb, var(--accent) 50%, transparent);
+  --graph-link-rest: rgb(132, 140, 148);
+  --graph-link-dim: color-mix(in srgb, var(--accent) 32%, transparent);
+  --text-on-accent: #111519;
+  --shadow-text-on-accent: none;
+  --heading-1-color: var(--text-primary);
+  --heading-2-color: #c4b9aa;
+  --heading-3-color: #91b9d8;
+  --heading-4-color: #91c2ae;
+  --heading-5-color: #ddb477;
+  --heading-6-color: #d09eb7;
+  --accent-gradient: linear-gradient(135deg, var(--accent-hover) 0%, var(--accent) 100%);
+  --decor-gradient: linear-gradient(135deg, var(--accent) 0%, #747b81 120%);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.4);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.5);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.6);
+}
+
+/* Plain headings are a separate device preference and must win over every
+   palette, including the higher-specificity dark selectors above. */
+:root[data-theme-preset][data-heading-color="plain"] {
+  --heading-1-color: var(--text-primary);
+  --heading-2-color: var(--text-primary);
+  --heading-3-color: var(--text-primary);
+  --heading-4-color: var(--text-primary);
+  --heading-5-color: var(--text-primary);
+  --heading-6-color: var(--text-primary);
+}
+
+/* Content colours belong to the note, not the chosen chrome palette. Every
+   preset uses these fixed, contrast-checked washes in both display modes. */
+:root {
+  --highlight-yellow-bg: rgba(255, 208, 0, 0.28);
+  --highlight-green-bg: rgba(59, 179, 108, 0.25);
+  --highlight-blue-bg: rgba(67, 139, 230, 0.24);
+  --highlight-pink-bg: rgba(225, 83, 143, 0.23);
+  --highlight-purple-bg: rgba(139, 104, 225, 0.24);
+  --highlight-fg: var(--text-primary);
+  --highlight-bg: var(--highlight-yellow-bg);
+}
+
+:root[data-theme="dark"] {
+  --highlight-yellow-bg: rgba(255, 208, 0, 0.22);
+  --highlight-green-bg: rgba(70, 196, 121, 0.23);
+  --highlight-blue-bg: rgba(80, 151, 240, 0.23);
+  --highlight-pink-bg: rgba(235, 96, 157, 0.22);
+  --highlight-purple-bg: rgba(157, 120, 239, 0.24);
+}
+
+/* Accent is an independent device preference. These rules come after every
+   palette so choosing a palette never erases a deliberate accent choice. */
+:root[data-theme-accent="violet"] {
+  --accent: #6a5cf5;
+  --accent-hover: #5849d9;
+  --accent-soft: rgba(106, 92, 245, 0.14);
+  --accent-soft-hover: rgba(106, 92, 245, 0.22);
+  --accent-gradient: linear-gradient(135deg, #8579fb 0%, #6a5cf5 100%);
+  --focus-ring: 0 0 0 3px rgba(106, 92, 245, 0.3);
+  --text-on-accent: #ffffff;
+}
+
+:root[data-theme-accent="blue"] {
+  --accent: #2563a8;
+  --accent-hover: #194f8b;
+  --accent-soft: rgba(37, 99, 168, 0.14);
+  --accent-soft-hover: rgba(37, 99, 168, 0.22);
+  --accent-gradient: linear-gradient(135deg, #3979bd 0%, #2563a8 100%);
+  --focus-ring: 0 0 0 3px rgba(37, 99, 168, 0.3);
+  --text-on-accent: #ffffff;
+}
+
+:root[data-theme-accent="green"] {
+  --accent: #277a4e;
+  --accent-hover: #1c633e;
+  --accent-soft: rgba(39, 122, 78, 0.14);
+  --accent-soft-hover: rgba(39, 122, 78, 0.22);
+  --accent-gradient: linear-gradient(135deg, #3b9163 0%, #277a4e 100%);
+  --focus-ring: 0 0 0 3px rgba(39, 122, 78, 0.3);
+  --text-on-accent: #ffffff;
+}
+
+:root[data-theme-accent="rose"] {
+  --accent: #a83d68;
+  --accent-hover: #8d2f55;
+  --accent-soft: rgba(168, 61, 104, 0.14);
+  --accent-soft-hover: rgba(168, 61, 104, 0.22);
+  --accent-gradient: linear-gradient(135deg, #c0527e 0%, #a83d68 100%);
+  --focus-ring: 0 0 0 3px rgba(168, 61, 104, 0.3);
+  --text-on-accent: #ffffff;
+}
+
+:root[data-theme-accent="amber"] {
+  --accent: #8a5a00;
+  --accent-hover: #704800;
+  --accent-soft: rgba(138, 90, 0, 0.14);
+  --accent-soft-hover: rgba(138, 90, 0, 0.22);
+  --accent-gradient: linear-gradient(135deg, #a66e08 0%, #8a5a00 100%);
+  --focus-ring: 0 0 0 3px rgba(138, 90, 0, 0.3);
+  --text-on-accent: #ffffff;
+}
+
+:root[data-theme="dark"][data-theme-accent="violet"] {
+  --accent: #a89fff;
+  --accent-hover: #beb7ff;
+  --accent-soft: rgba(168, 159, 255, 0.17);
+  --accent-soft-hover: rgba(168, 159, 255, 0.25);
+  --accent-gradient: linear-gradient(135deg, #beb7ff 0%, #a89fff 100%);
+  --text-on-accent: #15121f;
+}
+
+:root[data-theme="dark"][data-theme-accent="blue"] {
+  --accent: #78b7ee;
+  --accent-hover: #91c8f5;
+  --accent-soft: rgba(120, 183, 238, 0.17);
+  --accent-soft-hover: rgba(120, 183, 238, 0.25);
+  --accent-gradient: linear-gradient(135deg, #91c8f5 0%, #78b7ee 100%);
+  --text-on-accent: #0e1820;
+}
+
+:root[data-theme="dark"][data-theme-accent="green"] {
+  --accent: #6fcf97;
+  --accent-hover: #87dbaa;
+  --accent-soft: rgba(111, 207, 151, 0.17);
+  --accent-soft-hover: rgba(111, 207, 151, 0.25);
+  --accent-gradient: linear-gradient(135deg, #87dbaa 0%, #6fcf97 100%);
+  --text-on-accent: #0e1b13;
+}
+
+:root[data-theme="dark"][data-theme-accent="rose"] {
+  --accent: #ee8bb4;
+  --accent-hover: #f3a4c4;
+  --accent-soft: rgba(238, 139, 180, 0.17);
+  --accent-soft-hover: rgba(238, 139, 180, 0.25);
+  --accent-gradient: linear-gradient(135deg, #f3a4c4 0%, #ee8bb4 100%);
+  --text-on-accent: #211017;
+}
+
+:root[data-theme="dark"][data-theme-accent="amber"] {
+  --accent: #e5b75b;
+  --accent-hover: #edc776;
+  --accent-soft: rgba(229, 183, 91, 0.17);
+  --accent-soft-hover: rgba(229, 183, 91, 0.25);
+  --accent-gradient: linear-gradient(135deg, #edc776 0%, #e5b75b 100%);
+  --text-on-accent: #1d170b;
+}

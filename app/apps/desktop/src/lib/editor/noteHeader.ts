@@ -41,6 +41,8 @@ import {
   type Extension,
   Prec,
   type Range,
+  StateEffect,
+  type StateEffectType,
   StateField,
 } from "@codemirror/state";
 import {
@@ -61,6 +63,10 @@ import {
 import { bodyStart, getHeaderFocus } from "./headerFocus";
 import { ReactWidget } from "./reactWidget";
 import {
+  readPropertiesCollapsed,
+  writePropertiesCollapsed,
+} from "../prefs";
+import {
   findFrontmatter,
   frontmatterField,
   frontmatterView,
@@ -68,6 +74,12 @@ import {
   type PropertiesMode,
 } from "./frontmatter";
 import { viewMode as editorViewMode } from "./viewMode";
+import { parseFrontmatter } from "../frontmatter/parse";
+import {
+  DEFAULT_PRESENTATION,
+  presentationFromEntries,
+  type NotePresentation,
+} from "../presentation/types";
 
 export type { PropertiesMode };
 export { bodyStart, getHeaderFocus, registerHeaderFocus } from "./headerFocus";
@@ -77,6 +89,10 @@ export { bodyStart, getHeaderFocus, registerHeaderFocus } from "./headerFocus";
 const INSET = "cm-block-inset";
 
 export interface NoteHeaderOptions {
+  /** Stable identity of the open vault for device-local per-note preferences. */
+  vaultId: string;
+  /** Stable document identity; path-only callers retain the upgrade fallback. */
+  docId?: string;
   /** Vault-relative path of the open note. The title is its stem. */
   path: string;
   /**
@@ -95,6 +111,8 @@ export interface NoteHeaderOptions {
   mode?: PropertiesMode;
   /** Owned by the caller (Editor.tsx) so a settings change can reconfigure. */
   modeCompartment?: Compartment;
+  /** Resolve a vault-relative presentation asset for the current note. */
+  resolveAsset?: (source: string, sourceKind?: "url" | "path") => string;
 }
 
 class TitleWidget extends ReactWidget {
@@ -104,6 +122,8 @@ class TitleWidget extends ReactWidget {
     private readonly readOnly: boolean,
     private readonly hasFrontmatter: boolean,
     private readonly mode: PropertiesMode,
+    private readonly presentation: NotePresentation,
+    private readonly presentationKey: string,
   ) {
     super();
   }
@@ -114,7 +134,8 @@ class TitleWidget extends ReactWidget {
       other.path === this.path &&
       other.readOnly === this.readOnly &&
       other.hasFrontmatter === this.hasFrontmatter &&
-      other.mode === this.mode
+      other.mode === this.mode &&
+      other.presentationKey === this.presentationKey
     );
   }
 
@@ -125,16 +146,19 @@ class TitleWidget extends ReactWidget {
   protected render(view: EditorView): ReactNode {
     return createElement(InlineTitle, {
       view,
+      docId: this.opts.docId,
       path: this.path,
       readOnly: this.readOnly,
       hasFrontmatter: this.hasFrontmatter,
       renameTo: this.opts.renameTo,
       noteExists: this.opts.noteExists,
+      presentation: this.presentation,
+      resolveAsset: this.opts.resolveAsset,
     });
   }
 
   get estimatedHeight(): number {
-    return 56;
+    return this.presentation.cover ? this.presentation.coverHeight + 96 : 72;
   }
 }
 
@@ -144,12 +168,18 @@ class PropertiesWidget extends ReactWidget {
     private readonly source: string,
     private readonly readOnly: boolean,
     private readonly rows: number,
+    private readonly collapsed: boolean,
+    private readonly setCollapsed: StateEffectType<boolean>,
   ) {
     super();
   }
 
   eq(other: PropertiesWidget): boolean {
-    return other.source === this.source && other.readOnly === this.readOnly;
+    return (
+      other.source === this.source &&
+      other.readOnly === this.readOnly &&
+      other.collapsed === this.collapsed
+    );
   }
 
   protected hostClass(): string {
@@ -160,13 +190,18 @@ class PropertiesWidget extends ReactWidget {
     return createElement(PropertiesPanel, {
       view,
       readOnly: this.readOnly,
+      collapsed: this.collapsed,
+      onCollapsedChange: (collapsed) => {
+        writePropertiesCollapsed(this.opts.vaultId, this.opts.path, collapsed, this.opts.docId);
+        view.dispatch({ effects: this.setCollapsed.of(collapsed) });
+      },
       getPropertyKeys: this.opts.getPropertyKeys,
       getPropertyValues: this.opts.getPropertyValues,
     });
   }
 
   get estimatedHeight(): number {
-    return 24 + this.rows * 30;
+    return this.collapsed ? 30 : 30 + this.rows * 30;
   }
 }
 
@@ -196,15 +231,33 @@ class InvalidWidget extends WidgetType {
 
 // ---- The field --------------------------------------------------------------
 
-function build(state: EditorState, opts: NoteHeaderOptions): DecorationSet {
+function build(
+  state: EditorState,
+  opts: NoteHeaderOptions,
+  collapsed: boolean,
+  setCollapsed: StateEffectType<boolean>,
+): DecorationSet {
   const fm = state.field(frontmatterField, false) ?? findFrontmatter(state.doc);
   const mode = state.facet(propertiesMode);
   const presentation = frontmatterView(state);
+  const parsed = fm ? parseFrontmatter(state.doc, fm) : null;
+  const notePresentation = parsed?.ok
+    ? presentationFromEntries(parsed.entries)
+    : DEFAULT_PRESENTATION;
+  const presentationKey = JSON.stringify(notePresentation);
   const decos: Range<Decoration>[] = [];
 
   decos.push(
     Decoration.widget({
-      widget: new TitleWidget(opts, opts.path, state.readOnly, fm !== null, mode),
+      widget: new TitleWidget(
+        opts,
+        opts.path,
+        state.readOnly,
+        fm !== null,
+        mode,
+        notePresentation,
+        presentationKey,
+      ),
       block: true,
       side: -1,
     }).range(0),
@@ -220,6 +273,8 @@ function build(state: EditorState, opts: NoteHeaderOptions): DecorationSet {
             source,
             state.readOnly,
             Math.max(1, fm.closeLine - fm.openLine - 1),
+            collapsed,
+            setCollapsed,
           ),
           block: true,
         }).range(fm.from, fm.to),
@@ -282,17 +337,35 @@ const titleSelectionMirror = ViewPlugin.fromClass(
 
 export function noteHeader(opts: NoteHeaderOptions): Extension {
   const modeExt = propertiesMode.of(opts.mode ?? "visible");
-  const field = StateField.define<DecorationSet>({
-    create: (state) => build(state, opts),
-    update: (value, tr) =>
-      tr.docChanged ||
-      tr.selection ||
-      tr.startState.readOnly !== tr.state.readOnly ||
-      tr.startState.facet(propertiesMode) !== tr.state.facet(propertiesMode) ||
-      tr.startState.facet(editorViewMode) !== tr.state.facet(editorViewMode)
-        ? build(tr.state, opts)
-        : value,
-    provide: (f) => EditorView.decorations.from(f),
+  const setCollapsed = StateEffect.define<boolean>();
+  type HeaderState = { collapsed: boolean; decorations: DecorationSet };
+  const field = StateField.define<HeaderState>({
+    create: (state) => {
+      const collapsed = readPropertiesCollapsed(opts.vaultId, opts.path, opts.docId);
+      return {
+        collapsed,
+        decorations: build(state, opts, collapsed, setCollapsed),
+      };
+    },
+    update: (value, tr) => {
+      let collapsed = value.collapsed;
+      for (const effect of tr.effects) {
+        if (effect.is(setCollapsed)) collapsed = effect.value;
+      }
+      const changed = collapsed !== value.collapsed;
+      return changed ||
+        tr.docChanged ||
+        tr.selection ||
+        tr.startState.readOnly !== tr.state.readOnly ||
+        tr.startState.facet(propertiesMode) !== tr.state.facet(propertiesMode) ||
+        tr.startState.facet(editorViewMode) !== tr.state.facet(editorViewMode)
+        ? {
+            collapsed,
+            decorations: build(tr.state, opts, collapsed, setCollapsed),
+          }
+        : value;
+    },
+    provide: (f) => EditorView.decorations.from(f, (value) => value.decorations),
   });
 
   return [

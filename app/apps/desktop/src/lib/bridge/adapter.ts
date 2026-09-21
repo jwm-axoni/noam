@@ -68,9 +68,23 @@ export async function sha256Hex(text: string): Promise<string> {
 export function createTauriBridgeIO(epoch?: ipc.VaultEpoch): BridgeIO {
   return {
     readFile: (path) => ipc.readNote(path, epoch),
+    readFileSnapshot: (path) => ipc.readNoteSnapshot(path, epoch),
     // write_note performs the atomic temp-file+rename AND re-indexes in Rust,
     // so egest gets FTS/backlink refresh for free — no separate reindex hook.
-    writeFileAtomic: (path, content) => ipc.writeNote(path, content, epoch),
+    writeFileAtomic: (
+      path,
+      content,
+      expectedDocumentId,
+      expectedSourceRevision,
+      expectedFileIdentity,
+    ) => ipc.writeNoteWithIdentity(
+      path,
+      content,
+      epoch,
+      expectedDocumentId,
+      expectedSourceRevision,
+      expectedFileIdentity,
+    ),
     sha256: sha256Hex,
     // A failed write is the one bridge error a person must see (#81): the .md is
     // the durable copy, and "nothing happened" is how it would otherwise read.
@@ -169,6 +183,30 @@ export class BridgeManager {
       }
       this.current = { path, docId, bridge };
       return bridge;
+    });
+  }
+
+  async withNoteBridge<T>(
+    path: string,
+    docId: string,
+    opts: { seedFromFile?: boolean; io?: BridgeIO },
+    use: (bridge: NoteBridge) => Promise<T>,
+  ): Promise<T> {
+    const io = opts.io ?? this.ioForOpen();
+    return this.enqueue(async () => {
+      if (this.current?.path === path && this.current.docId === docId) {
+        return use(this.current.bridge);
+      }
+      const bridge = await NoteBridge.open(io, {
+        docId,
+        path,
+        seedFromFile: opts.seedFromFile,
+      });
+      try {
+        return await use(bridge);
+      } finally {
+        await this.retire(bridge);
+      }
     });
   }
 

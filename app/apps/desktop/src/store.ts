@@ -53,6 +53,7 @@ import {
   readEditorMeasure,
   readLineNumbers,
   readPropertiesMode,
+  remapPropertiesCollapsed,
   readTreeSort,
   writeActivityStatus,
   writeMentionSound,
@@ -1673,7 +1674,28 @@ export const useStore = create<AppStore>((set, get) => ({
           const meta = await ipc.getNoteMeta(c.path, epoch);
           // Not in the index (yet, or any more): nothing to show for it.
           if (!meta) removed.push(c.path);
-          else updates.push({ id: meta.id, path: meta.path, title: meta.title });
+          else {
+            let presentation: Record<string, unknown> = {};
+            try {
+              presentation = meta.frontmatter ? JSON.parse(meta.frontmatter) : {};
+            } catch {
+              // The index normally guarantees JSON. A corrupt derived row still
+              // gets its title, without trusting presentation values from it.
+            }
+            const stringValue = (key: string) =>
+              typeof presentation[key] === "string"
+                ? (presentation[key] as string)
+                : null;
+            updates.push({
+              id: meta.id,
+              path: meta.path,
+              title: meta.title,
+              icon: stringValue("noam_icon"),
+              iconColor: stringValue("noam_icon_color"),
+              kind: stringValue("noam_kind"),
+              cover: stringValue("noam_cover"),
+            });
+          }
         } catch {
           // Leave that row alone; the next full refresh (a structural batch or a
           // vault open) reconciles it.
@@ -2122,6 +2144,7 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   remapTabs: (from, to) => {
+    remapPropertiesCollapsed(get().vault?.path ?? "", from, to);
     const { openNote, viewModeOverrides, defaultViewMode } = get();
     const tabs = documentTabs().map((tab) => tab.path);
     const remap = (path: string) =>

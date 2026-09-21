@@ -1,0 +1,425 @@
+/* Workflows: the action picker, the prompt dialog, the package dialogs and the
+   Workflows dock panel. Everything here is tokens only (`styles/tokens.css`),
+   so light, dark and every accent preset come for free, and every layout is
+   single-column so a 260px dock and a 90vw modal both work. */
+
+/* ---- Action picker (⌘⇧P) ---- */
+.action-picker {
+  width: 540px;
+  padding: var(--sp-3);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  max-height: min(70vh, 560px);
+}
+.action-picker-input {
+  width: 100%;
+  font-size: var(--fs-md);
+}
+.action-picker-empty {
+  margin: 0;
+  padding: var(--sp-4);
+  color: var(--text-tertiary);
+  font-size: var(--fs-sm);
+  text-align: center;
+}
+.action-picker-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow: auto;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.action-picker-row {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+  padding: var(--sp-2);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  color: var(--text-primary);
+}
+.action-picker-row.active {
+  background: var(--bg-active);
+}
+.action-picker-row.broken {
+  color: var(--text-secondary);
+}
+.action-picker-row.broken .action-picker-icon {
+  color: var(--warning);
+}
+.action-picker-icon {
+  flex: 0 0 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding-top: 2px;
+}
+.action-picker-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.action-picker-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+}
+.action-picker-description {
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+.action-picker-issues {
+  list-style: none;
+  margin: var(--sp-1) 0 0;
+  padding: 0;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.action-picker-issue-path {
+  color: var(--text-tertiary);
+}
+.action-picker-shortcut,
+.workflows-row-shortcut {
+  flex: 0 0 auto;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 1px 5px;
+  white-space: nowrap;
+}
+
+/* ---- Prompt dialog + package dialogs ---- */
+.workflow-prompt,
+.workflow-package-dialog {
+  width: 520px;
+  max-height: min(84vh, 760px);
+  overflow: auto;
+}
+.workflow-prompt-description,
+.workflow-dialog-note {
+  margin: 0 0 var(--sp-4);
+  font-size: var(--fs-sm);
+  color: var(--text-secondary);
+}
+.workflow-dialog-source {
+  margin: calc(-1 * var(--sp-3)) 0 var(--sp-4);
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+  overflow-wrap: anywhere;
+}
+.workflow-dialog-subhead {
+  margin: var(--sp-5) 0 var(--sp-2);
+  font-size: var(--fs-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.workflow-prompt-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-4);
+}
+.workflow-field {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.workflow-field label {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.workflow-field input,
+.workflow-field select,
+.workflow-field textarea,
+.workflow-clipboard textarea {
+  width: 100%;
+  font: inherit;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+  background: var(--bg-subtle);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2);
+}
+.workflow-field textarea,
+.workflow-clipboard textarea {
+  resize: vertical;
+  min-height: 62px;
+}
+.workflow-field [aria-invalid="true"] {
+  border-color: var(--danger);
+}
+.workflow-optional {
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+.workflow-field-error {
+  margin: 0;
+  font-size: var(--fs-xs);
+  color: var(--danger);
+}
+.workflow-clipboard {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  align-items: flex-start;
+}
+.workflow-clipboard textarea {
+  color: var(--text-secondary);
+}
+.workflow-prompt-actions,
+.workflow-dialog-actions,
+.workflow-result-actions,
+.workflow-recovery-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-2);
+  justify-content: flex-end;
+  margin-top: var(--sp-4);
+}
+.workflow-recovery-actions {
+  justify-content: flex-start;
+}
+
+/* ---- Result / failure ---- */
+.workflow-result {
+  margin-top: var(--sp-5);
+  padding: var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-subtle);
+}
+.workflow-result[data-failure-kind] {
+  border-color: var(--danger);
+  background: var(--danger-soft);
+}
+.workflow-result-title {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  margin: 0 0 var(--sp-1);
+  font-weight: 700;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.workflow-result-kind {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  font-weight: 400;
+  color: var(--text-tertiary);
+}
+.workflow-result-message {
+  margin: 0;
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.workflow-result-where {
+  margin: var(--sp-1) 0 0;
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.workflow-recovery {
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-3);
+  border-top: 1px solid var(--border);
+  font-size: var(--fs-sm);
+}
+.workflow-recovery p {
+  margin: 0 0 var(--sp-2);
+}
+.workflow-pending,
+.workflow-excerpt,
+.workflow-package-json {
+  margin: 0;
+  max-height: 180px;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  background: var(--bg-surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  padding: var(--sp-2);
+  color: var(--text-primary);
+}
+.workflow-package-json {
+  width: 100%;
+  resize: vertical;
+}
+
+/* ---- Lists shared by the package dialogs ---- */
+.workflow-issue-list,
+.workflow-dependency-list,
+.workflow-preview-list,
+.workflow-pick-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+  font-size: var(--fs-xs);
+}
+.workflow-issue-list li,
+.workflow-dependency-list li,
+.workflow-preview-list li {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-sm);
+  background: var(--bg-subtle);
+  overflow-wrap: anywhere;
+}
+.workflow-issue-list li[data-severity="error"] {
+  color: var(--danger);
+}
+.workflow-dependency-list li[data-satisfied="false"] {
+  color: var(--danger);
+}
+.workflow-preview-path {
+  font-family: var(--font-mono);
+  flex: 1 1 180px;
+  min-width: 0;
+}
+.workflow-preview-decision,
+.workflow-issue-severity,
+.workflow-dependency-state {
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.03em;
+  font-size: 10px;
+  color: var(--text-tertiary);
+}
+.workflow-preview-list li[data-decision="replace"] .workflow-preview-decision,
+.workflow-preview-list li[data-decision="duplicate"] .workflow-preview-decision,
+.workflow-preview-list li[data-status="unsupported"] .workflow-preview-decision {
+  color: var(--warning);
+}
+.workflow-preview-list li[data-decision="unsupported"] .workflow-preview-decision {
+  color: var(--danger);
+}
+.workflow-preview-destination {
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+}
+.workflow-preview-reason,
+.workflow-muted {
+  color: var(--text-tertiary);
+}
+.workflow-preview-list li > pre {
+  flex: 1 1 100%;
+}
+.workflow-pick-list li label {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  padding: 3px var(--sp-1);
+  cursor: pointer;
+  font-size: var(--fs-sm);
+}
+
+/* ---- Dock panel ---- */
+.workflows-panel {
+  flex: 1;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+.workflows-toolbar {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}
+.workflows-toolbar .ghost-pill,
+.workflows-row-actions .ghost-pill {
+  font-size: var(--fs-xs);
+  padding: 3px var(--sp-2);
+}
+.workflows-recovery-notice {
+  padding: var(--sp-2);
+  border: 1px solid var(--warning);
+  background: var(--warning-soft);
+  border-radius: var(--radius-md);
+  font-size: var(--fs-xs);
+  color: var(--text-primary);
+}
+.workflows-recovery-notice ul {
+  list-style: none;
+  margin: var(--sp-1) 0 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+}
+.workflows-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.workflows-row {
+  padding: var(--sp-2);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+.workflows-row.broken {
+  border-color: var(--warning);
+}
+.workflows-row-head {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--sp-2);
+}
+.workflows-row-icon {
+  flex: 0 0 16px;
+  padding-top: 2px;
+}
+.workflows-row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.workflows-row-name {
+  font-size: var(--fs-sm);
+  font-weight: 600;
+  color: var(--text-primary);
+}
+.workflows-row-description {
+  font-size: var(--fs-xs);
+  color: var(--text-secondary);
+}
+.workflows-row-path {
+  font-family: var(--font-mono);
+  font-size: var(--fs-xs);
+  color: var(--text-faint);
+  overflow-wrap: anywhere;
+}
+.workflows-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-1);
+}

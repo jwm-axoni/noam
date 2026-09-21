@@ -18,6 +18,26 @@
             "data-theme",
             dark ? "dark" : "light",
           );
+          // Palette and accent are independent device preferences. When a
+          // person has not chosen a palette yet, preserve the old full-world
+          // preference without copying it into the new storage key.
+          var p = localStorage.getItem("noam-theme-preset");
+          if (!/^(noam|paper-ink|sea|terracotta|moss|minimal|graphite|black)$/.test(p || "")) {
+            var legacy = localStorage.getItem("context.accentTheme");
+            p = legacy === "violet" ? "noam" :
+              /^(sea|terracotta|moss)$/.test(legacy || "") ? legacy : "paper-ink";
+          }
+          document.documentElement.setAttribute("data-theme-preset", p);
+          document.documentElement.setAttribute(
+            "data-heading-color",
+            localStorage.getItem("context.headingColor") === "plain" ? "plain" : "themed",
+          );
+          var a = localStorage.getItem("noam-theme-accent");
+          if (/^(violet|blue|green|rose|amber)$/.test(a || "")) {
+            document.documentElement.setAttribute("data-theme-accent", a);
+          }
+          // A stale attribute can survive Vite hot reloads in development.
+          document.documentElement.removeAttribute("data-accent");
         } catch (e) {}
       })();
     </script>

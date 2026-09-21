@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { resolveVaultAsset } from "../lib/fileTypes/assetResolver";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { noteLabel } from "../lib/notePath";
 import { panelRegistry } from "../layout/panelRegistry";
@@ -15,6 +16,11 @@ import {
   type TilingAction,
 } from "../layout/workspaceActions";
 import { useStore } from "../store";
+import { ViewportMenu } from "./ViewportMenu";
+import { itemColorValue } from "../lib/appearance";
+import { iconFromIndexed, type IndexedPresentation } from "../lib/presentation/types";
+import { PresentationIcon } from "./PresentationIcon";
+import "./presentation.css";
 
 interface TabMenuState {
   tabId: string;
@@ -52,11 +58,20 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
   const group = useLayoutStore((state) => state.layout.groups[groupId]);
   const panels = useLayoutStore((state) => state.layout.panels);
   const openingPath = useStore((state) => state.openingNotePath);
+  const titles = useStore((state) => state.titles);
+  const vaultPath = useStore((state) => state.vault?.path ?? null);
+  const presentationByPath = useMemo(
+    () => new Map(titles.map((title) => [title.path, title])),
+    [titles],
+  );
   const reduceMotion = useReducedMotion();
   const [menu, setMenu] = useState<TabMenuState | null>(null);
   const [listOpen, setListOpen] = useState(false);
   const [rovingId, setRovingId] = useState<string | null>(null);
   const stripRef = useRef<HTMLDivElement | null>(null);
+  const listTriggerRef = useRef<HTMLButtonElement | null>(null);
+  const listMenuRef = useRef<HTMLDivElement | null>(null);
+  const contextMenuRef = useRef<HTMLDivElement | null>(null);
   const activeId = group?.activeTabId ?? null;
   const tabs = group?.tabs ?? [];
 
@@ -73,7 +88,17 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
     const closeOnEscape = (event: KeyboardEvent) => {
       if (event.key !== "Escape") return;
       event.preventDefault();
+      const contextTabId = menu?.tabId;
       close();
+      requestAnimationFrame(() => {
+        if (contextTabId) {
+          stripRef.current
+            ?.querySelector<HTMLElement>(`[data-workspace-tab-id="${CSS.escape(contextTabId)}"]`)
+            ?.focus();
+        } else {
+          listTriggerRef.current?.focus();
+        }
+      });
     };
     window.addEventListener("blur", close);
     window.addEventListener("pointerdown", close);
@@ -111,20 +136,15 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
   };
   const selected = menu ? tabs.find((tab) => tab.id === menu.tabId) : null;
   const selectedIndex = selected ? tabs.indexOf(selected) : -1;
-  // The context menu floats at the cursor (flipped inside the viewport near
-  // edges) rather than at a fixed corner — the old fixed pin landed far from
-  // the click, especially for tabs in a split-below group.
-  const menuStyle = menu
-    ? {
-        position: "fixed" as const,
-        left: Math.max(8, Math.min(menu.x, window.innerWidth - 230)),
-        top: Math.max(8, Math.min(menu.y, window.innerHeight - 220)),
-      }
-    : undefined;
-
   return (
     <div className="workspace-tab-row">
-      <div className="tab-strip" role="tablist" aria-label="Workspace tabs" ref={stripRef}>
+      <div
+        className="tab-strip"
+        role="tablist"
+        aria-label="Workspace tabs"
+        ref={stripRef}
+        data-tauri-drag-region
+      >
         <LayoutGroup id={`workspace-tabs:${groupId}`}>
           {tabs.map((tab) => (
             <WorkspaceTab
@@ -132,6 +152,8 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
               groupId={groupId}
               tab={tab}
               label={tabLabel(tab, panels)}
+              presentation={tab.kind === "note" ? presentationByPath.get(tab.path) : undefined}
+              vaultPath={vaultPath}
               active={tab.id === activeId}
               opening={tab.kind === "note" && tab.path === openingPath && tab.id !== activeId}
               tabIndex={(rovingId ?? activeId ?? tabs[0]?.id) === tab.id ? 0 : -1}
@@ -158,6 +180,7 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
       <TilingMenu />
       <div className="tab-list-wrap">
         <button
+          ref={listTriggerRef}
           type="button"
           className="tab-list-button"
           aria-label="List all tabs"
@@ -168,20 +191,33 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m7 9 5 5 5-5" /></svg>
         </button>
         {listOpen && (
-          <div className="tab-list-menu" role="menu" onPointerDown={(event) => event.stopPropagation()}>
+          <ViewportMenu
+            anchorRef={listTriggerRef}
+            menuRef={listMenuRef}
+            className="tab-list-menu"
+            role="menu"
+            onPointerDown={(event) => event.stopPropagation()}
+          >
             {tabs.map((tab) => (
               <button key={tab.id} type="button" role="menuitem" onClick={() => { activate(tab); setListOpen(false); }}>
                 {tabLabel(tab, panels)}
               </button>
             ))}
             {tabs.length === 0 && <span className="tab-list-empty">No open tabs</span>}
-          </div>
+          </ViewportMenu>
         )}
       </div>
       <div className="titlebar-empty-drag" data-tauri-drag-region aria-hidden="true" />
 
       {selected && (
-        <div className="tab-context-menu" role="menu" style={menuStyle} onPointerDown={(event) => event.stopPropagation()}>
+        <ViewportMenu
+          anchorPoint={menu ?? undefined}
+          menuRef={contextMenuRef}
+          className="tab-context-menu"
+          role="menu"
+          align="start"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           <button type="button" role="menuitem" onClick={() => { closeOne(selected); setMenu(null); }}>Close</button>
           <button
             type="button"
@@ -196,7 +232,7 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
             onClick={() => { reconcileClosed(closeTabsToRight(groupId, selected.id)); setMenu(null); }}
           >Close tabs to the right</button>
           <button type="button" role="menuitem" onClick={() => { reconcileClosed(closeAllTabs(groupId)); setMenu(null); }}>Close all</button>
-        </div>
+        </ViewportMenu>
       )}
     </div>
   );
@@ -206,6 +242,8 @@ function WorkspaceTab({
   groupId,
   tab,
   label,
+  presentation,
+  vaultPath,
   active,
   opening,
   tabIndex,
@@ -219,6 +257,8 @@ function WorkspaceTab({
   groupId: string;
   tab: LayoutTab;
   label: string;
+  presentation: IndexedPresentation | undefined;
+  vaultPath: string | null;
   active: boolean;
   opening: boolean;
   tabIndex: number;
@@ -230,6 +270,11 @@ function WorkspaceTab({
   onMenu: (position: { x: number; y: number }) => void;
 }) {
   const drag = useDockDrag({ groupId, tabId: tab.id, label });
+  const icon = iconFromIndexed(presentation);
+  const assetUrl =
+    icon?.kind === "asset" && vaultPath
+      ? resolveVaultAsset({ vaultPath, documentPath: "", source: icon.path, sourceKind: "path" })
+      : null;
   return (
     <div
       className={`tab${active ? " active" : ""}${opening ? " opening" : ""}`}
@@ -249,6 +294,15 @@ function WorkspaceTab({
       {tab.kind === "panel" && (
         <span className="workspace-tab-icon" aria-hidden="true">
           {panelRegistry[useLayoutStore.getState().layout.panels[tab.panelId]?.type ?? "graph"].icon}
+        </span>
+      )}
+      {tab.kind === "note" && icon && (
+        <span
+          className="workspace-tab-icon"
+          style={icon.kind === "lucide" ? { color: itemColorValue(presentation?.iconColor ?? undefined) } : undefined}
+          aria-hidden="true"
+        >
+          <PresentationIcon icon={icon} assetUrl={assetUrl} className="tab-note-icon" />
         </span>
       )}
       <button
@@ -287,6 +341,8 @@ const TILING_LABELS: Record<TilingAction, string> = {
 
 function TilingMenu() {
   const [open, setOpen] = useState(false);
+  const triggerRef = useRef<HTMLButtonElement | null>(null);
+  const menuRef = useRef<HTMLDivElement | null>(null);
   const layout = useLayoutStore((state) => state.layout);
   const available = tilingAvailability(layout);
   useEffect(() => {
@@ -296,6 +352,7 @@ function TilingMenu() {
       if (event.key !== "Escape") return;
       event.preventDefault();
       close();
+      requestAnimationFrame(() => triggerRef.current?.focus());
     };
     window.addEventListener("blur", close);
     window.addEventListener("pointerdown", close);
@@ -314,11 +371,17 @@ function TilingMenu() {
   };
   return (
     <div className="tiling-menu-wrap" onPointerDown={(event) => event.stopPropagation()}>
-      <button type="button" className="tiling-menu-button" aria-label="Workspace layout" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
+      <button ref={triggerRef} type="button" className="tiling-menu-button" aria-label="Workspace layout" aria-expanded={open} onClick={() => setOpen((value) => !value)}>
         <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="16" rx="2" /><path d="M12 4v16" /></svg>
       </button>
       {open && (
-        <div className="tiling-menu" role="menu">
+        <ViewportMenu
+          anchorRef={triggerRef}
+          menuRef={menuRef}
+          className="tiling-menu"
+          role="menu"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
           {available.map((item) => (
             <button
               key={item.action}
@@ -332,7 +395,7 @@ function TilingMenu() {
               {!item.enabled && item.reason && <span>{item.reason}</span>}
             </button>
           ))}
-        </div>
+        </ViewportMenu>
       )}
     </div>
   );

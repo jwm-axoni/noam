@@ -1,9 +1,10 @@
+// @vitest-environment jsdom
+
 // The Content width control's arithmetic: slider ↔ preference, the token the
 // editor reads, and the miniature's geometry. All pure — the DOM measuring that
 // feeds `computePreviewColumn` (the pane's width, one `ch` in the editor font)
 // lives in `components/ContentWidthPreview.tsx`.
-import { readFileSync } from "node:fs";
-import { describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import {
   computePreviewColumn,
   EDITOR_MEASURE_SLIDER_MAX,
@@ -15,6 +16,7 @@ import {
   sliderToMeasure,
 } from "../editorMeasure";
 import { EDITOR_MEASURE_DEFAULT, EDITOR_MEASURE_MAX, EDITOR_MEASURE_MIN } from "../prefs";
+import { computedToken, installThemeCss } from "../../styles/__tests__/themeCssHarness";
 
 describe("slider ↔ measure", () => {
   it("maps the far-right stop, and only it, to full width", () => {
@@ -137,35 +139,31 @@ describe("preview geometry", () => {
   });
 });
 
-describe("where --editor-pad-x is declared", () => {
-  // Not a style preference — a correctness rule. `var()` inside a custom
-  // property is substituted at computed-value time on the DECLARING element, so
-  // an `--editor-pad-x` composed on `:root` bakes `:root`'s own measure in and
-  // the inline override on `.editor-column` can never reach it. That is exactly
-  // how this control shipped inert once already.
-  const css = readFileSync(new URL("../../styles/tokens.css", import.meta.url), "utf8").replace(
-    /\/\*[\s\S]*?\*\//g,
-    "",
-  );
+describe("editor column stylesheet behavior", () => {
+  let style: HTMLStyleElement;
 
-  it("composes the inset on .editor-column, not on :root", () => {
-    const at = css.indexOf("--editor-pad-x:");
-    expect(at).toBeGreaterThan(-1);
-    // Declared once. A second declaration would reintroduce the ambiguity.
-    expect(css.indexOf("--editor-pad-x:", at + 1)).toBe(-1);
-    const head = css.slice(0, at);
-    const open = head.lastIndexOf("{");
-    const selector = head.slice(head.lastIndexOf("}", open) + 1, open).trim();
-    expect(selector).toBe(".editor-column");
+  beforeAll(() => {
+    style = installThemeCss(["tokens.css"]);
   });
 
-  it("keeps the measure and the gutter as :root defaults", () => {
-    // They are only ever read through the rule above (or by
-    // `ContentWidthPreview`, which reads the gutter off the root element), so
-    // they inherit from the top as normal.
-    const rootBlock = css.slice(css.indexOf(":root {"), css.indexOf("}", css.indexOf(":root {")));
-    expect(rootBlock).toContain("--editor-measure:");
-    expect(rootBlock).toContain("--editor-gutter:");
-    expect(rootBlock).not.toContain("--editor-pad-x");
+  afterAll(() => style.remove());
+
+  it("composes padding where the inline measure is applied", () => {
+    const column = document.createElement("div");
+    column.className = "editor-column";
+    column.style.setProperty("--editor-measure", editorMeasureStyle(72)["--editor-measure"]);
+    const line = document.createElement("div");
+    column.append(line);
+    document.body.append(column);
+
+    expect(computedToken("--editor-measure")).toBe("88ch");
+    expect(computedToken("--editor-gutter")).toBe("64px");
+    expect(computedToken("--editor-pad-x")).toBe("");
+    expect(computedToken("--editor-measure", column)).toBe("72ch");
+    expect(computedToken("--editor-pad-x", column).replace(/\s+/g, " ")).toBe(
+      "max(var(--editor-gutter),calc((100% - var(--editor-measure))/2))",
+    );
+    expect(computedToken("--editor-pad-x", line)).toBe(computedToken("--editor-pad-x", column));
+    column.remove();
   });
 });

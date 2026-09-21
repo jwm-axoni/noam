@@ -5,19 +5,31 @@
 pub mod attachments;
 mod commands;
 mod error;
+mod identity;
 pub mod import_export;
 pub mod index;
 pub mod keychain;
+pub mod knowledge;
 pub mod notefile;
 pub mod oauth;
 pub mod parse;
 mod state;
+pub mod tasks;
 pub mod tree;
 pub mod vault;
 mod watcher;
 
 use state::AppState;
 use tauri::Manager;
+
+/// Source builds intentionally omit distribution-time updater settings.
+fn has_updater_settings(config: &tauri::Config) -> bool {
+    config
+        .plugins
+        .0
+        .get("updater")
+        .is_some_and(|value| !value.is_null())
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -63,10 +75,13 @@ pub fn run() {
         // account and access — the link carries ids, never content or a grant.
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
-            // Updater is desktop-only; register it here so mobile builds skip it.
+            // A source build has no updater endpoint/key. Registering the plugin
+            // without its config panics before the first window can open.
             #[cfg(desktop)]
-            app.handle()
-                .plugin(tauri_plugin_updater::Builder::new().build())?;
+            if has_updater_settings(app.config()) {
+                app.handle()
+                    .plugin(tauri_plugin_updater::Builder::new().build())?;
+            }
             // Dev/Linux need a runtime registration: on macOS and Windows the
             // scheme comes from the bundle, which `tauri dev` never builds, so
             // without this a link is unopenable in development.
@@ -113,11 +128,14 @@ pub fn run() {
             commands::list_tree,
             commands::list_children,
             commands::read_note,
+            commands::read_note_snapshot,
             commands::note_exists,
             commands::write_trash_copy,
             commands::rebind_note_id,
             commands::write_note,
+            commands::inspect_document_identity,
             commands::write_note_if_missing,
+            commands::write_note_if_unchanged,
             commands::create_note,
             commands::create_folder,
             commands::ensure_folder,
@@ -128,6 +146,8 @@ pub fn run() {
             commands::trash_note,
             commands::search_notes,
             commands::get_backlinks,
+            commands::query_knowledge,
+            commands::query_tasks,
             commands::graph_edges,
             commands::graph_edges_for,
             commands::get_note_meta,
@@ -145,6 +165,7 @@ pub fn run() {
             commands::write_binary_file,
             commands::list_attachments,
             commands::read_external_file,
+            commands::write_external_file,
             commands::get_server_url,
             commands::set_server_url,
             commands::get_vaults_root,
@@ -177,4 +198,33 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+}
+
+#[cfg(test)]
+mod startup_tests {
+    use super::has_updater_settings;
+
+    #[test]
+    fn source_config_starts_without_distribution_updater_settings() {
+        let config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(!has_updater_settings(&config));
+    }
+
+    #[test]
+    fn release_updater_settings_are_still_registered() {
+        let mut config = tauri::Config::default();
+        config.plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey": "release-key", "endpoints": ["https://example.com/update.json"]}),
+        );
+        assert!(has_updater_settings(&config));
+        let _: tauri_plugin_updater::Config =
+            serde_json::from_value(config.plugins.0["updater"].clone()).unwrap();
+        config
+            .plugins
+            .0
+            .insert("updater".into(), serde_json::Value::Null);
+        assert!(!has_updater_settings(&config));
+    }
 }

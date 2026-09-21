@@ -13,7 +13,7 @@
 // `authManager`, `docSession` and the Tauri IPC are faked, as in
 // `bootStore.test.ts`.
 
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 const authManager = vi.hoisted(() => ({
   api: {} as Record<string, unknown>,
@@ -30,6 +30,7 @@ const sync = vi.hoisted(() => ({
     vaultId: null as string | null,
     getMapping: () => null,
     registerNote: vi.fn(async () => null),
+    renamePath: vi.fn(async () => {}),
   },
   isSyncable: vi.fn(() => false),
   disable: vi.fn(), // `adoptOpenedVault` → `leaveVaultSync`
@@ -65,6 +66,7 @@ const ipcMock = vi.hoisted(() => ({
   listNoteTitles: vi.fn(async () => []),
   clearLastVault: vi.fn(async () => {}),
   getVaultEpoch: vi.fn(async () => 1),
+  renamePath: vi.fn(async () => {}),
   createNote: vi.fn(async (dir: string, name: string) => {
     const path = dir === "" ? `${name}.md` : `${dir}/${name}.md`;
     if (existing.has(path)) throw new Error("a note with that name already exists");
@@ -80,6 +82,34 @@ import { useLayoutStore } from "../layout/store";
 import { createDefaultLayout } from "../layout/types";
 import { findPanelTab } from "../layout/operations";
 import { documentTabs } from "../layout/workspaceActions";
+import { readPropertiesCollapsed } from "../lib/prefs";
+
+afterEach(() => vi.unstubAllGlobals());
+
+describe("Properties preferences on confirmed moves", () => {
+  it.each(["inline", "tree", "sync"])("remaps unopened preferences through the %s move path", async (route) => {
+    const values = new Map([["context.propertiesCollapsed", JSON.stringify({
+      version: 2,
+      vaults: { "/fixture": { "folder/a.md": true, "folder/closed.md": true }, "/other": { "folder/a.md": true } },
+    })]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ vault: { path: "/fixture", epoch: 1 } as never });
+    if (route === "inline") await useStore.getState().renameNoteFileExact("Folder/a.md", "Folder/renamed.md");
+    else if (route === "tree") useStore.getState().remapTabs("Folder/a.md", "Folder/renamed.md");
+    else useStore.getState().followNoteRename("Folder/a.md", "Folder/renamed.md");
+    useStore.getState().remapTabs("Folder", "Moved");
+    expect(JSON.parse(values.get("context.propertiesCollapsed")!).vaults).toEqual({
+      "/fixture": { "moved/renamed.md": true, "moved/closed.md": true },
+      "/other": { "folder/a.md": true },
+    });
+    expect(readPropertiesCollapsed("/fixture", "Moved/renamed.md", "doc-a")).toBe(true);
+    expect(readPropertiesCollapsed("/fixture", "Moved/closed.md", "doc-closed")).toBe(true);
+    expect(JSON.parse(values.get("context.propertiesCollapsed")!).vaults["/fixture"]).toBeUndefined();
+  });
+});
 
 const open = (path: string) => useStore.getState().openNoteByPath(path);
 const tabPaths = () => documentTabs().map((tab) => tab.path);

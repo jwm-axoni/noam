@@ -1,12 +1,51 @@
 import { defineConfig } from "vite";
 import react from "@vitejs/plugin-react";
+import { createRequire } from "node:module";
+import { readFileSync, readdirSync } from "node:fs";
+import { dirname, join } from "node:path";
 
 // @ts-expect-error process is a nodejs global
 const host = process.env.TAURI_DEV_HOST;
+const require = createRequire(import.meta.url);
+const pdfRoot = dirname(require.resolve("pdfjs-dist/package.json"));
+
+/** PDF.js requests these by name at runtime, so Vite must copy the directories. */
+function pdfRuntimeAssets() {
+  const directories = ["cmaps", "iccs", "standard_fonts", "wasm"];
+  return {
+    name: "pdf-runtime-assets",
+    configureServer(server: { middlewares: { use: (fn: (req: { url?: string }, res: { statusCode: number; setHeader: (name: string, value: string) => void; end: (body?: Buffer) => void }, next: () => void) => void) => void } }) {
+      server.middlewares.use((req, res, next) => {
+        const match = /^\/pdfjs\/(cmaps|iccs|standard_fonts|wasm)\/([^/?]+)$/.exec(req.url ?? "");
+        if (!match) return next();
+        try {
+          if (match[1] === "wasm" && match[2].endsWith(".wasm")) {
+            res.setHeader("Content-Type", "application/wasm");
+          }
+          res.end(readFileSync(join(pdfRoot, match[1], match[2])));
+        } catch {
+          res.statusCode = 404;
+          res.end();
+        }
+      });
+    },
+    buildStart(this: { emitFile: (file: { type: "asset"; fileName: string; source: Buffer }) => void }) {
+      for (const directory of directories) {
+        for (const name of readdirSync(join(pdfRoot, directory))) {
+          this.emitFile({
+            type: "asset",
+            fileName: `pdfjs/${directory}/${name}`,
+            source: readFileSync(join(pdfRoot, directory, name)),
+          });
+        }
+      }
+    },
+  };
+}
 
 // https://vite.dev/config/
 export default defineConfig(async () => ({
-  plugins: [react()],
+  plugins: [react(), pdfRuntimeAssets()],
 
   build: {
     /**

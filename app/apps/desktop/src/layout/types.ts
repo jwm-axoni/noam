@@ -5,9 +5,13 @@ export const PANEL_TYPES = [
   "files",
   "search",
   "backlinks",
+  "properties",
   "outline",
   "graph",
   "history",
+  "workflows",
+  "tasks",
+  "calendar",
 ] as const;
 export type PanelType = (typeof PANEL_TYPES)[number];
 
@@ -71,18 +75,28 @@ export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>>
   files: ["left", "right"],
   search: ["left", "right", "center"],
   backlinks: ["left", "right", "center"],
+  properties: ["left", "right", "center"],
   outline: ["left", "right", "center"],
   graph: ["left", "right", "center"],
   history: ["left", "right", "center"],
+  // A dock list, not a document surface: it belongs beside the files tree.
+  workflows: ["left", "right"],
+  // Same reasoning: a standing list you work a note FROM, not a note surface.
+  tasks: ["left", "right"],
+  calendar: ["left", "right"],
 };
 
 export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
   files: 1,
   search: 1,
   backlinks: 1,
+  properties: 1,
   outline: 1,
   graph: 2,
   history: 1,
+  workflows: 1,
+  tasks: 1,
+  calendar: 1,
 };
 
 export function isZoneId(value: unknown): value is ZoneId {

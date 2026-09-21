@@ -1,0 +1,52 @@
+{
+  "manifest": {
+    "format": "noam-package",
+    "formatVersion": 1,
+    "id": "bad-paths-pack",
+    "name": "Starter pack",
+    "description": "A daily note workflow, its template and one asset.",
+    "version": "1.2.0",
+    "minAppVersion": "0.1.0",
+    "workflowSchemaVersion": 1,
+    "entries": [
+      {
+        "path": "Workflows\\Windows.md",
+        "kind": "template",
+        "sha256": "45697286b8094dd9701d8ec7ccb77f19cf6bbd58357fa5a61d1e213d9d037e61"
+      },
+      {
+        "path": ".context/config.json",
+        "kind": "asset",
+        "sha256": "45697286b8094dd9701d8ec7ccb77f19cf6bbd58357fa5a61d1e213d9d037e61"
+      },
+      {
+        "path": "Templates//Empty.md",
+        "kind": "template",
+        "sha256": "45697286b8094dd9701d8ec7ccb77f19cf6bbd58357fa5a61d1e213d9d037e61"
+      },
+      {
+        "path": "/Templates/Leading.md",
+        "kind": "template",
+        "sha256": "45697286b8094dd9701d8ec7ccb77f19cf6bbd58357fa5a61d1e213d9d037e61"
+      }
+    ]
+  },
+  "files": {
+    "Workflows\\Windows.md": {
+      "encoding": "utf8",
+      "content": "# owned\n"
+    },
+    ".context/config.json": {
+      "encoding": "utf8",
+      "content": "# owned\n"
+    },
+    "Templates//Empty.md": {
+      "encoding": "utf8",
+      "content": "# owned\n"
+    },
+    "/Templates/Leading.md": {
+      "encoding": "utf8",
+      "content": "# owned\n"
+    }
+  }
+}

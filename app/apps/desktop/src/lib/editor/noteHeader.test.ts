@@ -21,6 +21,7 @@ function mount(doc: string, header?: Partial<NoteHeaderOptions>, readOnly = fals
       getTitles: () => [],
       onNavigate: () => {},
       header: {
+        vaultId: "vault-a",
         path: "Notes/My Note.md",
         renameTo: async () => null,
         noteExists: async () => false,

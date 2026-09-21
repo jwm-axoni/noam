@@ -1,71 +1,96 @@
 /* ============================================================
    Noam — Design Tokens ("Atomize PLUS")
    Light-first layered surfaces, 4pt grid, pill radii, soft diffuse
-   shadows, violet primary. The same scale is mirrored for dark.
+   shadows. The same scale is mirrored for dark.
    All UI styling MUST consume these variables — no hardcoded colors.
 
    Theming: light lives on :root. Dark is applied by [data-theme="dark"]
    (set by src/lib/theme.ts, which resolves the light/dark/system toggle).
    A prefers-color-scheme fallback covers the pre-hydration frame before
    the toggle script paints data-theme.
+
+   Accent worlds: the colour the chrome is painted in is a second axis,
+   `data-accent` (Appearance → Accent, `lib/prefs.ts`), stamped next to
+   `data-theme`. Each world is one block of the SAME 46 "world" tokens —
+   surfaces, text tiers, accent family, links, focus, borders, shadows, note
+   heading inks and the graph palette — for light and one for dark, so every
+   component keeps reading the same variables and nothing is per-component.
+   The base blocks below ARE the default world (Ink: Paper & Ink, the brand),
+   so the pre-hydration frame already matches; "violet" is the palette this
+   replaced, kept as an option and identical to it. The accent blocks match
+   ANY element carrying the attribute, which is how Appearance → Accent
+   previews each world on a swatch without a second copy of the values.
+   `src/styles/__tests__/accentTokens.test.ts` pins the parity.
    ============================================================ */
 
 :root {
   color-scheme: light;
 
   /* Surfaces (light) */
-  --bg-app: #ececf0;            /* app background / canvas */
-  --bg-surface: #ffffff;        /* cards, editor sheet, dialogs */
-  --bg-subtle: #f7f7f9;         /* subtle wells, input fills */
-  --bg-hover: #ececf1;          /* hover fills */
-  --bg-active: #e4e4ea;         /* pressed / selected fills */
+  --bg-app: #efe9de;            /* app background / canvas */
+  --bg-surface: #fbf8f2;        /* cards, editor sheet, dialogs */
+  --bg-subtle: #f6f2ea;         /* subtle wells, input fills */
+  --bg-hover: #ece6da;          /* hover fills */
+  --bg-active: #e3dccd;         /* pressed / selected fills */
 
   /* Graph void backdrop (light): a soft radial lift off the app background,
      so the graph sits IN the theme instead of punching a dark hole in it.
      The WebGL backdrop shader reads these same stops via getComputedStyle —
      keep the three stops in sync with the gradient in graph.css. */
-  --graph-void-core: #f5f5f8;
-  --graph-void-mid: #eaeaef;
-  --graph-void-rim: #dbdbe2;
+  --graph-void-core: #f8f4ec;
+  --graph-void-mid: #ede7dc;
+  --graph-void-rim: #ddd5c6;
   /* Graph vignette rim tint: subtle cool shade in light, near-black in dark. */
-  --graph-vignette: rgba(25, 28, 45, 0.10);
-  --graph-state-text: rgba(233, 236, 245, 0.72);
-  --graph-state-heading: #f4f6fb;
-  --graph-state-surface: rgba(22, 25, 37, 0.55);
+  --graph-vignette: rgba(60, 45, 30, 0.10);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(34, 30, 26, 0.55);
   --graph-state-border: rgba(255, 255, 255, 0.07);
   --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --graph-state-code: #bcb2ff;
-  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
-  --graph-state-code-border: rgba(127, 115, 255, 0.32);
-  --graph-node: #8f84ff;
-  --graph-node-strong: #a49bff;
-  --graph-node-glow: rgba(143, 132, 255, 0.7);
-  --graph-node-dim: rgba(143, 132, 255, 0.55);
-  --graph-link-dim: rgba(143, 132, 255, 0.35);
+  --graph-state-code: #e0d6c4;
+  --graph-state-code-bg: rgba(235, 228, 214, 0.18);
+  --graph-state-code-border: rgba(235, 228, 214, 0.32);
+  --graph-node: #8a8074;
+  --graph-node-strong: #2b2724;
+  --graph-node-glow: rgba(138, 128, 116, 0.7);
+  --graph-node-dim: rgba(138, 128, 116, 0.55);
+  --graph-link-rest: rgb(120, 110, 100);
+  --graph-link-dim: rgba(138, 128, 116, 0.35);
 
   /* Text */
-  --text-primary: #1a1a1e;
-  --text-secondary: #6b6b76;
-  --text-tertiary: #9a9aa5;
+  --text-primary: #2b2724;
+  --text-secondary: #6f675e;
+  --text-tertiary: #9c9285;
   /* The faint tier: markdown syntax markers (#, **, `, >, -), the fold
      chevrons and the line-number gutter. One step quieter than tertiary —
      present enough to find, quiet enough that prose reads as prose. Every
      theme block below must define it too: miss one and every marker in the
      editor turns black for a frame (or forever, in that theme). */
-  --text-faint: #bfbfc8;
-  --text-on-accent: #ffffff;
+  --text-faint: #c3bbaf;
+  --text-on-accent: #fbf8f2;
 
-  /* Accent (Atomize violet — from the Figma kit) */
-  --accent: #7f73ff;
-  --accent-hover: #6a5cf5;
-  --accent-soft: #efedff;       /* soft fills, selection tints */
-  --accent-soft-hover: #e4e0ff;
-  --accent-gradient: linear-gradient(135deg, #9a8fff 0%, #7f73ff 100%);
+  /* Note headings. These are document ink, not UI accent states — six
+     coloured inks per world (here: ink, sepia, blue-black, pine, ochre,
+     mulberry), each AA-readable on the editor sheet. */
+  --heading-1-color: #2b2724;
+  --heading-2-color: #6b4a2e;
+  --heading-3-color: #33598a;
+  --heading-4-color: #3f6b52;
+  --heading-5-color: #8f5a12;
+  --heading-6-color: #7d4560;
+
+  /* Accent — Ink: the brand charcoal. Violet (the original) and the other
+     worlds override this whole family in the accent blocks at the end. */
+  --accent: #2b2724;
+  --accent-hover: #3f3a35;
+  --accent-soft: #e5ddcd;       /* soft fills, selection tints */
+  --accent-soft-hover: #dbd2bf;
+  --accent-gradient: linear-gradient(135deg, #3f3a35 0%, #2b2724 100%);
   /* Rare decorative-only partner (hero art), never for controls */
-  --decor-gradient: linear-gradient(135deg, #7f73ff 0%, #ff6a3d 120%);
+  --decor-gradient: linear-gradient(135deg, #2b2724 0%, #a09585 120%);
 
   /* Links (secondary accent) */
-  --link: #3b82f6;
+  --link: #33598a;
 
   /* Brand — Noam's Paper & Ink Fan mark and wordmark. */
   --brand-ink: #2b2724;
@@ -80,9 +105,9 @@
   --warning-soft: #fff4e0;
 
   /* Borders */
-  --border: rgba(20, 20, 40, 0.09);
-  --border-strong: rgba(20, 20, 40, 0.15);
-  --focus-ring: 0 0 0 3px rgba(127, 115, 255, 0.30);
+  --border: rgba(43, 39, 36, 0.10);
+  --border-strong: rgba(43, 39, 36, 0.18);
+  --focus-ring: 0 0 0 3px rgba(43, 39, 36, 0.28);
 
   /* Radii (generously rounded, pills for actions/chips) */
   --radius-sm: 8px;
@@ -92,9 +117,9 @@
   --radius-pill: 999px;
 
   /* Shadows (soft, diffuse, never harsh) */
-  --shadow-sm: 0 1px 2px rgba(20, 20, 40, 0.05), 0 1px 6px rgba(20, 20, 40, 0.04);
-  --shadow-md: 0 8px 24px rgba(20, 20, 40, 0.08);
-  --shadow-lg: 0 16px 40px rgba(20, 20, 40, 0.16);
+  --shadow-sm: 0 1px 2px rgba(40, 32, 26, 0.05), 0 1px 6px rgba(40, 32, 26, 0.04);
+  --shadow-md: 0 8px 24px rgba(40, 32, 26, 0.08);
+  --shadow-lg: 0 16px 40px rgba(40, 32, 26, 0.16);
   --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
 
   /* Spacing — 4pt grid */
@@ -259,48 +284,58 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --bg-app: #101014;
-  --bg-surface: #1d1d24;
-  --bg-subtle: #17171c;
-  --bg-hover: #26262e;
-  --bg-active: #2f2f38;
+  --bg-app: #1b1a18;
+  --bg-surface: #242221;
+  --bg-subtle: #1f1e1c;
+  --bg-hover: #2e2c2a;
+  --bg-active: #383533;
 
   /* Graph void backdrop (dark): the deep-space gradient. Same three stops as
      the WebGL backdrop shader defaults — the shader re-reads these live, so
      flipping the theme repaints the canvas without a reload. */
-  --graph-void-core: #0f111b;
-  --graph-void-mid: #080910;
-  --graph-void-rim: #030409;
+  --graph-void-core: #201e1c;
+  --graph-void-mid: #121110;
+  --graph-void-rim: #070707;
   --graph-vignette: rgba(0, 0, 0, 0.6);
-  --graph-state-text: rgba(233, 236, 245, 0.72);
-  --graph-state-heading: #f4f6fb;
-  --graph-state-surface: rgba(22, 25, 37, 0.72);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(36, 34, 33, 0.72);
   --graph-state-border: rgba(255, 255, 255, 0.09);
   --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-  --graph-state-code: #bcb2ff;
-  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
-  --graph-state-code-border: rgba(127, 115, 255, 0.32);
-  --graph-node: #8f84ff;
-  --graph-node-strong: #a49bff;
-  --graph-node-glow: rgba(143, 132, 255, 0.7);
-  --graph-node-dim: rgba(143, 132, 255, 0.55);
-  --graph-link-dim: rgba(143, 132, 255, 0.35);
+  --graph-state-code: #e0d6c4;
+  --graph-state-code-bg: rgba(235, 228, 214, 0.18);
+  --graph-state-code-border: rgba(235, 228, 214, 0.32);
+  --graph-node: #b4a998;
+  --graph-node-strong: #ebe4d6;
+  --graph-node-glow: rgba(180, 169, 152, 0.7);
+  --graph-node-dim: rgba(180, 169, 152, 0.55);
+  --graph-link-rest: rgb(140, 130, 118);
+  --graph-link-dim: rgba(180, 169, 152, 0.35);
 
-  --text-primary: #f2f2f5;
-  --text-secondary: #a6a6b2;
-  --text-tertiary: #6e6e78;
-  --text-faint: #55555f;
+  --text-primary: #ebe4d6;
+  --text-secondary: #a89f92;
+  --text-tertiary: #918a7e;
+  --text-faint: #574f47;
   --brand-ink: #ebe4d6;
   --brand-pencil: #8a8074;
 
-  --accent: #8f84ff;
-  --accent-hover: #a49bff;
-  --accent-soft: rgba(127, 115, 255, 0.18);
-  --accent-soft-hover: rgba(127, 115, 255, 0.26);
-  --accent-gradient: linear-gradient(135deg, #9a8fff 0%, #7f73ff 100%);
-  --decor-gradient: linear-gradient(135deg, #7f73ff 0%, #ff6a3d 120%);
+  /* Muted enough to avoid a glow on the dark editor sheet, while every
+     level remains AA-readable against --bg-surface. */
+  --heading-1-color: #ebe4d6;
+  --heading-2-color: #d3b58f;
+  --heading-3-color: #9fbde0;
+  --heading-4-color: #9dc5a8;
+  --heading-5-color: #dba96a;
+  --heading-6-color: #d19cb6;
 
-  --link: #6ea8ff;
+  --accent: #ebe4d6;
+  --accent-hover: #f7f1e6;
+  --accent-soft: rgba(235, 228, 214, 0.14);
+  --accent-soft-hover: rgba(235, 228, 214, 0.22);
+  --accent-gradient: linear-gradient(135deg, #f7f1e6 0%, #ebe4d6 100%);
+  --decor-gradient: linear-gradient(135deg, #ebe4d6 0%, #8a8074 120%);
+
+  --link: #8fb4e6;
 
   --danger-soft: rgba(229, 72, 77, 0.18);
   --success: #3cb883;
@@ -308,15 +343,19 @@
   --warning: #f0b429;
   --warning-soft: rgba(240, 180, 41, 0.16);
 
-  --border: rgba(255, 255, 255, 0.09);
-  --border-strong: rgba(255, 255, 255, 0.18);
-  --focus-ring: 0 0 0 3px rgba(143, 132, 255, 0.40);
+  --border: rgba(255, 248, 238, 0.09);
+  --border-strong: rgba(255, 248, 238, 0.18);
+  --focus-ring: 0 0 0 3px rgba(235, 228, 214, 0.35);
 
   --highlight-bg: rgba(255, 208, 0, 0.22);
 
   --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
   --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
   --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+
+  /* Completing the world set (see the accent blocks below). */
+  --text-on-accent: #1c1a18;
+  --shadow-text-on-accent: none;
 }
 
 /* Pre-hydration fallback: honour the OS until the toggle script paints
@@ -325,42 +364,50 @@
   :root:not([data-theme="light"]):not([data-theme="dark"]) {
     color-scheme: dark;
 
-    --bg-app: #101014;
-    --bg-surface: #1d1d24;
-    --bg-subtle: #17171c;
-    --bg-hover: #26262e;
-    --bg-active: #2f2f38;
+    --bg-app: #1b1a18;
+    --bg-surface: #242221;
+    --bg-subtle: #1f1e1c;
+    --bg-hover: #2e2c2a;
+    --bg-active: #383533;
 
-    --graph-void-core: #0f111b;
-    --graph-void-mid: #080910;
-    --graph-void-rim: #030409;
+    --graph-void-core: #201e1c;
+    --graph-void-mid: #121110;
+    --graph-void-rim: #070707;
     --graph-vignette: rgba(0, 0, 0, 0.6);
-    --graph-state-text: rgba(233, 236, 245, 0.72);
-    --graph-state-heading: #f4f6fb;
-    --graph-state-surface: rgba(22, 25, 37, 0.72);
+    --graph-state-text: rgba(240, 235, 225, 0.72);
+    --graph-state-heading: #f7f2e8;
+    --graph-state-surface: rgba(36, 34, 33, 0.72);
     --graph-state-border: rgba(255, 255, 255, 0.09);
     --graph-state-shadow: 0 20px 60px rgba(0, 0, 0, 0.5);
-    --graph-state-code: #bcb2ff;
-    --graph-state-code-bg: rgba(127, 115, 255, 0.18);
-    --graph-state-code-border: rgba(127, 115, 255, 0.32);
-    --graph-node: #8f84ff;
-    --graph-node-strong: #a49bff;
-    --graph-node-glow: rgba(143, 132, 255, 0.7);
-    --graph-node-dim: rgba(143, 132, 255, 0.55);
-    --graph-link-dim: rgba(143, 132, 255, 0.35);
+    --graph-state-code: #e0d6c4;
+    --graph-state-code-bg: rgba(235, 228, 214, 0.18);
+    --graph-state-code-border: rgba(235, 228, 214, 0.32);
+    --graph-node: #b4a998;
+    --graph-node-strong: #ebe4d6;
+    --graph-node-glow: rgba(180, 169, 152, 0.7);
+    --graph-node-dim: rgba(180, 169, 152, 0.55);
+    --graph-link-rest: rgb(140, 130, 118);
+    --graph-link-dim: rgba(180, 169, 152, 0.35);
 
-    --text-primary: #f2f2f5;
-    --text-secondary: #a6a6b2;
-    --text-tertiary: #6e6e78;
-    --text-faint: #55555f;
+    --text-primary: #ebe4d6;
+    --text-secondary: #a89f92;
+    --text-tertiary: #918a7e;
+    --text-faint: #574f47;
     --brand-ink: #ebe4d6;
     --brand-pencil: #8a8074;
 
-    --accent: #8f84ff;
-    --accent-hover: #a49bff;
-    --accent-soft: rgba(127, 115, 255, 0.18);
-    --accent-soft-hover: rgba(127, 115, 255, 0.26);
-    --link: #6ea8ff;
+    --heading-1-color: #ebe4d6;
+    --heading-2-color: #d3b58f;
+    --heading-3-color: #9fbde0;
+    --heading-4-color: #9dc5a8;
+    --heading-5-color: #dba96a;
+    --heading-6-color: #d19cb6;
+
+    --accent: #ebe4d6;
+    --accent-hover: #f7f1e6;
+    --accent-soft: rgba(235, 228, 214, 0.14);
+    --accent-soft-hover: rgba(235, 228, 214, 0.22);
+    --link: #8fb4e6;
 
     --danger-soft: rgba(229, 72, 77, 0.18);
     --success: #3cb883;
@@ -368,14 +415,545 @@
     --warning: #f0b429;
     --warning-soft: rgba(240, 180, 41, 0.16);
 
-    --border: rgba(255, 255, 255, 0.09);
-    --border-strong: rgba(255, 255, 255, 0.18);
-    --focus-ring: 0 0 0 3px rgba(143, 132, 255, 0.40);
+    --border: rgba(255, 248, 238, 0.09);
+    --border-strong: rgba(255, 248, 238, 0.18);
+    --focus-ring: 0 0 0 3px rgba(235, 228, 214, 0.35);
 
     --highlight-bg: rgba(255, 208, 0, 0.22);
 
     --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
     --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
     --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
-  }
+
+  /* Completing the world set (see the accent blocks below). */
+  --text-on-accent: #1c1a18;
+  --shadow-text-on-accent: none;
+  --accent-gradient: linear-gradient(135deg, #f7f1e6 0%, #ebe4d6 100%);
+  --decor-gradient: linear-gradient(135deg, #ebe4d6 0%, #8a8074 120%);
+}
+}
+
+
+/* ---- Accent worlds ----
+   Five blocks × two themes of the same token set (values derived from the
+   round-2 colour worlds in the logo study, measured for AA: text-on-accent,
+   accent-on-surface, links and every heading level clear 4.5:1 in the four
+   new worlds; Violet's contrast-critical tokens now meet the same AA bar).
+   Light matches
+   `[data-accent]`; dark matches the same attribute under — or on — the dark
+   root, so the settings swatches preview each world in the current theme.
+   Ink duplicates the base blocks on purpose: the swatch for the default
+   world would otherwise inherit whichever world is active. */
+
+[data-accent="ink"],
+:root[data-theme-preset="paper-ink"] {
+  --bg-app: #efe9de;
+  --bg-surface: #fbf8f2;
+  --bg-subtle: #f6f2ea;
+  --bg-hover: #ece6da;
+  --bg-active: #e3dccd;
+  --graph-void-core: #f8f4ec;
+  --graph-void-mid: #ede7dc;
+  --graph-void-rim: #ddd5c6;
+  --graph-vignette: rgba(60, 45, 30, 0.10);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(34, 30, 26, 0.55);
+  --graph-state-code: #e0d6c4;
+  --graph-state-code-bg: rgba(235, 228, 214, 0.18);
+  --graph-state-code-border: rgba(235, 228, 214, 0.32);
+  --graph-node: #8a8074;
+  --graph-node-strong: #2b2724;
+  --graph-node-glow: rgba(138, 128, 116, 0.7);
+  --graph-node-dim: rgba(138, 128, 116, 0.55);
+  --graph-link-rest: rgb(120, 110, 100);
+  --graph-link-dim: rgba(138, 128, 116, 0.35);
+  --text-primary: #2b2724;
+  --text-secondary: #6f675e;
+  --text-tertiary: #9c9285;
+  --text-faint: #c3bbaf;
+  --text-on-accent: #fbf8f2;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: #2b2724;
+  --heading-2-color: #6b4a2e;
+  --heading-3-color: #33598a;
+  --heading-4-color: #3f6b52;
+  --heading-5-color: #8f5a12;
+  --heading-6-color: #7d4560;
+  --accent: #2b2724;
+  --accent-hover: #3f3a35;
+  --accent-soft: #e5ddcd;
+  --accent-soft-hover: #dbd2bf;
+  --accent-gradient: linear-gradient(135deg, #3f3a35 0%, #2b2724 100%);
+  --decor-gradient: linear-gradient(135deg, #2b2724 0%, #a09585 120%);
+  --link: #33598a;
+  --border: rgba(43, 39, 36, 0.10);
+  --border-strong: rgba(43, 39, 36, 0.18);
+  --focus-ring: 0 0 0 3px rgba(43, 39, 36, 0.28);
+  --shadow-sm: 0 1px 2px rgba(40, 32, 26, 0.05), 0 1px 6px rgba(40, 32, 26, 0.04);
+  --shadow-md: 0 8px 24px rgba(40, 32, 26, 0.08);
+  --shadow-lg: 0 16px 40px rgba(40, 32, 26, 0.16);
+}
+[data-theme="dark"] [data-accent="ink"],
+[data-theme="dark"][data-accent="ink"],
+:root[data-theme="dark"][data-theme-preset="paper-ink"] {
+  --bg-app: #1b1a18;
+  --bg-surface: #242221;
+  --bg-subtle: #1f1e1c;
+  --bg-hover: #2e2c2a;
+  --bg-active: #383533;
+  --graph-void-core: #201e1c;
+  --graph-void-mid: #121110;
+  --graph-void-rim: #070707;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(36, 34, 33, 0.72);
+  --graph-state-code: #e0d6c4;
+  --graph-state-code-bg: rgba(235, 228, 214, 0.18);
+  --graph-state-code-border: rgba(235, 228, 214, 0.32);
+  --graph-node: #b4a998;
+  --graph-node-strong: #ebe4d6;
+  --graph-node-glow: rgba(180, 169, 152, 0.7);
+  --graph-node-dim: rgba(180, 169, 152, 0.55);
+  --graph-link-rest: rgb(140, 130, 118);
+  --graph-link-dim: rgba(180, 169, 152, 0.35);
+  --text-primary: #ebe4d6;
+  --text-secondary: #a89f92;
+  --text-tertiary: #918a7e;
+  --text-faint: #574f47;
+  --text-on-accent: #1c1a18;
+  --shadow-text-on-accent: none;
+  --heading-1-color: #ebe4d6;
+  --heading-2-color: #d3b58f;
+  --heading-3-color: #9fbde0;
+  --heading-4-color: #9dc5a8;
+  --heading-5-color: #dba96a;
+  --heading-6-color: #d19cb6;
+  --accent: #ebe4d6;
+  --accent-hover: #f7f1e6;
+  --accent-soft: rgba(235, 228, 214, 0.14);
+  --accent-soft-hover: rgba(235, 228, 214, 0.22);
+  --accent-gradient: linear-gradient(135deg, #f7f1e6 0%, #ebe4d6 100%);
+  --decor-gradient: linear-gradient(135deg, #ebe4d6 0%, #8a8074 120%);
+  --link: #8fb4e6;
+  --border: rgba(255, 248, 238, 0.09);
+  --border-strong: rgba(255, 248, 238, 0.18);
+  --focus-ring: 0 0 0 3px rgba(235, 228, 214, 0.35);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+[data-accent="violet"],
+:root[data-theme-preset="noam"] {
+  --bg-app: #ececf0;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f7f7f9;
+  --bg-hover: #ececf1;
+  --bg-active: #e4e4ea;
+  --graph-void-core: #f5f5f8;
+  --graph-void-mid: #eaeaef;
+  --graph-void-rim: #dbdbe2;
+  --graph-vignette: rgba(25, 28, 45, 0.10);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(22, 25, 37, 0.55);
+  --graph-state-code: #bcb2ff;
+  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
+  --graph-state-code-border: rgba(127, 115, 255, 0.32);
+  --graph-node: #8f84ff;
+  --graph-node-strong: #a49bff;
+  --graph-node-glow: rgba(143, 132, 255, 0.7);
+  --graph-node-dim: rgba(143, 132, 255, 0.55);
+  --graph-link-rest: rgb(89, 96, 121);
+  --graph-link-dim: rgba(143, 132, 255, 0.35);
+  --text-primary: #1a1a1e;
+  --text-secondary: #6b6b76;
+  --text-tertiary: #9a9aa5;
+  --text-faint: #bfbfc8;
+  --text-on-accent: #ffffff;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: #5b4acb;
+  --heading-2-color: #6652b8;
+  --heading-3-color: #245ca8;
+  --heading-4-color: #276f68;
+  --heading-5-color: #a34d18;
+  --heading-6-color: #934069;
+  --accent: #6558f5;
+  --accent-hover: #5548df;
+  --accent-soft: #efedff;
+  --accent-soft-hover: #e4e0ff;
+  --accent-gradient: linear-gradient(135deg, #6e61ef 0%, #6558f5 100%);
+  --decor-gradient: linear-gradient(135deg, #6558f5 0%, #ff6a3d 120%);
+  --link: #2f6fbd;
+  --border: rgba(20, 20, 40, 0.09);
+  --border-strong: rgba(20, 20, 40, 0.15);
+  --focus-ring: 0 0 0 3px rgba(101, 88, 245, 0.30);
+  --shadow-sm: 0 1px 2px rgba(20, 20, 40, 0.05), 0 1px 6px rgba(20, 20, 40, 0.04);
+  --shadow-md: 0 8px 24px rgba(20, 20, 40, 0.08);
+  --shadow-lg: 0 16px 40px rgba(20, 20, 40, 0.16);
+}
+[data-theme="dark"] [data-accent="violet"],
+[data-theme="dark"][data-accent="violet"],
+:root[data-theme="dark"][data-theme-preset="noam"] {
+  --bg-app: #101014;
+  --bg-surface: #1d1d24;
+  --bg-subtle: #17171c;
+  --bg-hover: #26262e;
+  --bg-active: #2f2f38;
+  --graph-void-core: #0f111b;
+  --graph-void-mid: #080910;
+  --graph-void-rim: #030409;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(22, 25, 37, 0.72);
+  --graph-state-code: #bcb2ff;
+  --graph-state-code-bg: rgba(127, 115, 255, 0.18);
+  --graph-state-code-border: rgba(127, 115, 255, 0.32);
+  --graph-node: #8f84ff;
+  --graph-node-strong: #a49bff;
+  --graph-node-glow: rgba(143, 132, 255, 0.7);
+  --graph-node-dim: rgba(143, 132, 255, 0.55);
+  --graph-link-rest: rgb(128, 133, 153);
+  --graph-link-dim: rgba(143, 132, 255, 0.35);
+  --text-primary: #f2f2f5;
+  --text-secondary: #a6a6b2;
+  --text-tertiary: #6e6e78;
+  --text-faint: #55555f;
+  --text-on-accent: #1c1a18;
+  --shadow-text-on-accent: none;
+  --heading-1-color: #a89bff;
+  --heading-2-color: #998bea;
+  --heading-3-color: #78a7dd;
+  --heading-4-color: #69a89f;
+  --heading-5-color: #d7985f;
+  --heading-6-color: #c77f9e;
+  --accent: #8f84ff;
+  --accent-hover: #a49bff;
+  --accent-soft: rgba(127, 115, 255, 0.18);
+  --accent-soft-hover: rgba(127, 115, 255, 0.26);
+  --accent-gradient: linear-gradient(135deg, #9a8fff 0%, #7f73ff 100%);
+  --decor-gradient: linear-gradient(135deg, #7f73ff 0%, #ff6a3d 120%);
+  --link: #6ea8ff;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --focus-ring: 0 0 0 3px rgba(143, 132, 255, 0.40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+[data-accent="sea"],
+:root[data-theme-preset="sea"] {
+  --bg-app: #e8eef0;
+  --bg-surface: #ffffff;
+  --bg-subtle: #f4f8f9;
+  --bg-hover: #e6eef0;
+  --bg-active: #dbe6e9;
+  --graph-void-core: #f4f8f9;
+  --graph-void-mid: #e8eef0;
+  --graph-void-rim: #d6e0e3;
+  --graph-vignette: rgba(14, 40, 50, 0.10);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(16, 28, 32, 0.55);
+  --graph-state-code: #8fe0e6;
+  --graph-state-code-bg: rgba(86, 202, 210, 0.18);
+  --graph-state-code-border: rgba(86, 202, 210, 0.32);
+  --graph-node: #2aa5ae;
+  --graph-node-strong: #0e7c86;
+  --graph-node-glow: rgba(42, 165, 174, 0.7);
+  --graph-node-dim: rgba(42, 165, 174, 0.55);
+  --graph-link-rest: rgb(88, 104, 112);
+  --graph-link-dim: rgba(42, 165, 174, 0.35);
+  --text-primary: #172026;
+  --text-secondary: #5f6d74;
+  --text-tertiary: #8f9ca3;
+  --text-faint: #b9c4c9;
+  --text-on-accent: #ffffff;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: #0d747e;
+  --heading-2-color: #1a6b9a;
+  --heading-3-color: #3a5fb0;
+  --heading-4-color: #2e7d5b;
+  --heading-5-color: #a3611a;
+  --heading-6-color: #8a4a70;
+  --accent: #0d747e;
+  --accent-hover: #0a5f68;
+  --accent-soft: #e0f3f4;
+  --accent-soft-hover: #cfeaec;
+  --accent-gradient: linear-gradient(135deg, #2a9aa3 0%, #0d747e 100%);
+  --decor-gradient: linear-gradient(135deg, #0d747e 0%, #f2a541 120%);
+  --link: #1b64a8;
+  --border: rgba(14, 40, 50, 0.10);
+  --border-strong: rgba(14, 40, 50, 0.17);
+  --focus-ring: 0 0 0 3px rgba(13, 116, 126, 0.30);
+  --shadow-sm: 0 1px 2px rgba(10, 30, 40, 0.05), 0 1px 6px rgba(10, 30, 40, 0.04);
+  --shadow-md: 0 8px 24px rgba(10, 30, 40, 0.08);
+  --shadow-lg: 0 16px 40px rgba(10, 30, 40, 0.16);
+}
+[data-theme="dark"] [data-accent="sea"],
+[data-theme="dark"][data-accent="sea"],
+:root[data-theme="dark"][data-theme-preset="sea"] {
+  --bg-app: #0e1517;
+  --bg-surface: #172023;
+  --bg-subtle: #121a1c;
+  --bg-hover: #1f2a2d;
+  --bg-active: #283539;
+  --graph-void-core: #0d181b;
+  --graph-void-mid: #070f11;
+  --graph-void-rim: #030808;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(16, 28, 32, 0.72);
+  --graph-state-code: #8fe0e6;
+  --graph-state-code-bg: rgba(86, 202, 210, 0.18);
+  --graph-state-code-border: rgba(86, 202, 210, 0.32);
+  --graph-node: #56cad2;
+  --graph-node-strong: #8ae0e6;
+  --graph-node-glow: rgba(86, 202, 210, 0.7);
+  --graph-node-dim: rgba(86, 202, 210, 0.55);
+  --graph-link-rest: rgb(118, 140, 146);
+  --graph-link-dim: rgba(86, 202, 210, 0.35);
+  --text-primary: #eef4f5;
+  --text-secondary: #a2b0b4;
+  --text-tertiary: #6e7c80;
+  --text-faint: #52605f;
+  --text-on-accent: #0f1a1c;
+  --shadow-text-on-accent: none;
+  --heading-1-color: #56cad2;
+  --heading-2-color: #6fb6e8;
+  --heading-3-color: #8fa8f0;
+  --heading-4-color: #6fc9a0;
+  --heading-5-color: #e0b06a;
+  --heading-6-color: #d39ac0;
+  --accent: #56cad2;
+  --accent-hover: #74d8de;
+  --accent-soft: rgba(86, 202, 210, 0.16);
+  --accent-soft-hover: rgba(86, 202, 210, 0.24);
+  --accent-gradient: linear-gradient(135deg, #74d8de 0%, #56cad2 100%);
+  --decor-gradient: linear-gradient(135deg, #56cad2 0%, #f2a541 120%);
+  --link: #7ab8f0;
+  --border: rgba(255, 255, 255, 0.09);
+  --border-strong: rgba(255, 255, 255, 0.18);
+  --focus-ring: 0 0 0 3px rgba(86, 202, 210, 0.40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+[data-accent="terracotta"],
+:root[data-theme-preset="terracotta"] {
+  --bg-app: #f1e6d6;
+  --bg-surface: #fbf5ec;
+  --bg-subtle: #f7efe3;
+  --bg-hover: #ede2d1;
+  --bg-active: #e4d6c1;
+  --graph-void-core: #f9f2e8;
+  --graph-void-mid: #efe4d4;
+  --graph-void-rim: #e0d1bc;
+  --graph-vignette: rgba(70, 40, 20, 0.10);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(34, 26, 21, 0.55);
+  --graph-state-code: #f7b993;
+  --graph-state-code-bg: rgba(239, 138, 102, 0.18);
+  --graph-state-code-border: rgba(239, 138, 102, 0.32);
+  --graph-node: #d8734f;
+  --graph-node-strong: #b9482c;
+  --graph-node-glow: rgba(216, 115, 79, 0.7);
+  --graph-node-dim: rgba(216, 115, 79, 0.55);
+  --graph-link-rest: rgb(125, 108, 92);
+  --graph-link-dim: rgba(216, 115, 79, 0.35);
+  --text-primary: #2c2118;
+  --text-secondary: #74624f;
+  --text-tertiary: #9f8d78;
+  --text-faint: #c7b7a3;
+  --text-on-accent: #ffffff;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: #b3432a;
+  --heading-2-color: #8a5410;
+  --heading-3-color: #3f5f8a;
+  --heading-4-color: #4d6b3d;
+  --heading-5-color: #7d4560;
+  --heading-6-color: #6b5546;
+  --accent: #b3432a;
+  --accent-hover: #9a3820;
+  --accent-soft: #f7e3dc;
+  --accent-soft-hover: #f1d3c8;
+  --accent-gradient: linear-gradient(135deg, #d8663f 0%, #b3432a 100%);
+  --decor-gradient: linear-gradient(135deg, #b3432a 0%, #e2a552 120%);
+  --link: #8a5410;
+  --border: rgba(60, 35, 20, 0.10);
+  --border-strong: rgba(60, 35, 20, 0.18);
+  --focus-ring: 0 0 0 3px rgba(179, 67, 42, 0.30);
+  --shadow-sm: 0 1px 2px rgba(50, 30, 15, 0.05), 0 1px 6px rgba(50, 30, 15, 0.04);
+  --shadow-md: 0 8px 24px rgba(50, 30, 15, 0.08);
+  --shadow-lg: 0 16px 40px rgba(50, 30, 15, 0.16);
+}
+[data-theme="dark"] [data-accent="terracotta"],
+[data-theme="dark"][data-accent="terracotta"],
+:root[data-theme="dark"][data-theme-preset="terracotta"] {
+  --bg-app: #171210;
+  --bg-surface: #241b16;
+  --bg-subtle: #1d1613;
+  --bg-hover: #2f2520;
+  --bg-active: #3a2e28;
+  --graph-void-core: #1a1310;
+  --graph-void-mid: #0f0a08;
+  --graph-void-rim: #050302;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(240, 235, 225, 0.72);
+  --graph-state-heading: #f7f2e8;
+  --graph-state-surface: rgba(34, 26, 21, 0.72);
+  --graph-state-code: #f7b993;
+  --graph-state-code-bg: rgba(239, 138, 102, 0.18);
+  --graph-state-code-border: rgba(239, 138, 102, 0.32);
+  --graph-node: #ef8a66;
+  --graph-node-strong: #f7ad90;
+  --graph-node-glow: rgba(239, 138, 102, 0.7);
+  --graph-node-dim: rgba(239, 138, 102, 0.55);
+  --graph-link-rest: rgb(150, 132, 118);
+  --graph-link-dim: rgba(239, 138, 102, 0.35);
+  --text-primary: #f3e9dd;
+  --text-secondary: #b3a493;
+  --text-tertiary: #7d6f62;
+  --text-faint: #5a4e44;
+  --text-on-accent: #221a15;
+  --shadow-text-on-accent: none;
+  --heading-1-color: #ef8a66;
+  --heading-2-color: #f2c078;
+  --heading-3-color: #8fb3e0;
+  --heading-4-color: #a2c48a;
+  --heading-5-color: #d9a0bd;
+  --heading-6-color: #c9b09c;
+  --accent: #ef8a66;
+  --accent-hover: #f5a283;
+  --accent-soft: rgba(239, 138, 102, 0.16);
+  --accent-soft-hover: rgba(239, 138, 102, 0.24);
+  --accent-gradient: linear-gradient(135deg, #f5a283 0%, #ef8a66 100%);
+  --decor-gradient: linear-gradient(135deg, #ef8a66 0%, #f2c078 120%);
+  --link: #f2c078;
+  --border: rgba(255, 240, 225, 0.09);
+  --border-strong: rgba(255, 240, 225, 0.18);
+  --focus-ring: 0 0 0 3px rgba(239, 138, 102, 0.40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+[data-accent="moss"],
+:root[data-theme-preset="moss"] {
+  --bg-app: #e9ede2;
+  --bg-surface: #f8faf3;
+  --bg-subtle: #f2f5ec;
+  --bg-hover: #e5eadb;
+  --bg-active: #d9e0cc;
+  --graph-void-core: #f4f7ee;
+  --graph-void-mid: #e8ede0;
+  --graph-void-rim: #d8dfcd;
+  --graph-vignette: rgba(30, 50, 35, 0.10);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(18, 26, 20, 0.55);
+  --graph-state-code: #b9e3a0;
+  --graph-state-code-bg: rgba(169, 214, 140, 0.18);
+  --graph-state-code-border: rgba(169, 214, 140, 0.32);
+  --graph-node: #5f9c6c;
+  --graph-node-strong: #2e5b3c;
+  --graph-node-glow: rgba(95, 156, 108, 0.7);
+  --graph-node-dim: rgba(95, 156, 108, 0.55);
+  --graph-link-rest: rgb(100, 112, 100);
+  --graph-link-dim: rgba(95, 156, 108, 0.35);
+  --text-primary: #1e2a20;
+  --text-secondary: #5f6e62;
+  --text-tertiary: #8d9a8f;
+  --text-faint: #b8c3b8;
+  --text-on-accent: #ffffff;
+  --shadow-text-on-accent: 0 1px 1px rgba(0, 0, 0, 0.25);
+  --heading-1-color: #2e5b3c;
+  --heading-2-color: #4f6f24;
+  --heading-3-color: #2f6690;
+  --heading-4-color: #7a5a1e;
+  --heading-5-color: #7d4560;
+  --heading-6-color: #5b6b5e;
+  --accent: #2e5b3c;
+  --accent-hover: #244a30;
+  --accent-soft: #e1eedf;
+  --accent-soft-hover: #d1e4cf;
+  --accent-gradient: linear-gradient(135deg, #4c8a5c 0%, #2e5b3c 100%);
+  --decor-gradient: linear-gradient(135deg, #2e5b3c 0%, #8fbf6a 120%);
+  --link: #2f6690;
+  --border: rgba(30, 50, 35, 0.10);
+  --border-strong: rgba(30, 50, 35, 0.17);
+  --focus-ring: 0 0 0 3px rgba(46, 91, 60, 0.30);
+  --shadow-sm: 0 1px 2px rgba(20, 40, 25, 0.05), 0 1px 6px rgba(20, 40, 25, 0.04);
+  --shadow-md: 0 8px 24px rgba(20, 40, 25, 0.08);
+  --shadow-lg: 0 16px 40px rgba(20, 40, 25, 0.16);
+}
+[data-theme="dark"] [data-accent="moss"],
+[data-theme="dark"][data-accent="moss"],
+:root[data-theme="dark"][data-theme-preset="moss"] {
+  --bg-app: #10160f;
+  --bg-surface: #1a221b;
+  --bg-subtle: #141b15;
+  --bg-hover: #232d24;
+  --bg-active: #2c382d;
+  --graph-void-core: #121a12;
+  --graph-void-mid: #0a0f0a;
+  --graph-void-rim: #040604;
+  --graph-vignette: rgba(0, 0, 0, 0.6);
+  --graph-state-text: rgba(233, 236, 245, 0.72);
+  --graph-state-heading: #f4f6fb;
+  --graph-state-surface: rgba(18, 26, 20, 0.72);
+  --graph-state-code: #b9e3a0;
+  --graph-state-code-bg: rgba(169, 214, 140, 0.18);
+  --graph-state-code-border: rgba(169, 214, 140, 0.32);
+  --graph-node: #a9d68c;
+  --graph-node-strong: #c3e8ab;
+  --graph-node-glow: rgba(169, 214, 140, 0.7);
+  --graph-node-dim: rgba(169, 214, 140, 0.55);
+  --graph-link-rest: rgb(128, 142, 126);
+  --graph-link-dim: rgba(169, 214, 140, 0.35);
+  --text-primary: #edf2e8;
+  --text-secondary: #a7b4a5;
+  --text-tertiary: #717e70;
+  --text-faint: #535e53;
+  --text-on-accent: #121a14;
+  --shadow-text-on-accent: none;
+  --heading-1-color: #a9d68c;
+  --heading-2-color: #6fbf7c;
+  --heading-3-color: #7fb8e8;
+  --heading-4-color: #d2b070;
+  --heading-5-color: #d39ac0;
+  --heading-6-color: #a9b8a6;
+  --accent: #a9d68c;
+  --accent-hover: #bde3a3;
+  --accent-soft: rgba(169, 214, 140, 0.16);
+  --accent-soft-hover: rgba(169, 214, 140, 0.24);
+  --accent-gradient: linear-gradient(135deg, #bde3a3 0%, #a9d68c 100%);
+  --decor-gradient: linear-gradient(135deg, #a9d68c 0%, #5f9c6c 120%);
+  --link: #7fb8e8;
+  --border: rgba(240, 255, 235, 0.09);
+  --border-strong: rgba(240, 255, 235, 0.18);
+  --focus-ring: 0 0 0 3px rgba(169, 214, 140, 0.40);
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.35);
+  --shadow-md: 0 8px 24px rgba(0, 0, 0, 0.45);
+  --shadow-lg: 0 16px 40px rgba(0, 0, 0, 0.55);
+}
+
+/* ---- End accent worlds ---- */
+
+/* Appearance -> Heading colour -> Plain. Keep the six public tokens stable so
+   CodeMirror updates in place when this device-local choice changes. */
+:root[data-heading-color="plain"] {
+  --heading-1-color: var(--text-primary);
+  --heading-2-color: var(--text-primary);
+  --heading-3-color: var(--text-primary);
+  --heading-4-color: var(--text-primary);
+  --heading-5-color: var(--text-primary);
+  --heading-6-color: var(--text-primary);
 }

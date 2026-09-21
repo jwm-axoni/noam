@@ -31,6 +31,15 @@ import { setType, subscribeTypes, typeFor } from "../../lib/frontmatter/types";
 import { useStore } from "../../store";
 import { MenuSelect } from "../MenuSelect";
 import { PropertyIcon } from "./PropertyIcons";
+import {
+  DOCUMENT_ID_KEY,
+  RELATIONSHIPS_KEY,
+  getKnowledgeCatalogSnapshot,
+  labelPresentation,
+  subscribeKnowledgeCatalog,
+  type KnowledgeCatalogV1,
+  type LabelDefinition,
+} from "../../lib/knowledge";
 
 /**
  * YAML frontmatter as a table of typed properties.
@@ -51,13 +60,20 @@ import { PropertyIcon } from "./PropertyIcons";
  */
 
 /** The new property a `⌘;` just created, so the panel can focus its name. */
-const pendingFocus = new WeakMap<EditorView, string>();
+const pendingFocus = new WeakMap<EditorView, { key: string; cell: "name" | "value" }>();
 
 function docEntries(view: EditorView): { entries: PropEntry[]; ok: boolean } {
   const fm = findFrontmatter(view.state.doc);
   if (!fm) return { entries: [], ok: true };
   const parsed = parseFrontmatter(view.state.doc, fm);
-  return parsed.ok ? { entries: parsed.entries, ok: true } : { entries: [], ok: false };
+  return parsed.ok
+    ? {
+        entries: parsed.entries.filter(
+          (entry) => entry.key !== DOCUMENT_ID_KEY && entry.key !== RELATIONSHIPS_KEY,
+        ),
+        ok: true,
+      }
+    : { entries: [], ok: false };
 }
 
 function dispatch(view: EditorView, changes: SpanChange[]): void {
@@ -96,31 +112,73 @@ export function addPropertyToNote(view: EditorView): boolean {
   const parsed = fm ? parseFrontmatter(view.state.doc, fm) : null;
   if (parsed && !parsed.ok) return false; // never rewrite YAML we can't read
   const entries = parsed?.ok ? parsed.entries : [];
-  const key = freeKey(new Set(entries.map((e) => e.key)));
+  const taken = new Set(entries.map((entry) => entry.key));
+  const catalogSnapshot = getKnowledgeCatalogSnapshot();
+  const activeEpoch = useStore.getState().vault?.epoch ?? null;
+  if (
+    catalogSnapshot.loading
+    || catalogSnapshot.error
+    || (activeEpoch != null && (
+      !catalogSnapshot.loaded || catalogSnapshot.epoch !== activeEpoch
+    ))
+  ) return false;
+  const catalog = catalogSnapshot.catalog;
+  const definition = catalog?.properties.find((property) => !taken.has(property.key));
+  if (catalog && !definition) return false;
+  const key = definition?.key ?? freeKey(taken);
+  const value: PropValue = definition?.type.cardinality === "many"
+    ? { kind: "list", value: [] }
+    : definition?.type.kind === "checkbox"
+      ? { kind: "checkbox", value: false }
+      : { kind: "text", value: "" };
+  getHeaderFocus(view).expandProperties?.();
   dispatch(
     view,
-    planAddProperty(view.state.doc, fm, entries, key, { kind: "text", value: "" }),
+    planAddProperty(view.state.doc, fm, entries, key, value),
   );
-  pendingFocus.set(view, key);
+  pendingFocus.set(view, { key, cell: definition ? "value" : "name" });
   return true;
 }
 
 export function PropertiesPanel({
   view,
   readOnly,
+  collapsed,
+  onCollapsedChange,
   getPropertyKeys,
   getPropertyValues,
+  showHeader = true,
 }: {
   view: EditorView;
   readOnly: boolean;
+  collapsed: boolean;
+  onCollapsedChange: (collapsed: boolean) => void;
   getPropertyKeys?: () => string[];
   getPropertyValues?: (key: string) => string[];
+  showHeader?: boolean;
 }) {
   const { entries } = docEntries(view);
+  const activeEpoch = useStore((state) => state.vault?.epoch ?? null);
+  const catalogSnapshot = getKnowledgeCatalogSnapshot();
+  const catalog = catalogSnapshot.catalog;
+  const catalogUnavailable = catalogSnapshot.loading
+    || catalogSnapshot.error != null
+    || (activeEpoch != null && (
+      !catalogSnapshot.loaded || catalogSnapshot.epoch !== activeEpoch
+    ));
+  const effectiveReadOnly = readOnly || catalogUnavailable;
   // The type registry lives outside React (it is per-vault, not per-note), so
   // subscribe rather than lift it into state.
   const [, bump] = useState(0);
-  useEffect(() => subscribeTypes(() => bump((n) => n + 1)), []);
+  useEffect(() => {
+    const repaint = () => bump((n) => n + 1);
+    const unsubscribeTypes = subscribeTypes(repaint);
+    const unsubscribeCatalog = subscribeKnowledgeCatalog(repaint);
+    return () => {
+      unsubscribeTypes();
+      unsubscribeCatalog();
+    };
+  }, []);
 
   const rowRefs = useRef(new Map<string, { name?: HTMLInputElement; value?: HTMLElement }>());
   const refFor = (key: string) => {
@@ -150,18 +208,28 @@ export function PropertiesPanel({
 
   const keys = entries.map((e) => e.key);
   useEffect(() => {
+    const expand = () => {
+      if (collapsed) onCollapsedChange(false);
+    };
     registerHeaderFocus(view, {
-      focusFirstProperty: () => focusRow(keys[0], "value"),
-      focusLastProperty: () => focusRow(keys[keys.length - 1], "value"),
+      expandProperties: expand,
+      focusFirstProperty: () => {
+        expand();
+        return focusRow(keys[0], "value");
+      },
+      focusLastProperty: () => {
+        expand();
+        return focusRow(keys[keys.length - 1], "value");
+      },
     });
-  }, [view, focusRow, keys.join("\0")]);
+  }, [view, collapsed, onCollapsedChange, focusRow, keys.join("\0")]);
 
   // A row added by `⌘;` (possibly from the title widget, before this panel
   // existed) gets its name focused and selected, so typing replaces it.
   useEffect(() => {
-    const key = pendingFocus.get(view);
-    if (!key) return;
-    if (focusRow(key, "name")) pendingFocus.delete(view);
+    const pending = pendingFocus.get(view);
+    if (!pending) return;
+    if (focusRow(pending.key, pending.cell)) pendingFocus.delete(view);
   });
 
   const move = (index: number, delta: number, cell: "name" | "value") => {
@@ -175,28 +243,51 @@ export function PropertiesPanel({
   };
 
   return (
-    <div className="prop-panel" role="table" aria-label="Note properties">
-      {entries.map((entry, index) => (
-        <PropertyRow
-          key={entry.key}
-          view={view}
-          entry={entry}
-          readOnly={readOnly}
-          slot={refFor(entry.key)}
-          suggestions={getPropertyKeys?.() ?? []}
-          valueSuggestions={getPropertyValues?.(entry.key) ?? []}
-          onMove={(delta, cell) => move(index, delta, cell)}
-          onToBody={toBody}
-        />
-      ))}
-      {!readOnly && (
+    <div className="prop-panel">
+      {showHeader && (
         <button
           type="button"
-          className="prop-add"
-          onClick={() => addPropertyToNote(view)}
+          className="prop-panel-header"
+          aria-expanded={!collapsed}
+          aria-label={`${collapsed ? "Expand" : "Collapse"} properties, ${entries.length}`}
+          onClick={() => onCollapsedChange(!collapsed)}
         >
-          + Add property
+          <span>
+            Properties <span className="prop-panel-count">· {entries.length}</span>
+          </span>
+          <span className="prop-panel-chevron" aria-hidden="true">
+            {collapsed ? "▸" : "▾"}
+          </span>
         </button>
+      )}
+      {(!collapsed || !showHeader) && (
+        <div className="prop-panel-body" role="table" aria-label="Note properties">
+          {entries.map((entry, index) => (
+            <PropertyRow
+              key={entry.key}
+              view={view}
+              entry={entry}
+              catalog={catalog}
+              readOnly={effectiveReadOnly}
+              slot={refFor(entry.key)}
+              suggestions={getPropertyKeys?.() ?? []}
+              valueSuggestions={getPropertyValues?.(entry.key) ?? []}
+              onMove={(delta, cell) => move(index, delta, cell)}
+              onToBody={toBody}
+            />
+          ))}
+          {!effectiveReadOnly && (!catalog || catalog.properties.some(
+            (definition) => !entries.some((entry) => entry.key === definition.key),
+          )) && (
+            <button
+              type="button"
+              className="prop-add"
+              onClick={() => addPropertyToNote(view)}
+            >
+              + Add property
+            </button>
+          )}
+        </div>
       )}
     </div>
   );
@@ -205,6 +296,7 @@ export function PropertiesPanel({
 function PropertyRow({
   view,
   entry,
+  catalog,
   readOnly,
   slot,
   suggestions,
@@ -214,6 +306,7 @@ function PropertyRow({
 }: {
   view: EditorView;
   entry: PropEntry;
+  catalog: KnowledgeCatalogV1 | null;
   readOnly: boolean;
   slot: { name?: HTMLInputElement; value?: HTMLElement };
   suggestions: string[];
@@ -223,12 +316,25 @@ function PropertyRow({
 }) {
   const epoch = useStore((s) => s.vault?.epoch);
   const type = typeFor(entry.key, entry.value);
+  const sharedDefinition = catalog?.properties.find((definition) => definition.key === entry.key);
+  const catalogUnknown = catalog != null && sharedDefinition == null;
+  const storageKeyLocked = sharedDefinition != null || catalogUnknown;
+  const labelValued = sharedDefinition?.type.kind === "label" || sharedDefinition?.type.kind === "tag";
+  const labelOptions = labelValued
+    ? catalog?.labels.filter((label) =>
+        !sharedDefinition.allowedLabelIds || sharedDefinition.allowedLabelIds.includes(label.id),
+      ) ?? []
+    : [];
   const [nameDraft, setNameDraft] = useState<string | null>(null);
   const [valueDraft, setValueDraft] = useState<string | null>(null);
   const [note, setNote] = useState<string | null>(null);
   // The value's serialization when the draft began, so a commit can tell
   // whether someone else moved it underneath us.
   const rawAtStart = useRef(entry.raw);
+
+  useEffect(() => {
+    if (valueDraft === null) rawAtStart.current = entry.raw;
+  }, [entry.raw, valueDraft]);
 
   useEffect(() => {
     if (!note) return;
@@ -245,6 +351,18 @@ function PropertyRow({
   const commitValue = useCallback(
     (next: PropValue) => {
       if (view.state.readOnly) return;
+      if (sharedDefinition?.allowedLabelIds) {
+        const submitted = next.kind === "list"
+          ? next.value
+          : next.kind === "text"
+            ? [next.value]
+            : [];
+        if (submitted.some((value) => !sharedDefinition.allowedLabelIds!.includes(value))) {
+          setValueDraft(null);
+          setNote("Choose one of this property's allowed labels.");
+          return;
+        }
+      }
       const fm = findFrontmatter(view.state.doc);
       const parsed = fm ? parseFrontmatter(view.state.doc, fm) : null;
       const current = parsed?.ok
@@ -256,12 +374,15 @@ function PropertyRow({
         return;
       }
       const moved = current.raw !== rawAtStart.current;
-      dispatch(view, planSetValue(current, next));
       setValueDraft(null);
       rawAtStart.current = current.raw;
-      if (moved) setNote("Changed by someone else while you were typing.");
+      if (moved) {
+        setNote("Changed by someone else while you were typing.");
+        return;
+      }
+      dispatch(view, planSetValue(current, next));
     },
-    [view, entry.key],
+    [view, entry.key, sharedDefinition],
   );
 
   const commitText = useCallback(
@@ -272,7 +393,7 @@ function PropertyRow({
   );
 
   const commitName = useCallback(() => {
-    if (view.state.readOnly) return;
+    if (view.state.readOnly || storageKeyLocked) return;
     if (nameDraft === null) return;
     const next = nameDraft.trim();
     setNameDraft(null);
@@ -291,10 +412,10 @@ function PropertyRow({
       return;
     }
     dispatch(view, planRenameKey(current, next));
-  }, [nameDraft, entry.key, view]);
+  }, [nameDraft, entry.key, storageKeyLocked, view]);
 
   const remove = useCallback(() => {
-    if (view.state.readOnly) return;
+    if (view.state.readOnly || catalogUnknown) return;
     const fm = findFrontmatter(view.state.doc);
     const parsed = fm ? parseFrontmatter(view.state.doc, fm) : null;
     const current = parsed?.ok
@@ -303,7 +424,7 @@ function PropertyRow({
     if (!current) return;
     dispatch(view, planDeleteProperty(view.state.doc, current));
     onMove(-1, "value");
-  }, [view, entry.key, onMove]);
+  }, [view, entry.key, onMove, catalogUnknown]);
 
   const onCellKeyDown = (e: React.KeyboardEvent, cell: "name" | "value") => {
     if (e.key === "ArrowDown") {
@@ -330,11 +451,11 @@ function PropertyRow({
         value={type}
         options={PROPERTY_TYPES.map((t) => ({ value: t.id, label: t.label }))}
         onSelect={(next) => {
-          if (view.state.readOnly) return;
+          if (view.state.readOnly || storageKeyLocked) return;
           setType(entry.key, next, epoch);
           commitValue(coerceValue(entry.value, next));
         }}
-        disabled={readOnly || isFixedType(entry.key)}
+        disabled={readOnly || storageKeyLocked || isFixedType(entry.key)}
         ariaLabel={`Type of ${entry.key}`}
         triggerClassName="prop-type-trigger"
         triggerContent={<PropertyIcon type={type} />}
@@ -345,10 +466,10 @@ function PropertyRow({
           slot.name = el ?? undefined;
         }}
         className="prop-name"
-        value={nameDraft ?? entry.key}
-        readOnly={readOnly}
-        disabled={readOnly}
-        aria-label="Property name"
+        value={sharedDefinition?.name ?? nameDraft ?? entry.key}
+        readOnly={readOnly || storageKeyLocked}
+        disabled={readOnly || storageKeyLocked}
+        aria-label={sharedDefinition ? `${sharedDefinition.name} storage key` : "Property name"}
         list={suggestions.length > 0 ? listId : undefined}
         onChange={(e) => setNameDraft(e.target.value)}
         onBlur={commitName}
@@ -377,32 +498,45 @@ function PropertyRow({
         </datalist>
       )}
       <div className="prop-value">
-        <ValueControl
-          type={type}
-          entry={entry}
-          readOnly={readOnly}
-          draft={valueDraft}
-          setDraft={setValueDraft}
-          commitValue={commitValue}
-          commitText={commitText}
-          suggestions={valueSuggestions}
-          slot={slot}
-          onKeyDown={(e) => {
-            if (e.key === "ArrowLeft") {
-              const el = e.currentTarget as HTMLInputElement;
-              if (el.selectionStart === 0) {
-                e.preventDefault();
-                slot.name?.focus();
-                return;
+        {catalogUnknown ? (
+          <code
+            ref={(element) => { slot.value = element ?? undefined; }}
+            className="prop-raw-value"
+            tabIndex={0}
+            aria-label={`${entry.key} raw value`}
+          >
+            {entry.raw || "Empty"}
+          </code>
+        ) : (
+          <ValueControl
+            type={type}
+            entry={entry}
+            readOnly={readOnly}
+            draft={valueDraft}
+            setDraft={setValueDraft}
+            commitValue={commitValue}
+            commitText={commitText}
+            suggestions={valueSuggestions}
+            labelOptions={labelOptions}
+            slot={slot}
+            onKeyDown={(e) => {
+              if (e.key === "ArrowLeft") {
+                const el = e.currentTarget as HTMLInputElement;
+                if (el.selectionStart === 0) {
+                  e.preventDefault();
+                  slot.name?.focus();
+                  return;
+                }
               }
-            }
-            onCellKeyDown(e, "value");
-          }}
-          onToBody={onToBody}
-        />
+              onCellKeyDown(e, "value");
+            }}
+            onToBody={onToBody}
+            labelValued={labelValued}
+          />
+        )}
         {note && <p className="prop-note">{note}</p>}
       </div>
-      {!readOnly && (
+      {!readOnly && !catalogUnknown && (
         <button
           type="button"
           className="prop-remove"
@@ -425,8 +559,10 @@ function ValueControl({
   commitValue,
   commitText,
   suggestions,
+  labelOptions,
   slot,
   onKeyDown,
+  labelValued = false,
 }: {
   type: PropertyType;
   entry: PropEntry;
@@ -436,9 +572,11 @@ function ValueControl({
   commitValue: (v: PropValue) => void;
   commitText: (v: string) => void;
   suggestions: string[];
+  labelOptions: LabelDefinition[];
   slot: { name?: HTMLInputElement; value?: HTMLElement };
   onKeyDown: (e: React.KeyboardEvent) => void;
   onToBody: () => void;
+  labelValued?: boolean;
 }) {
   const setRef = (el: HTMLElement | null) => {
     slot.value = el ?? undefined;
@@ -465,10 +603,12 @@ function ValueControl({
       <Chips
         entry={entry}
         readOnly={readOnly}
+        labelValued={labelValued}
         draft={draft}
         setDraft={setDraft}
         commitValue={commitValue}
         suggestions={suggestions}
+        labelOptions={labelOptions}
         setRef={setRef}
         onKeyDown={onKeyDown}
       />
@@ -486,38 +626,61 @@ function ValueControl({
   // `datetime-local` cannot hold a trailing `Z`; keep what the file says and
   // fall back to a text field rather than silently dropping the zone.
   const raw = valueToText(entry.value);
-  const shown = draft ?? (type === "datetime" ? raw.replace(/Z$/, "").slice(0, 16) : raw);
-  const listId = suggestions.length > 0 ? `prop-values-${entry.key}` : undefined;
+  const shown = draft ?? (
+    type === "datetime"
+      ? raw.replace(/Z$/, "").slice(0, 16)
+      : raw
+  );
+  const presentedLabel = labelValued ? labelPresentation(shown) : null;
+  const labelColor = presentedLabel?.color;
+  const choices = labelValued ? labelOptions.map((label) => label.id) : suggestions;
+  const listId = choices.length > 0 ? `prop-values-${entry.key}` : undefined;
+
+  const input = (
+    <input
+      ref={setRef}
+      type={inputType}
+      className={`prop-input${labelValued ? " prop-label-input" : ""}`}
+      style={{ "--prop-chip-color": labelColor } as React.CSSProperties}
+      value={shown}
+      readOnly={readOnly}
+      disabled={readOnly}
+      aria-label={entry.key}
+      list={listId}
+      onChange={(e) => setDraft(e.target.value)}
+      onBlur={() => {
+        if (draft !== null) commitText(draft);
+      }}
+      onKeyDown={(e) => {
+        if (e.key === "Enter") {
+          e.preventDefault();
+          if (draft !== null) commitText(draft);
+          return;
+        }
+        onKeyDown(e);
+      }}
+    />
+  );
 
   return (
     <>
-      <input
-        ref={setRef}
-        type={inputType}
-        className="prop-input"
-        value={shown}
-        readOnly={readOnly}
-        disabled={readOnly}
-        aria-label={entry.key}
-        list={listId}
-        onChange={(e) => setDraft(e.target.value)}
-        onBlur={() => {
-          if (draft !== null) commitText(draft);
-        }}
-        onKeyDown={(e) => {
-          if (e.key === "Enter") {
-            e.preventDefault();
-            if (draft !== null) commitText(draft);
-            return;
-          }
-          onKeyDown(e);
-        }}
-      />
+      {labelValued ? (
+        <div className="prop-label-field">
+          {input}
+          {presentedLabel && presentedLabel.label !== shown && (
+            <span className="prop-label-name">{presentedLabel.label}</span>
+          )}
+        </div>
+      ) : input}
       {listId && (
         <datalist id={listId}>
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
+          {labelValued
+            ? labelOptions.map((label) => (
+                <option key={label.id} value={label.id} label={label.name} />
+              ))
+            : suggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
         </datalist>
       )}
     </>
@@ -527,19 +690,23 @@ function ValueControl({
 function Chips({
   entry,
   readOnly,
+  labelValued,
   draft,
   setDraft,
   commitValue,
   suggestions,
+  labelOptions,
   setRef,
   onKeyDown,
 }: {
   entry: PropEntry;
   readOnly: boolean;
+  labelValued: boolean;
   draft: string | null;
   setDraft: (v: string | null) => void;
   commitValue: (v: PropValue) => void;
   suggestions: string[];
+  labelOptions: LabelDefinition[];
   setRef: (el: HTMLElement | null) => void;
   onKeyDown: (e: React.KeyboardEvent) => void;
 }) {
@@ -549,15 +716,22 @@ function Chips({
       : valueToText(entry.value).trim() === ""
         ? []
         : [valueToText(entry.value)];
-  const listId = suggestions.length > 0 ? `prop-chips-${entry.key}` : undefined;
+  const choices = labelValued ? labelOptions.map((label) => label.id) : suggestions;
+  const listId = choices.length > 0 ? `prop-chips-${entry.key}` : undefined;
 
   const setItems = (next: string[]) => commitValue({ kind: "list", value: next });
 
   return (
     <div className="prop-chips">
       {items.map((item, i) => (
-        <span className="prop-chip" key={`${item}-${i}`}>
-          {item}
+        <span
+          className="prop-chip"
+          key={`${item}-${i}`}
+          style={labelValued
+            ? { "--prop-chip-color": labelPresentation(item).color } as React.CSSProperties
+            : undefined}
+        >
+          {labelValued ? labelPresentation(item).label : item}
           {!readOnly && (
             <button
               type="button"
@@ -602,9 +776,13 @@ function Chips({
       />
       {listId && (
         <datalist id={listId}>
-          {suggestions.map((s) => (
-            <option key={s} value={s} />
-          ))}
+          {labelValued
+            ? labelOptions.map((label) => (
+                <option key={label.id} value={label.id} label={label.name} />
+              ))
+            : suggestions.map((suggestion) => (
+                <option key={suggestion} value={suggestion} />
+              ))}
         </datalist>
       )}
     </div>

@@ -7,7 +7,6 @@ import { PanelMoveMenu } from "./PanelMoveMenu";
 
 export function PanelFrame({
   title,
-  subtitle,
   groupId,
   tabId,
   panelType,
@@ -16,7 +15,6 @@ export function PanelFrame({
   children,
 }: {
   title: string;
-  subtitle?: string | null;
   icon?: ReactNode;
   groupId: string;
   tabId: string;
@@ -30,15 +28,18 @@ export function PanelFrame({
     <section className="workspace-panel-frame">
       <header
         className="workspace-panel-header"
+        data-tauri-drag-region
         onPointerDown={(event) => {
           // Tab buttons arm their own drag; don't let the press bubble into
           // the header's probe or two drags fight over the same pointer.
           if ((event.target as HTMLElement).closest("[data-dock-tab-id]")) return;
+          // Empty header space moves the native window. Interactive children
+          // keep their own click behavior and never arm a panel reorder.
+          if ((event.target as HTMLElement).closest("[data-tauri-drag-region]")) return;
           drag.onPointerDown(event);
         }}
       >
         <DockTabBar groupId={groupId} />
-        {subtitle && <span className="workspace-panel-subtitle" title={subtitle}>{subtitle}</span>}
         <PanelMoveMenu groupId={groupId} tabId={tabId} panelType={panelType} />
         <button
           type="button"

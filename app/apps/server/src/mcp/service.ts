@@ -18,6 +18,11 @@ import {
   resolveParentFolder,
 } from "../registry/tree-ops.js";
 import { purgeNoteIndex, searchNoteIndex } from "../index/indexer.js";
+import {
+  createKnowledgeQuery,
+  KnowledgeQueryError,
+  type KnowledgeQuery,
+} from "../knowledge/query.js";
 import type { McpAuth } from "./tokens.js";
 import { StaleRevisionError, revisionOf, type DocWriter, type TextOp } from "./doc-writer.js";
 
@@ -888,4 +893,29 @@ export async function searchNotes(
   //    LIMIT and then pinned that whole array across the permission loop.
   const readable = await listReadableDocsInVault(ctx.auth.userId, vaultId);
   return searchNoteIndex({ vaultId, query, k: limit, readableDocIds: readable });
+}
+
+/**
+ * Run the structured knowledge query through the same actor/vault scope as the
+ * rest of MCP. The query module resolves the readable set before filtering,
+ * traversal, counts or evidence, so tool callers cannot use a predicate as a
+ * content oracle over notes they cannot read.
+ */
+export async function queryKnowledgeTool(
+  ctx: McpContext,
+  vaultId: string,
+  query: KnowledgeQuery,
+) {
+  await requireVaultInScope(ctx.auth, vaultId);
+  try {
+    return await createKnowledgeQuery({
+      actorId: ctx.auth.userId,
+      vaultId,
+    })(query);
+  } catch (error) {
+    if (error instanceof KnowledgeQueryError) {
+      throw new McpToolError(`${error.code}: ${error.message}`);
+    }
+    throw error;
+  }
 }

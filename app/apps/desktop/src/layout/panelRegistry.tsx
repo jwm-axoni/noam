@@ -75,6 +75,11 @@ const backlinksLoader: PanelRegistration["load"] = () =>
     },
   }));
 
+const propertiesLoader: PanelRegistration["load"] = () =>
+  import("../components/PropertiesDockPanel").then(({ PropertiesDockPanel }) => ({
+    default: PropertiesDockPanel,
+  }));
+
 const graphLoader: PanelRegistration["load"] = () =>
   import("../components/GraphPanel").then(({ GraphPanel }) => ({ default: GraphPanel }));
 
@@ -83,6 +88,23 @@ const historyLoader: PanelRegistration["load"] = () =>
     default: function HistoryPanelBody({ onRequestClose }: PanelBodyProps) {
       return <VersionPanel onRequestClose={onRequestClose} />;
     },
+  }));
+
+const workflowsLoader: PanelRegistration["load"] = () =>
+  import("../components/workflows/WorkflowsPanel").then(({ WorkflowsPanel }) => ({
+    default: WorkflowsPanel,
+  }));
+
+const tasksLoader: PanelRegistration["load"] = () =>
+  import("../components/tasks/TasksPanel").then(({ TasksPanel }) => ({
+    default: TasksPanel,
+  }));
+
+// The calendar panel itself takes every data source as a prop; the HOST is what
+// wires them to this vault, so the registry loads the host.
+const calendarLoader: PanelRegistration["load"] = () =>
+  import("../components/calendar/CalendarPanelHost").then(({ CalendarPanelHost }) => ({
+    default: CalendarPanelHost,
   }));
 
 const outlineLoader: PanelRegistration["load"] = () =>
@@ -133,6 +155,20 @@ export const panelRegistry = {
     validateState: emptyState,
     persistentState: noPersistentState,
   },
+  properties: {
+    type: "properties",
+    label: "Properties",
+    defaultZone: "right",
+    defaultGroup: "primary",
+    icon: icon(<><circle cx="12" cy="12" r="3" /><path d="M19.4 15a1.7 1.7 0 0 0 .3 1.9l.1.1-2.8 2.8-.1-.1a1.7 1.7 0 0 0-1.9-.3 1.7 1.7 0 0 0-1 1.5V21h-4v-.1a1.7 1.7 0 0 0-1-1.5 1.7 1.7 0 0 0-1.9.3l-.1.1L4.2 17l.1-.1a1.7 1.7 0 0 0 .3-1.9 1.7 1.7 0 0 0-1.5-1H3v-4h.1a1.7 1.7 0 0 0 1.5-1 1.7 1.7 0 0 0-.3-1.9L4.2 7 7 4.2l.1.1a1.7 1.7 0 0 0 1.9.3 1.7 1.7 0 0 0 1-1.5V3h4v.1a1.7 1.7 0 0 0 1 1.5 1.7 1.7 0 0 0 1.9-.3l.1-.1L19.8 7l-.1.1a1.7 1.7 0 0 0-.3 1.9 1.7 1.7 0 0 0 1.5 1h.1v4h-.1a1.7 1.7 0 0 0-1.5 1Z" /></>),
+    allowedZones: ["left", "right", "center"],
+    minimumWidth: 260,
+    minimumHeight: 220,
+    multiplicity: 1,
+    load: propertiesLoader,
+    validateState: emptyState,
+    persistentState: noPersistentState,
+  },
   outline: {
     type: "outline",
     label: "Outline",
@@ -160,6 +196,51 @@ export const panelRegistry = {
     load: graphLoader,
     validateState: emptyState,
     persistentState: graphPersistentState,
+  },
+  workflows: {
+    type: "workflows",
+    label: "Workflows",
+    defaultZone: "left",
+    defaultGroup: "primary",
+    // lucide `zap`: a command you fire, not a document you read.
+    icon: icon(<path d="M13 2 4.5 13H11l-1 9 8.5-11H12l1-9z" />),
+    allowedZones: ["left", "right"],
+    minimumWidth: 260,
+    minimumHeight: 200,
+    multiplicity: 1,
+    load: workflowsLoader,
+    validateState: emptyState,
+    persistentState: noPersistentState,
+  },
+  tasks: {
+    type: "tasks",
+    label: "Tasks",
+    defaultZone: "left",
+    defaultGroup: "primary",
+    // lucide `check-square`.
+    icon: icon(<><path d="M9 11.5 12 14.5 21 5" /><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11" /></>),
+    allowedZones: ["left", "right"],
+    minimumWidth: 220,
+    minimumHeight: 200,
+    multiplicity: 1,
+    load: tasksLoader,
+    validateState: emptyState,
+    persistentState: noPersistentState,
+  },
+  calendar: {
+    type: "calendar",
+    label: "Calendar",
+    defaultZone: "left",
+    defaultGroup: "primary",
+    // lucide `calendar`.
+    icon: icon(<><rect x="3" y="4" width="18" height="18" rx="2" /><path d="M16 2v4M8 2v4M3 10h18" /></>),
+    allowedZones: ["left", "right"],
+    minimumWidth: 220,
+    minimumHeight: 220,
+    multiplicity: 1,
+    load: calendarLoader,
+    validateState: emptyState,
+    persistentState: noPersistentState,
   },
   history: {
     type: "history",

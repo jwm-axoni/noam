@@ -17,6 +17,7 @@ import {
   listGraphNodes,
   type GraphNodeMeta,
 } from "../ipc";
+import { FOLDER_PRESENTATION_KIND } from "../presentation/types";
 
 export interface GraphNode {
   id: string;
@@ -48,7 +49,8 @@ export interface Graph {
  * aggregates each node's `linkCount` (distinct edges touching it).
  */
 export function assembleGraph(nodesInput: GraphNodeMeta[], rawEdges: GraphEdge[]): Graph {
-  const knownIds = new Set(nodesInput.map((t) => t.id));
+  const visibleNodes = nodesInput.filter((node) => node.kind !== FOLDER_PRESENTATION_KIND);
+  const knownIds = new Set(visibleNodes.map((t) => t.id));
   const linkCount = new Map<string, number>();
   const edgeKeys = new Set<string>();
   const edges: GraphEdge[] = [];
@@ -64,7 +66,7 @@ export function assembleGraph(nodesInput: GraphNodeMeta[], rawEdges: GraphEdge[]
     linkCount.set(e.target, (linkCount.get(e.target) ?? 0) + 1);
   }
 
-  const nodes: GraphNode[] = nodesInput.map((t) => ({
+  const nodes: GraphNode[] = visibleNodes.map((t) => ({
     id: t.id,
     title: t.title || t.path.split("/").pop() || t.path,
     path: t.path,
@@ -134,7 +136,13 @@ export async function fetchGraphDelta(
   const nodes: GraphNodeMeta[] = [];
   for (const m of metas) {
     if (!m) return null;
-    nodes.push({ id: m.id, path: m.path, title: m.title, type: normalizeGraphType(m.type) });
+    nodes.push({
+      id: m.id,
+      path: m.path,
+      title: m.title,
+      type: normalizeGraphType(m.type),
+      kind: m.kind ?? null,
+    });
   }
   const edges = await getGraphEdgesFor(nodes.map((n) => n.id), expectedEpoch);
   return { nodes, edges };

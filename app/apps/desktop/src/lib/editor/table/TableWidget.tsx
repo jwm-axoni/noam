@@ -34,7 +34,6 @@ import { type EditorState, Text, Transaction } from "@codemirror/state";
 import type { EditorView } from "@codemirror/view";
 import { createElement, type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
-import { openExternal } from "../../ipc";
 import { placeMenu, type Placement } from "../../menuPlacement";
 import { ReactWidget } from "../reactWidget";
 import {
@@ -61,6 +60,8 @@ const INSET = "cm-block-inset";
 export interface TableWidgetOptions {
   /** Follow a `[[wikilink]]` clicked inside a cell. */
   onNavigate?: (target: string) => void;
+  /** Route an ordinary Markdown link through the owning application. */
+  onOpenLink?: (href: string) => void;
   readOnly?: boolean;
 }
 
@@ -105,7 +106,10 @@ export class TableWidget extends ReactWidget {
   }
 
   eq(other: TableWidget): boolean {
-    return other.source === this.source && other.opts.readOnly === this.opts.readOnly;
+    return other.source === this.source
+      && other.opts.readOnly === this.opts.readOnly
+      && other.opts.onNavigate === this.opts.onNavigate
+      && other.opts.onOpenLink === this.opts.onOpenLink;
   }
 
   protected hostClass(): string {
@@ -119,6 +123,7 @@ export class TableWidget extends ReactWidget {
       source: this.source,
       readOnly: this.opts.readOnly ?? false,
       onNavigate: this.opts.onNavigate,
+      onOpenLink: this.opts.onOpenLink,
     });
   }
 
@@ -150,12 +155,14 @@ function EditableTable({
   source,
   readOnly,
   onNavigate,
+  onOpenLink,
 }: {
   view: EditorView;
   host: HTMLElement;
   source: string;
   readOnly: boolean;
   onNavigate?: (target: string) => void;
+  onOpenLink?: (href: string) => void;
 }) {
   // Rendered from the widget's own source, never from live offsets — see the
   // module comment. `Text.of` makes the same parser usable off-document.
@@ -405,9 +412,9 @@ function EditableTable({
   const onCellClick = (e: React.MouseEvent, r: number, c: number) => {
     const target = e.target as HTMLElement;
     const link = target.closest<HTMLElement>(".cm-md-link");
-    if (link?.dataset.href) {
+    if (link?.dataset.href && onOpenLink) {
       e.preventDefault();
-      void openExternal(link.dataset.href);
+      onOpenLink(link.dataset.href);
       return;
     }
     const wiki = target.closest<HTMLElement>(".cm-wikilink");

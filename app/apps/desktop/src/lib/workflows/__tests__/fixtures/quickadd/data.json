@@ -1,0 +1,196 @@
+{
+  "choices": [
+    {
+      "id": "c1",
+      "name": "Daily journal",
+      "type": "Template",
+      "command": true,
+      "templatePath": "Templates/Journal.md",
+      "fileNameFormat": { "enabled": true, "format": "{{DATE:YYYY-MM-DD}} {{VALUE}}" },
+      "folder": {
+        "enabled": true,
+        "folders": ["Journal"],
+        "chooseWhenCreatingNote": false,
+        "createInSameFolderAsActiveFile": false,
+        "chooseFromSubfolders": false
+      },
+      "appendLink": false,
+      "openFile": true,
+      "openFileInNewTab": { "enabled": false, "direction": "vertical", "focus": true },
+      "openFileInMode": "default",
+      "fileExistsMode": "Increment the file name",
+      "setFileExistsBehavior": true
+    },
+    {
+      "id": "c2",
+      "name": "Add task to inbox",
+      "type": "Capture",
+      "command": true,
+      "captureTo": "Inbox.md",
+      "captureToActiveFile": false,
+      "createFileIfItDoesntExist": { "enabled": true, "createWithTemplate": false, "template": "" },
+      "format": { "enabled": true, "format": "- [ ] {{VALUE}} (added {{DATE:YYYY-MM-DD HH:mm}})" },
+      "prepend": false,
+      "appendLink": false,
+      "task": false,
+      "insertAfter": {
+        "enabled": true,
+        "after": "## Tasks",
+        "insertAtEnd": false,
+        "considerSubsections": false,
+        "createIfNotFound": false,
+        "createIfNotFoundLocation": "top"
+      },
+      "openFile": false,
+      "fileOpening": { "location": "tab", "direction": "vertical", "mode": "default", "focus": true }
+    },
+    {
+      "id": "c3",
+      "name": "Log to today's note",
+      "type": "Capture",
+      "command": true,
+      "captureTo": "",
+      "captureToActiveFile": true,
+      "createFileIfItDoesntExist": { "enabled": false, "createWithTemplate": false, "template": "" },
+      "format": { "enabled": true, "format": "{{TIME}} {{SELECTED}}" },
+      "prepend": true,
+      "appendLink": false,
+      "task": false,
+      "insertAfter": { "enabled": false, "after": "", "insertAtEnd": false, "considerSubsections": false, "createIfNotFound": false, "createIfNotFoundLocation": "top" },
+      "openFile": false
+    },
+    {
+      "id": "c4",
+      "name": "Project intake",
+      "type": "Multi",
+      "command": false,
+      "collapsed": false,
+      "choices": [
+        {
+          "id": "c4a",
+          "name": "New project",
+          "type": "Template",
+          "command": true,
+          "templatePath": "Templates/Project.md",
+          "fileNameFormat": { "enabled": true, "format": "{{VALUE:Project name}}" },
+          "folder": { "enabled": true, "folders": ["Projects"], "chooseWhenCreatingNote": false, "createInSameFolderAsActiveFile": false },
+          "appendLink": false,
+          "openFile": true,
+          "fileExistsMode": "Increment the file name",
+          "setFileExistsBehavior": true
+        },
+        {
+          "id": "c4b",
+          "name": "Templater project",
+          "type": "Template",
+          "command": true,
+          "templatePath": "Templates/TemplaterProject.md",
+          "fileNameFormat": { "enabled": true, "format": "<% tp.date.now(\"YYYY\") %> {{VALUE}}" },
+          "folder": { "enabled": false, "folders": [] },
+          "appendLink": false,
+          "openFile": true,
+          "setFileExistsBehavior": false
+        }
+      ]
+    },
+    {
+      "id": "c5",
+      "name": "Capture and open",
+      "type": "Macro",
+      "command": true,
+      "macroId": "m1",
+      "macro": {
+        "id": "m1",
+        "name": "Capture and open",
+        "commands": [
+          {
+            "id": "mc1",
+            "name": "Add meeting note",
+            "type": "NestedChoice",
+            "choice": {
+              "id": "c5a",
+              "name": "Meeting note",
+              "type": "Template",
+              "command": false,
+              "templatePath": "Templates/Meeting.md",
+              "fileNameFormat": { "enabled": true, "format": "{{DATE:YYYY-MM-DD}} {{VALUE:Attendee}}" },
+              "folder": { "enabled": true, "folders": ["Meetings"], "chooseWhenCreatingNote": false, "createInSameFolderAsActiveFile": false },
+              "appendLink": false,
+              "openFile": false,
+              "fileExistsMode": "Increment the file name",
+              "setFileExistsBehavior": true
+            }
+          },
+          {
+            "id": "mc2",
+            "name": "Note it in the log",
+            "type": "NestedChoice",
+            "choice": {
+              "id": "c5b",
+              "name": "Log the meeting",
+              "type": "Capture",
+              "command": false,
+              "captureTo": "Logs/Meetings.md",
+              "captureToActiveFile": false,
+              "createFileIfItDoesntExist": { "enabled": false, "createWithTemplate": false, "template": "" },
+              "format": { "enabled": true, "format": "- {{DATE}} {{VALUE}}" },
+              "prepend": false,
+              "appendLink": false,
+              "task": false,
+              "insertAfter": { "enabled": false, "after": "" },
+              "openFile": false
+            }
+          }
+        ]
+      }
+    },
+    {
+      "id": "c6",
+      "name": "Run my script",
+      "type": "Macro",
+      "command": true,
+      "macroId": "m2",
+      "macro": {
+        "id": "m2",
+        "name": "Run my script",
+        "commands": [
+          { "id": "mc3", "name": "Wait", "type": "Wait", "time": 100 },
+          { "id": "mc4", "name": "fetchWeather.js", "type": "UserScript", "path": "scripts/fetchWeather.js", "settings": {} },
+          { "id": "mc5", "name": "Toggle Pin", "type": "Obsidian", "commandId": "workspace:toggle-pin" }
+        ]
+      }
+    },
+    {
+      "id": "c7",
+      "name": "Fancy fields",
+      "type": "Capture",
+      "command": true,
+      "captureTo": "Fields.md",
+      "captureToActiveFile": false,
+      "createFileIfItDoesntExist": { "enabled": false, "createWithTemplate": false, "template": "" },
+      "format": { "enabled": true, "format": "{{FIELD:status}} — {{MATH}} — {{MACRO:Other}}" },
+      "prepend": false,
+      "appendLink": false,
+      "task": false,
+      "insertAfter": { "enabled": false, "after": "" },
+      "openFile": false
+    }
+  ],
+  "macros": [
+    {
+      "id": "m2",
+      "name": "Run my script",
+      "commands": [
+        { "id": "mc3", "name": "Wait", "type": "Wait", "time": 100 },
+        { "id": "mc4", "name": "fetchWeather.js", "type": "UserScript", "path": "scripts/fetchWeather.js", "settings": {} },
+        { "id": "mc5", "name": "Toggle Pin", "type": "Obsidian", "commandId": "workspace:toggle-pin" }
+      ]
+    }
+  ],
+  "inputPrompt": "single-line",
+  "devMode": false,
+  "templateFolderPath": "Templates",
+  "announceUpdates": true,
+  "version": "1.12.0",
+  "disableOnlineFeatures": true
+}

@@ -130,6 +130,13 @@ n/a = synchronous or sub-100ms by construction.
 | Share… | opens the dialog | instant | n/a |
 | Set colour, reorder, drag-move | local + registry | fast | n/a |
 
+### Shared icon picker — `components/IconPicker.tsx`
+
+| Action | Work | Latency | Feedback |
+| --- | --- | --- | --- |
+| Choose or reset a note, file, or folder icon | local presentation write + reindex | 0.1–1s | ✅ picker closes after a successful write and returns focus to its opener; a failed write keeps the picker open |
+| Close the picker (Close button / Escape / outside press) | local UI | instant | n/a; Close and Escape return focus to the opener |
+
 ### Editor & main — `components/Editor.tsx`, `App.tsx`
 
 | Action | Work | Latency | Feedback |

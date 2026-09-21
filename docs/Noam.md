@@ -110,6 +110,28 @@ are ready.
 
 ---
 
+## Workflows, templates and packages
+
+[[WORKFLOWS]] documents the native workflow system: Markdown templates, workflow notes
+(`noam_kind: workflow` plus a fenced `json noam-workflow` definition), the bounded variable
+set, the declarative steps, and the structured results every entry point shows. It never
+evaluates code. [[WORKFLOW-PACKAGES]] covers the single-file package format, the import
+preview (add / replace / duplicate / skip), atomic apply with recovery, idempotent re-import,
+and the supported QuickAdd subset with what is deliberately unsupported.
+
+---
+
+## Tasks, calendar and boards
+
+[[TASKS]] documents the task system: the frozen line format and markers, the lazy `^t-`
+identity, recurrence, the closed query subset behind the Tasks panel and its saved filters
+(`noam_kind: task-filter`), and the adapter rule that every write re-resolves against live
+text. [[BOARDS]] covers the one-note Kanban board (`noam_kind: board`), the Obsidian Kanban
+subset it reads and writes byte-for-byte, and how a card move re-resolves lane and card
+before it plans a single span edit.
+
+---
+
 ## Interaction design
 
 [[INTERACTIONS]] is the inventory of every action the desktop app can take, how long

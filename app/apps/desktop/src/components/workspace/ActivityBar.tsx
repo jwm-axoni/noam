@@ -1,5 +1,5 @@
 import { panelRegistry } from "../../layout/panelRegistry";
-import { findPanelTab } from "../../layout/operations";
+import { findPanelTab, isPanelVisible } from "../../layout/operations";
 import { useLayoutStore } from "../../layout/store";
 import type { PanelType } from "../../layout/types";
 import { requestSearchInputFocus } from "../searchFocus";
@@ -17,8 +17,8 @@ const icon = (type: PanelType) => panelRegistry[type].icon;
 export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanelOpen }: ActivityBarProps) {
   const layout = useLayoutStore((state) => state.layout);
   const types: PanelType[] = side === "left"
-    ? ["files", "search"]
-    : ["backlinks", "outline", "graph", ...(historyAvailable ? ["history" as const] : [])];
+    ? ["files", "search", "workflows", "tasks", "calendar"]
+    : ["properties", "backlinks", "outline", "graph", ...(historyAvailable ? ["history" as const] : [])];
 
   const activate = (type: PanelType, button: HTMLButtonElement) => {
     const current = useLayoutStore.getState().layout;
@@ -26,7 +26,7 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
     if (found) {
       const zone = (["left", "center", "right"] as const).find((id) =>
         current.zones[id].groupIds.includes(found.groupId));
-      const active = current.groups[found.groupId]?.activeTabId === found.tab.id;
+      const active = isPanelVisible(current, type);
       if ((zone === "left" || zone === "right") && active && !current.zones[zone].userCollapsed) {
         useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: true });
         button.focus();
@@ -55,6 +55,7 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
       className={`workspace-activity workspace-activity-${side}`}
       aria-label={`${side === "left" ? "Primary" : "Secondary"} tools`}
       data-empty-zone={layout.zones[side].groupIds.length === 0 ? side : undefined}
+      data-tauri-drag-region
     >
       <div className="activity-tools">
         {side === "left" && (
@@ -65,7 +66,7 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
         {types.map((type) => {
           const found = findPanelTab(layout, type);
           const zone = found && (["left", "center", "right"] as const).find((id) => layout.zones[id].groupIds.includes(found.groupId));
-          const active = !!found && layout.groups[found.groupId]?.activeTabId === found.tab.id &&
+          const active = isPanelVisible(layout, type) &&
             (zone === "center" || (zone != null && !layout.zones[zone].userCollapsed));
           return (
             <button

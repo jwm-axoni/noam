@@ -141,7 +141,7 @@ pub async fn google_oauth_await(state: State<'_, AppState>) -> AppResult<String>
 
 /// The Noam Fan mark, encoded as an SVG `data:` URI so the loopback page is
 /// fully self-contained. Mirrors `apps/desktop/src/assets/noam-mark.svg`.
-const WORDMARK: &str = include_str!("assets/wordmark-ink.datauri");
+const WORDMARK: &str = include_str!("assets/brand-mark.datauri");
 
 /// Brand-styled CSS for the callback page. The `__ACCENT__` token is swapped per
 /// outcome (green success, warm red failure). No user input is ever interpolated

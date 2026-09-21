@@ -41,7 +41,10 @@ import {
   WidgetType,
 } from "@codemirror/view";
 import type { SyntaxNodeRef } from "@lezer/common";
-import { openExternal } from "../ipc";
+import { createElement } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { ImageViewer } from "../../components/filePreview/ImageViewer";
+import { LazyPdfViewer as PdfViewer } from "../../components/filePreview/LazyPdfViewer";
 import { previewKind } from "../preview";
 import { frontmatterField } from "./frontmatter";
 import { CALLOUT_RE } from "./ofm/callout";
@@ -170,6 +173,7 @@ class HtmlEmbedWidget extends WidgetType {
 
 /** A Markdown `![alt](src)` image rendered inline. */
 class ImageWidget extends WidgetType {
+  private root: Root | null = null;
   constructor(readonly src: string, readonly alt: string) {
     super();
   }
@@ -177,11 +181,20 @@ class ImageWidget extends WidgetType {
     return other.src === this.src && other.alt === this.alt;
   }
   toDOM() {
-    const img = document.createElement("img");
-    img.className = "cm-md-img";
-    img.src = this.src;
-    if (this.alt) img.alt = this.alt;
-    return img;
+    const host = document.createElement("span");
+    host.className = "cm-md-img-host";
+    this.root = createRoot(host);
+    this.root.render(createElement(ImageViewer, {
+      src: this.src,
+      name: this.alt || "Image",
+      alt: this.alt,
+      compact: true,
+    }));
+    return host;
+  }
+  destroy() {
+    this.root?.unmount();
+    this.root = null;
   }
   ignoreEvent() {
     return false;
@@ -189,12 +202,11 @@ class ImageWidget extends WidgetType {
 }
 
 /**
- * A `![alt](src.pdf)` embed rendered as an inline preview block: the PDF streams
- * into a framed viewer that flows with the note (the div is display:block, so it
- * reads as a block even though it's an inline widget — sidesteps the whole-line
- * constraint block decorations carry). Interaction (scroll) is left to the frame.
+ * A `![alt](src.pdf)` embed rendered with the shared PDF.js viewer. The wrapper
+ * flows as a block even though CodeMirror owns it as an inline widget.
  */
 class PdfEmbedWidget extends WidgetType {
+  private root: Root | null = null;
   constructor(readonly src: string, readonly name: string) {
     super();
   }
@@ -204,15 +216,52 @@ class PdfEmbedWidget extends WidgetType {
   toDOM() {
     const wrap = document.createElement("div");
     wrap.className = "cm-md-pdf";
-    const frame = document.createElement("iframe");
-    frame.className = "cm-md-pdf-frame";
-    frame.src = this.src;
-    frame.title = this.name || "PDF";
-    wrap.appendChild(frame);
+    this.root = createRoot(wrap);
+    this.root.render(createElement(PdfViewer, {
+      src: this.src,
+      name: this.name || "PDF",
+      compact: true,
+    }));
     return wrap;
+  }
+  destroy() {
+    this.root?.unmount();
+    this.root = null;
   }
   ignoreEvent() {
     return true; // let the embedded viewer own its clicks/scroll
+  }
+}
+
+class MediaEmbedWidget extends WidgetType {
+  constructor(
+    readonly src: string,
+    readonly name: string,
+    readonly kind: "audio" | "video",
+  ) {
+    super();
+  }
+  eq(other: MediaEmbedWidget) {
+    return other.src === this.src && other.name === this.name && other.kind === this.kind;
+  }
+  toDOM() {
+    const wrap = document.createElement("span");
+    wrap.className = `cm-md-media cm-md-media-${this.kind}`;
+    const media = document.createElement(this.kind);
+    media.src = this.src;
+    media.controls = true;
+    media.preload = "metadata";
+    media.setAttribute("aria-label", this.name || this.kind);
+    const error = document.createElement("span");
+    error.className = "cm-md-media-error";
+    media.addEventListener("error", () => {
+      error.textContent = `Can't play ${this.name || "this file"}. Use its file tab to open it externally.`;
+    });
+    wrap.append(media, error);
+    return wrap;
+  }
+  ignoreEvent() {
+    return true;
   }
 }
 
@@ -269,6 +318,7 @@ function buildBlockDecorations(
   state: EditorState,
   resolveAsset: ResolveAsset,
   onNavigate?: (target: string) => void,
+  onOpenLink?: (href: string) => void,
 ): BlockDecorations {
   const doc = state.doc;
   const decos: ReturnType<Decoration["range"]>[] = [];
@@ -333,7 +383,11 @@ function buildBlockDecorations(
         const src = doc.sliceString(node.from, node.to);
         decos.push(
           Decoration.replace({
-            widget: new TableWidget(src, { onNavigate, readOnly: state.readOnly }),
+            widget: new TableWidget(src, {
+              onNavigate,
+              onOpenLink,
+              readOnly: state.readOnly,
+            }),
             block: true,
           }).range(node.from, node.to)
         );
@@ -513,10 +567,13 @@ function buildDecorations(view: EditorView, resolveAsset: ResolveAsset): Decorat
             if (src) {
               const raw = doc.sliceString(node.from, node.to);
               const alt = /^!\[([^\]]*)\]/.exec(raw)?.[1] ?? "";
-              const widget =
-                previewKind(src) === "pdf"
-                  ? new PdfEmbedWidget(resolveAsset(src), alt)
-                  : new ImageWidget(resolveAsset(src), alt);
+              const kind = previewKind(src);
+              const resolved = resolveAsset(src);
+              const widget = kind === "pdf"
+                ? new PdfEmbedWidget(resolved, alt)
+                : kind === "audio" || kind === "video"
+                  ? new MediaEmbedWidget(resolved, alt, kind)
+                  : new ImageWidget(resolved, alt);
               decos.push(
                 Decoration.replace({ widget }).range(node.from, node.to)
               );
@@ -558,16 +615,27 @@ function buildDecorations(view: EditorView, resolveAsset: ResolveAsset): Decorat
  *    cursor moves.
  */
 export function livePreview(
-  opts: { resolveAsset?: ResolveAsset; onNavigate?: (target: string) => void } = {}
+  opts: {
+    resolveAsset?: ResolveAsset;
+    onNavigate?: (target: string) => void;
+    onOpenLink?: (href: string) => void;
+  } = {}
 ) {
   const resolveAsset = opts.resolveAsset ?? identityAsset;
   const onNavigate = opts.onNavigate;
+  const onOpenLink = opts.onOpenLink;
 
   const blockWidgets = StateField.define<BlockDecorations>({
-    create: (state) => buildBlockDecorations(state, resolveAsset, onNavigate),
+    create: (state) =>
+      buildBlockDecorations(state, resolveAsset, onNavigate, onOpenLink),
     update(value, tr) {
       if (tr.docChanged || tr.startState.readOnly !== tr.state.readOnly) {
-        return buildBlockDecorations(tr.state, resolveAsset, onNavigate);
+        return buildBlockDecorations(
+          tr.state,
+          resolveAsset,
+          onNavigate,
+          onOpenLink,
+        );
       }
       const selectionMoved = !tr.startState.selection.eq(tr.state.selection);
       const focusMovedHere = tr.effects.some((e) => e.is(setFocused));
@@ -581,7 +649,12 @@ export function livePreview(
       ) {
         return value;
       }
-      return buildBlockDecorations(tr.state, resolveAsset, onNavigate);
+      return buildBlockDecorations(
+        tr.state,
+        resolveAsset,
+        onNavigate,
+        onOpenLink,
+      );
     },
     provide: (f) => EditorView.decorations.from(f, (v) => v.deco),
   });
@@ -606,9 +679,9 @@ export function livePreview(
         mousedown(event) {
           const el = (event.target as HTMLElement).closest(".cm-md-link");
           const href = el?.getAttribute("data-href");
-          if (!href) return false;
+          if (!href || !onOpenLink) return false;
           event.preventDefault();
-          void openExternal(href);
+          onOpenLink(href);
           return true;
         },
       },

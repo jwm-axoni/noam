@@ -25,6 +25,8 @@ export interface MenuAnchor {
    * flipped menu sits above the button rather than on top of it.
    */
   flipY?: number;
+  /** Which vertical direction to try first. Defaults to opening downward. */
+  preferY?: "down" | "up";
 }
 
 export interface Box {
@@ -67,22 +69,29 @@ export function placeMenu(
   const maxHeight = Math.max(0, viewport.height - margin * 2);
   const height = Math.min(size.height, maxHeight);
   const flipBottom = anchor.flipY ?? anchor.y;
+  const fitsBelow = anchor.y >= margin && anchor.y + height <= viewport.height - margin;
+  const fitsAbove = flipBottom - height >= margin;
 
   let top: number;
-  if (anchor.y + height <= viewport.height - margin) {
+  if (anchor.preferY === "up") {
+    if (fitsAbove) {
+      top = clamp(flipBottom - height, margin, viewport.height - margin - height);
+    } else if (fitsBelow) top = anchor.y;
+    else top = clamp(flipBottom - height, margin, viewport.height - margin - height);
+  } else if (fitsBelow) {
     top = anchor.y;
-  } else if (flipBottom - height >= margin) {
-    top = flipBottom - height;
+  } else if (fitsAbove) {
+    top = clamp(flipBottom - height, margin, viewport.height - margin - height);
   } else {
     top = clamp(anchor.y, margin, viewport.height - margin - height);
   }
 
   const width = Math.min(size.width, Math.max(0, viewport.width - margin * 2));
   let left: number;
-  if (anchor.x + width <= viewport.width - margin) {
+  if (anchor.x >= margin && anchor.x + width <= viewport.width - margin) {
     left = anchor.x;
   } else if (anchor.x - width >= margin) {
-    left = anchor.x - width;
+    left = clamp(anchor.x - width, margin, viewport.width - margin - width);
   } else {
     left = clamp(anchor.x, margin, viewport.width - margin - width);
   }

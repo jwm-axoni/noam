@@ -402,11 +402,11 @@ describe("planInbound — deletes", () => {
     // outbound half then re-registered it under a brand-new docId, so a deleted
     // note came back — and deleting it again just repeated the cycle.
     const p = plan({
-      baseline: new Map([["server-id", "sample-note.md"]]),
-      local: new Map([["local-index-id", "sample-note.md"]]),
+      baseline: new Map([["server-id", "naveed-test.md"]]),
+      local: new Map([["local-index-id", "naveed-test.md"]]),
       tombstones: new Set(["server-id"]),
     });
-    expect([...p.suppress]).toEqual(["sample-note.md"]);
+    expect([...p.suppress]).toEqual(["naveed-test.md"]);
     // Suppress only. Without a docId match we cannot prove the file at that path
     // is still this note, and a wrong guess here deletes someone's work.
     expect(p.trash).toEqual([]);

@@ -208,4 +208,55 @@ describe("public note links", () => {
     const html = await (await app.request(`/p/${token}`)).text();
     expect(html).toContain(`src="/p/${token}/a/attachments/ok.png"`);
   });
+
+  it("renders presentation assets and withdraws their access after revocation", async () => {
+    const icon = "attachments/icon.png";
+    const cover = "attachments/cover.png";
+    docWriter.store.set(docId, [
+      "---", "noam_presentation_version: 1", `noam_icon: \"asset:${icon}\"`,
+      `noam_cover: ${cover}`, 'noam_cover_alt: "Garden"', "---",
+      '<mark data-noam-color="green">Shared highlight</mark>',
+    ].join("\n"));
+    for (const path of [icon, cover]) {
+      await pool.query(
+        `INSERT INTO blobs (id, vault_id, org_id, sha256, size, mime, data, rel_path, filename)
+         VALUES ($1, $2, $3, $4, 4, 'image/png', $5, $6, $7)`,
+        [randomUUID(), vault, orgId, randomUUID(), Buffer.from([0x89, 0x50, 0x4e, 0x47]), path, path.split('/').pop()],
+      );
+    }
+    const { token } = await (await mint(owner, docId)).json() as { token: string };
+    const html = await (await app.request(`/p/${token}`)).text();
+    expect(html).toContain(`class="note-icon" src="/p/${token}/a/${icon}"`);
+    expect(html).toContain(`class="note-cover" src="/p/${token}/a/${cover}"`);
+    expect(html).toContain('<mark data-noam-color="green">Shared highlight</mark>');
+    expect((await app.request(`/p/${token}/a/${cover}`)).status).toBe(200);
+    expect((await app.request(`/p/${token}/a/${icon}`)).status).toBe(200);
+
+    const revoked = await app.request(`/api/notes/${docId}/public-link`, { method: "DELETE", headers: authHeaders(owner) });
+    expect(revoked.status).toBe(200);
+    expect((await app.request(`/p/${token}/a/${cover}`)).status).toBe(404);
+    expect((await app.request(`/p/${token}/a/${icon}`)).status).toBe(404);
+  });
+
+  it("never exposes the retained cover source through a public link", async () => {
+    const preview = "attachments/noam/covers/preview.png";
+    const source = "attachments/noam/covers/source.jpg";
+    docWriter.store.set(docId, [
+      "---", "noam_presentation_version: 1", `noam_cover: ${preview}`,
+      `noam_cover_source: ${source}`, "---", `Public body\n![](${source})`,
+    ].join("\n"));
+    for (const path of [preview, source]) {
+      await pool.query(
+        `INSERT INTO blobs (id, vault_id, org_id, sha256, size, mime, data, rel_path, filename)
+         VALUES ($1, $2, $3, $4, 4, 'image/png', $5, $6, $7)`,
+        [randomUUID(), vault, orgId, randomUUID(), Buffer.from([0x89, 0x50, 0x4e, 0x47]), path, path.split("/").pop()],
+      );
+    }
+    const { token } = await (await mint(owner, docId)).json() as { token: string };
+    expect((await app.request(`/p/${token}/a/${preview}`)).status).toBe(200);
+    expect((await app.request(`/p/${token}/a/${source}`)).status).toBe(404);
+    const html = await (await app.request(`/p/${token}`)).text();
+    expect(html).toContain(preview);
+    expect(html).not.toContain(source);
+  });
 });

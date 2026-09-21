@@ -25,6 +25,8 @@ import {
   itemLockRows,
   LOCK_TITLES,
   lockScopesByPath,
+  restrictionRowsForUser,
+  resourceLockedForUser,
 } from "../locks";
 
 const dir = (path: string, children: TreeNode[] = []): TreeNode =>
@@ -293,5 +295,54 @@ describe("effectiveLockForPath", () => {
     expect(effectiveLockForPath(map, "Projects/Deep/buried.md")).toBe("all");
     // Outside that folder the vault is still the only thing deciding.
     expect(effectiveLockForPath(map, "loose.md")).toBe("vault");
+  });
+});
+
+describe("resourceLockedForUser", () => {
+  it("honors a hidden companion's org or current-user denial only", () => {
+    const base = {
+      id: "share",
+      resourceType: "file" as const,
+      resourceId: "folder-meta",
+      permission: "denied" as const,
+    };
+    expect(resourceLockedForUser([
+      { ...base, principalType: "org", principalId: "org-1" },
+    ], "folder-meta", "user-1")).toBe(true);
+    expect(resourceLockedForUser([
+      { ...base, principalType: "user", principalId: "user-1" },
+    ], "folder-meta", "user-1")).toBe(true);
+    expect(resourceLockedForUser([
+      { ...base, principalType: "user", principalId: "user-2" },
+    ], "folder-meta", "user-1")).toBe(false);
+    expect(resourceLockedForUser([
+      { ...base, principalType: "org", principalId: "org-1", permission: "view" },
+    ], "folder-meta", "user-1")).toBe(false);
+  });
+
+  it("checks denied overlay rows even when the lock overlay is empty", () => {
+    expect(resourceLockedForUser([], "folder-meta", "user-1", [{
+      id: "deny",
+      resourceType: "file",
+      resourceId: "folder-meta",
+      principalType: "user",
+      principalId: "user-1",
+      permission: "denied",
+    }])).toBe(true);
+  });
+
+  it("inherits a current-user folder denial without applying another user's denial", () => {
+    const denied = (principalId: string): Share => share({
+      id: `deny-${principalId}`,
+      resourceType: "folder",
+      resourceId: "f-projects",
+      principalType: "user",
+      principalId,
+      permission: "denied",
+    });
+    const rows = restrictionRowsForUser([denied("u1"), denied("u2")], "u1");
+    const map = lockScopesByPath(tree, rows, "u1");
+    expect(rows.map((row) => row.id)).toEqual(["deny-u1"]);
+    expect(effectiveLockForPath(map, "Projects/Deep/buried.md")).toBe("you");
   });
 });

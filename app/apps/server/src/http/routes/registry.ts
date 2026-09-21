@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { ACCESS_CHECK_MAX } from "@noam/contracts/access";
 import { Hono } from "hono";
 import { config } from "../../config.js";
 import { pool } from "../../db/pool.js";
@@ -25,11 +26,9 @@ import {
 } from "../../registry/tree-ops.js";
 import { getSession } from "../session.js";
 
-/** Most doc ids one `POST /vaults/:id/access-check` may ask about — the same
- *  bound the vault channel's `ready.revoked` uses for the list it corroborates,
- *  and mirrored client-side as `lib/api.ts ACCESS_CHECK_MAX` so the desktop
- *  chunks to it rather than earning a 400. */
-export const ACCESS_CHECK_MAX = 2000;
+/** Most doc ids one `POST /vaults/:id/access-check` may ask about. The desktop
+ *  imports the same contract and chunks requests to avoid a 400. */
+export { ACCESS_CHECK_MAX };
 
 /** Run `fn` over items with at most `limit` in flight, preserving nothing about
  *  order (callers here collect into a set/array they sort or don't care about).
@@ -990,4 +989,3 @@ export function createRegistryRoutes(deps: RegistryDeps = {}): Hono {
 
   return registryRoutes;
 }
-

@@ -1,3 +1,5 @@
+// SPDX-License-Identifier: Apache-2.0
+
 import type { PropertiesMode } from "../../lib/editor/frontmatter";
 import type { ViewMode } from "../../lib/editor/viewMode";
 import {

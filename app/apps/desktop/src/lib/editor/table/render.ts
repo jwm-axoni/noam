@@ -136,9 +136,10 @@ function renderNode(parent: Node, node: SyntaxNode, text: string): void {
       el.className = "cm-md-link";
       const url = node.getChild("URL");
       const href = url ? text.slice(url.from, url.to) : "";
-      // Only web links are followable; anything else renders as inert text so a
-      // cell can never smuggle a `javascript:` target into the click handler.
-      if (/^(https?:|mailto:)/i.test(href)) el.dataset.href = href;
+      // Keep the raw destination on an inert span. The owning app callback
+      // decides whether it is a safe vault path, an allowed external URL, or a
+      // destination to ignore. Nothing in this renderer can navigate itself.
+      if (href) el.dataset.href = href;
       renderChildren(el, node, text);
       parent.appendChild(el);
       return;

@@ -266,8 +266,13 @@ export class WebGLGraphRenderer {
     mid: [0.031, 0.035, 0.063], // #080910
     rim: [0.012, 0.016, 0.035], // #030409
   };
-  /** True in light mode: picks the light-readable edge tint. */
+  /** True in light mode: keeps the light-theme edge opacity unchanged. */
   private lightMode = false;
+  /** Resting edge tint, re-read from --graph-link-rest on theme changes. */
+  private edgeColor: [number, number, number] = [0.5, 0.52, 0.6];
+  /** Scene-level multiplier on resting-edge opacity. The entrance fades the
+   *  links in behind the nodes; everything else leaves it at 1. */
+  private edgeAlphaScale = 1;
 
   private lineProgram: WebGLProgram;
   private lineVao: WebGLVertexArrayObject;
@@ -451,11 +456,19 @@ export class WebGLGraphRenderer {
     this.backdrop = { core, mid, rim };
   }
 
-  /** Switch light/dark-dependent tints (resting edge color). The backdrop
-   *  itself comes from setBackdropColors; this only affects passes that can't
-   *  read the theme tokens directly. */
+  /** Switch the light/dark-dependent resting-edge opacity. */
   setLightMode(light: boolean): void {
     this.lightMode = light;
+  }
+
+  /** Set the resting-edge tint from the resolved --graph-link-rest token. */
+  setEdgeColor(color: [number, number, number]): void {
+    this.edgeColor = color;
+  }
+
+  /** Fade the resting edges as a whole, 0..1 (1 = the normal look). */
+  setEdgeAlphaScale(scale: number): void {
+    this.edgeAlphaScale = Math.max(0, Math.min(1, scale));
   }
 
   /**
@@ -515,11 +528,16 @@ export class WebGLGraphRenderer {
     // whisper of opacity used to accumulate into a flat wash over dense
     // regions, so they had to be dialled down until they nearly disappeared.
     gl.blendFunc(gl.SRC_ALPHA, gl.ONE_MINUS_SRC_ALPHA);
-    if (this.lightMode) {
-      drawSegments(this.lineVao, this.lineCount, 1.5 * dpr, 0.60, 0.62, 0.69, 0.50);
-    } else {
-      drawSegments(this.lineVao, this.lineCount, 1.5 * dpr, 0.50, 0.52, 0.60, 0.40);
-    }
+    const [edgeR, edgeG, edgeB] = this.edgeColor;
+    drawSegments(
+      this.lineVao,
+      this.lineCount,
+      1.5 * dpr,
+      edgeR,
+      edgeG,
+      edgeB,
+      (this.lightMode ? 0.5 : 0.4) * this.edgeAlphaScale,
+    );
 
     // Hover rays go UNDER the nodes, not over them. Drawn last, they crossed the
     // hovered node itself — dozens of bright lines converging on top of the very

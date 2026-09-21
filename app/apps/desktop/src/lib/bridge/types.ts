@@ -39,7 +39,14 @@ export interface CrdtPersistence {
 /** All I/O the bridge depends on, injected so it is testable in isolation. */
 export interface BridgeIO {
   readFile(path: string): Promise<string>;
-  writeFileAtomic(path: string, content: string): Promise<void>;
+  readFileSnapshot?(path: string): Promise<{ content: string; fileIdentity: string }>;
+  writeFileAtomic(
+    path: string,
+    content: string,
+    expectedDocumentId?: string,
+    expectedSourceRevision?: string,
+    expectedFileIdentity?: string,
+  ): Promise<string | void>;
   /** SHA-256 hex of `text`. May be sync (Node) or async (Web Crypto). */
   sha256(text: string): Promise<string> | string;
   persistence: CrdtPersistence;

@@ -7,7 +7,6 @@ import {
   useSyncExternalStore,
   type ReactNode,
 } from "react";
-import { noteLabel } from "../../lib/notePath";
 import { TabBar } from "../TabBar";
 import { useStore } from "../../store";
 import {
@@ -38,9 +37,13 @@ const PANEL_COMPONENTS = {
   files: lazyPanel("files"),
   search: lazyPanel("search"),
   backlinks: lazyPanel("backlinks"),
+  properties: lazyPanel("properties"),
   outline: lazyPanel("outline"),
   graph: lazyPanel("graph"),
   history: lazyPanel("history"),
+  workflows: lazyPanel("workflows"),
+  tasks: lazyPanel("tasks"),
+  calendar: lazyPanel("calendar"),
 };
 
 interface WorkspaceShellProps {
@@ -151,9 +154,6 @@ function WorkspaceGroup({
       {activePanel && activeTab?.kind === "panel" && (
         <PanelFrame
           title={panelRegistry[activePanel.type].label}
-          subtitle={activePanel.type === "backlinks" || activePanel.type === "outline" || activePanel.type === "history"
-            ? (activeNotePath ? noteLabel(activeNotePath) : null)
-            : null}
           icon={panelRegistry[activePanel.type].icon}
           groupId={groupId}
           tabId={activeTab.id}
@@ -227,6 +227,7 @@ export function WorkspaceShell({
         "--workspace-right-separator": `${fit.rightWidth > 0 ? PANE_SEPARATOR_SIZE : 0}px`,
       } as React.CSSProperties}
     >
+      <div className="workspace-titlebar-drag" data-tauri-drag-region aria-hidden="true" />
       <ActivityBar side="left" onNewNote={() => void useStore.getState().createNoteIn("")} onPanelOpen={onPanelOpen} />
       <DockZone zoneId="left">
         {hydrated && layout.zones.left.groupIds.map((groupId) => (

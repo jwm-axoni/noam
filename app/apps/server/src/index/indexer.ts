@@ -1,9 +1,16 @@
+import { createHash } from "node:crypto";
 import * as Y from "yjs";
 import { pgText } from "../db/text.js";
 import type pg from "pg";
 import { pool as defaultPool } from "../db/pool.js";
 import { loadDocState } from "../yjs/persistence.js";
 import { cosineSimilarity, embed, tokenize } from "./embedder.js";
+import {
+  parseKnowledgeCatalog,
+  parseKnowledgeMarkdown,
+  type KnowledgeCatalog,
+  type KnowledgeProjection,
+} from "../knowledge/markdown.js";
 
 /**
  * Note indexing engine (spec: links + vectors).
@@ -19,6 +26,7 @@ import { cosineSimilarity, embed, tokenize } from "./embedder.js";
  */
 
 type Queryable = Pick<pg.Pool, "query">;
+type TransactionalQueryable = Queryable & Partial<Pick<pg.Pool, "connect">>;
 
 /** The shared Y.Text that holds a note body (matches the desktop bridge). */
 const CONTENT_FIELD = "content";
@@ -26,8 +34,43 @@ const CONTENT_FIELD = "content";
 /** Default debounce window: collapse bursts of updates into one index write. */
 const DEBOUNCE_MS = 2000;
 
+/**
+ * One reprojection cycle uses a small fixed retry ladder. The per-vault
+ * recovery queue repeats cycles with a capped backoff until Postgres reports no
+ * stale, failed, or missing projection rows. Those rows also survive a process
+ * exit, so boot backfill can resume recovery.
+ */
+export const CATALOG_REPROJECTION_RETRY_DELAYS_MS = [25, 100, 250] as const;
+export const CATALOG_RECOVERY_BACKOFF_MS = [100, 500, 2_000, 5_000] as const;
+
 // Per-doc pending timers (debounce). Keyed by docId.
-const pending = new Map<string, ReturnType<typeof setTimeout>>();
+const pending = new Map<
+  string,
+  { timer: ReturnType<typeof setTimeout>; stale: Promise<void> }
+>();
+
+function sourceRevision(content: string): string {
+  return createHash("sha256").update(content, "utf8").digest("hex");
+}
+
+async function inTransaction<T>(
+  db: TransactionalQueryable,
+  fn: (tx: Queryable) => Promise<T>,
+): Promise<T> {
+  if (!db.connect) return fn(db);
+  const client = await db.connect();
+  try {
+    await client.query("BEGIN");
+    const result = await fn(client);
+    await client.query("COMMIT");
+    return result;
+  } catch (error) {
+    await client.query("ROLLBACK");
+    throw error;
+  } finally {
+    client.release();
+  }
+}
 
 /**
  * Parse `[[wikilink]]` targets out of note text. Captures the title portion
@@ -65,86 +108,410 @@ export async function extractDocText(
   }
 }
 
+async function replaceKnowledgeRows(
+  tx: Queryable,
+  docId: string,
+  vaultId: string,
+  projection: KnowledgeProjection,
+): Promise<void> {
+  await tx.query("DELETE FROM note_knowledge_identities WHERE doc_id = $1", [docId]);
+  await tx.query("DELETE FROM note_property_values WHERE doc_id = $1", [docId]);
+  await tx.query("DELETE FROM note_labels WHERE doc_id = $1", [docId]);
+  await tx.query("DELETE FROM note_relationships WHERE from_doc = $1", [docId]);
+
+  if (projection.documentId) {
+    await tx.query(
+      `INSERT INTO note_knowledge_identities (doc_id, vault_id, document_id)
+       VALUES ($1, $2, $3)`,
+      [docId, vaultId, projection.documentId],
+    );
+  }
+  for (const value of projection.properties) {
+    await tx.query(
+      `INSERT INTO note_property_values
+         (doc_id, vault_id, property_id, value_order, value_type,
+          text_value, number_value, boolean_value)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
+      [
+        docId,
+        vaultId,
+        value.propertyId,
+        value.order,
+        value.type,
+        value.text,
+        value.number,
+        value.boolean,
+      ],
+    );
+  }
+  for (const label of projection.labels) {
+    await tx.query(
+      `INSERT INTO note_labels (doc_id, vault_id, property_id, label, kind)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT DO NOTHING`,
+      [docId, vaultId, label.propertyId, label.label, label.kind],
+    );
+  }
+  for (const relationship of projection.relationships) {
+    await tx.query(
+      `INSERT INTO note_relationships
+         (vault_id, from_doc, relationship_id, target_document_id, value_order)
+       VALUES ($1, $2, $3, $4, $5)
+       ON CONFLICT DO NOTHING`,
+      [
+        vaultId,
+        docId,
+        relationship.relationshipId,
+        relationship.targetDocumentId,
+        relationship.order,
+      ],
+    );
+  }
+}
+
+export const KNOWLEDGE_SCHEMA_PATH = "_Noam/Knowledge schema.md";
+
+async function loadKnowledgeCatalog(
+  tx: Queryable,
+  vaultId: string,
+): Promise<KnowledgeCatalog | null> {
+  const { rows } = await tx.query<{ id: string }>(
+    `SELECT id FROM notes
+      WHERE vault_id = $1 AND rel_path = $2 AND deleted_at IS NULL
+      LIMIT 1`,
+    [vaultId, KNOWLEDGE_SCHEMA_PATH],
+  );
+  const docId = rows[0]?.id;
+  if (!docId) return null;
+  return parseKnowledgeCatalog(await extractDocText(docId, tx));
+}
+
+/** Mark the projection stale before the debounce window begins. */
+export async function markKnowledgeIndexStale(
+  docId: string,
+  db: Queryable = defaultPool,
+): Promise<void> {
+  await db.query(
+    `WITH changed AS (
+       SELECT id, vault_id, rel_path FROM notes
+        WHERE id = $1 AND deleted_at IS NULL
+     )
+     INSERT INTO note_knowledge_state (doc_id, vault_id, state, generation)
+       SELECT n.id, n.vault_id, 'stale', 1
+         FROM notes n JOIN changed c ON c.vault_id = n.vault_id
+        WHERE n.deleted_at IS NULL
+          AND (n.id = c.id OR c.rel_path = $2)
+     ON CONFLICT (doc_id) DO UPDATE
+       SET state = 'stale',
+           generation = note_knowledge_state.generation + 1,
+           error_code = NULL`,
+    [docId, KNOWLEDGE_SCHEMA_PATH],
+  );
+}
+
 /**
  * Index one note now (no debounce). Resolves the doc's vault + title from the
  * notes table, extracts its text, then upserts note_index and replaces the
  * doc's note_links rows. No-op for docs with no live note row (e.g. binary
  * files), so we never index things that aren't markdown notes.
  */
+async function indexDocOnce(
+  docId: string,
+  db: TransactionalQueryable = defaultPool,
+): Promise<{ indexed: boolean; catalogVaultId: string | null }> {
+  try {
+    return await inTransaction(db, async (tx) => {
+      const { rows } = await tx.query<{
+        vault_id: string;
+        title: string | null;
+        rel_path: string;
+      }>(
+        `SELECT vault_id, title, rel_path FROM notes
+          WHERE id = $1 AND deleted_at IS NULL FOR UPDATE`,
+        [docId],
+      );
+      const note = rows[0];
+      if (!note) {
+        await purgeNoteIndex([docId], tx);
+        return { indexed: false, catalogVaultId: null };
+      }
+
+      await tx.query(
+        `INSERT INTO note_knowledge_state (doc_id, vault_id, state)
+         VALUES ($1, $2, 'stale') ON CONFLICT (doc_id) DO NOTHING`,
+        [docId, note.vault_id],
+      );
+      await tx.query(
+        "SELECT generation FROM note_knowledge_state WHERE doc_id = $1 FOR UPDATE",
+        [docId],
+      );
+
+      const rawContent = await extractDocText(docId, tx);
+      const revision = sourceRevision(rawContent);
+      const content = pgText(rawContent);
+      const title = pgText(note.title ?? relPathStem(note.rel_path));
+      const links = parseWikilinks(content);
+      const catalog = await loadKnowledgeCatalog(tx, note.vault_id);
+      const projection = parseKnowledgeMarkdown(rawContent, catalog);
+      const vector = embed(`${title ?? ""}\n${content}`);
+
+      await tx.query(
+        `INSERT INTO note_index (doc_id, vault_id, title, content, vector, updated_at)
+         VALUES ($1, $2, $3, $4, $5::jsonb, now())
+         ON CONFLICT (doc_id) DO UPDATE
+           SET vault_id = EXCLUDED.vault_id,
+               title = EXCLUDED.title,
+               content = EXCLUDED.content,
+               vector = EXCLUDED.vector,
+               updated_at = now()`,
+        [docId, note.vault_id, title, content, JSON.stringify(vector)],
+      );
+
+      await tx.query("DELETE FROM note_links WHERE from_doc = $1", [docId]);
+      for (const toTitle of links) {
+        await tx.query(
+          `INSERT INTO note_links (vault_id, from_doc, to_title)
+           VALUES ($1, $2, $3)
+           ON CONFLICT (from_doc, to_title) DO NOTHING`,
+          [note.vault_id, docId, toTitle],
+        );
+      }
+      await replaceKnowledgeRows(tx, docId, note.vault_id, projection);
+      await tx.query(
+        `UPDATE note_knowledge_state
+            SET source_revision = $2,
+                index_revision = $2,
+                state = 'current',
+                error_code = NULL,
+                indexed_at = now()
+          WHERE doc_id = $1`,
+        [docId, revision],
+      );
+      if (note.rel_path === KNOWLEDGE_SCHEMA_PATH) {
+        await tx.query(
+          `UPDATE note_knowledge_state ks
+              SET state = 'stale', generation = ks.generation + 1, error_code = NULL
+             FROM notes n
+            WHERE n.id = ks.doc_id AND n.vault_id = $1 AND n.deleted_at IS NULL
+              AND n.id <> $2`,
+          [note.vault_id, docId],
+        );
+      }
+      return {
+        indexed: true,
+        catalogVaultId: note.rel_path === KNOWLEDGE_SCHEMA_PATH ? note.vault_id : null,
+      };
+    });
+  } catch (error) {
+    try {
+      await db.query(
+        `INSERT INTO note_knowledge_state (doc_id, vault_id, state, error_code)
+           SELECT id, vault_id, 'failed', 'index_failed' FROM notes
+            WHERE id = $1 AND deleted_at IS NULL
+         ON CONFLICT (doc_id) DO UPDATE
+           SET state = 'failed', error_code = 'index_failed'`,
+        [docId],
+      );
+    } catch (stateError) {
+      console.error(`[indexer] failed to record failure state for ${docId}:`, stateError);
+    }
+    throw error;
+  }
+}
+
+/**
+ * Index one note. Updating the canonical catalog note also reprojects its vault,
+ * so an incremental catalog edit has the same result as a clean rebuild.
+ */
 export async function indexDoc(
   docId: string,
+  db: TransactionalQueryable = defaultPool,
+): Promise<boolean> {
+  const result = await indexDocOnce(docId, db);
+  if (result.catalogVaultId) {
+    await reprojectKnowledgeCatalogForVault(result.catalogVaultId, db);
+  }
+  return result.indexed;
+}
+
+export async function markKnowledgeCatalogStaleForVault(
+  vaultId: string,
+  db: Queryable = defaultPool,
+): Promise<void> {
+  await db.query(
+    `UPDATE note_knowledge_state ks
+        SET state = 'stale', generation = ks.generation + 1, error_code = NULL
+       FROM notes n
+      WHERE n.id = ks.doc_id AND n.vault_id = $1 AND n.deleted_at IS NULL`,
+    [vaultId],
+  );
+}
+
+export async function knowledgeCatalogProjectionNeedsRecovery(
+  vaultId: string,
   db: Queryable = defaultPool,
 ): Promise<boolean> {
-  const { rows } = await db.query<{
-    vault_id: string;
-    title: string | null;
-    rel_path: string;
-  }>(
-    "SELECT vault_id, title, rel_path FROM notes WHERE id = $1 AND deleted_at IS NULL",
-    [docId],
+  const { rows } = await db.query<{ needs_recovery: boolean }>(
+    `SELECT EXISTS (
+       SELECT 1 FROM notes n
+       LEFT JOIN note_knowledge_state ks ON ks.doc_id = n.id
+       WHERE n.vault_id = $1 AND n.deleted_at IS NULL
+         AND (ks.doc_id IS NULL OR ks.state <> 'current')
+     ) AS needs_recovery`,
+    [vaultId],
   );
-  const note = rows[0];
-  if (!note) {
-    // No LIVE note row: the note was hard- or soft-deleted (or this doc is a
-    // binary `files` row, which is never indexed). Either way any note_index /
-    // note_links rows for it are stale, and this early return used to strand
-    // them forever — the delete happens in the registry/MCP layer while a
-    // debounced re-index can still fire afterwards. Purge here so the derived
-    // tables self-heal no matter which path deleted the note.
-    await purgeNoteIndex([docId], db);
-    return false;
+  return rows[0]?.needs_recovery ?? false;
+}
+
+export async function reprojectKnowledgeCatalogForVault(
+  vaultId: string,
+  db: TransactionalQueryable = defaultPool,
+  retryDelaysMs: readonly number[] = CATALOG_REPROJECTION_RETRY_DELAYS_MS,
+): Promise<void> {
+  let failures: unknown[] = [];
+  for (let attempt = 0; attempt <= retryDelaysMs.length; attempt++) {
+    failures = [];
+    try {
+      const { rows } = await db.query<{ id: string }>(
+        `SELECT n.id FROM notes n
+          LEFT JOIN note_knowledge_state ks ON ks.doc_id = n.id
+         WHERE n.vault_id = $1 AND n.deleted_at IS NULL
+           AND (ks.doc_id IS NULL OR ks.state <> 'current')
+         ORDER BY CASE WHEN n.rel_path = $2 THEN 0 ELSE 1 END, n.id`,
+        [vaultId, KNOWLEDGE_SCHEMA_PATH],
+      );
+      for (const row of rows) {
+        try {
+          await indexDocOnce(row.id, db);
+        } catch (error) {
+          failures.push(error);
+        }
+      }
+      if (failures.length === 0) {
+        if (!(await knowledgeCatalogProjectionNeedsRecovery(vaultId, db))) return;
+        failures.push(new Error("Catalog reprojection left non-current peers"));
+      }
+    } catch (error) {
+      failures.push(error);
+    }
+
+    const delayMs = retryDelaysMs[attempt];
+    if (delayMs === undefined) break;
+    await new Promise<void>((resolve) => {
+      const timer = setTimeout(resolve, delayMs);
+      if (typeof timer.unref === "function") timer.unref();
+    });
+  }
+  throw new AggregateError(
+    failures,
+    `Knowledge catalog reprojection failed for vault ${vaultId}`,
+  );
+}
+
+interface CatalogRecovery {
+  db: TransactionalQueryable;
+  requested: boolean;
+  retryDelaysMs: readonly number[];
+  promise: Promise<void>;
+}
+
+const catalogRecoveries = new Map<string, CatalogRecovery>();
+
+/**
+ * Queue one recovery per vault. Callers may acknowledge a committed move as
+ * soon as this is queued. Recovery keeps running with a capped backoff while a
+ * live note has stale, failed, or missing projection state. A second request
+ * records an immediate follow-up pass and supplies the latest database handle,
+ * so replaying an already-committed move can still repair its projections.
+ */
+export function scheduleKnowledgeCatalogReprojection(
+  vaultId: string,
+  db: TransactionalQueryable = defaultPool,
+  retryDelaysMs: readonly number[] = CATALOG_RECOVERY_BACKOFF_MS,
+): Promise<void> {
+  const existing = catalogRecoveries.get(vaultId);
+  if (existing) {
+    existing.db = db;
+    existing.requested = true;
+    existing.retryDelaysMs = retryDelaysMs;
+    return existing.promise;
   }
 
-  // Postgres rejects NUL in `text`; a single such byte in one note used to fail
-  // that note's indexing forever (see `pgText`).
-  const content = pgText(await extractDocText(docId, db));
-  const title = pgText(note.title ?? relPathStem(note.rel_path));
-  const links = parseWikilinks(content);
-  // Embed title + body so a query matching the title still ranks the note.
-  const vector = embed(`${title ?? ""}\n${content}`);
-
-  await db.query(
-    `INSERT INTO note_index (doc_id, vault_id, title, content, vector, updated_at)
-     VALUES ($1, $2, $3, $4, $5::jsonb, now())
-     ON CONFLICT (doc_id) DO UPDATE
-       SET vault_id = EXCLUDED.vault_id,
-           title = EXCLUDED.title,
-           content = EXCLUDED.content,
-           vector = EXCLUDED.vector,
-           updated_at = now()`,
-    [docId, note.vault_id, title, content, JSON.stringify(vector)],
-  );
-
-  // Replace this doc's link edges wholesale (cheap; a doc has few links).
-  await db.query("DELETE FROM note_links WHERE from_doc = $1", [docId]);
-  for (const toTitle of links) {
-    await db.query(
-      `INSERT INTO note_links (vault_id, from_doc, to_title)
-       VALUES ($1, $2, $3)
-       ON CONFLICT (from_doc, to_title) DO NOTHING`,
-      [note.vault_id, docId, toTitle],
-    );
-  }
-  return true;
+  const recovery = {
+    db,
+    requested: false,
+    retryDelaysMs,
+    promise: Promise.resolve(),
+  } satisfies CatalogRecovery;
+  recovery.promise = (async () => {
+    let retry = 0;
+    while (true) {
+      recovery.requested = false;
+      try {
+        await reprojectKnowledgeCatalogForVault(vaultId, recovery.db);
+      } catch (error) {
+        console.error(`[indexer] catalog recovery failed for vault ${vaultId}:`, error);
+      }
+      let needsRecovery = true;
+      try {
+        needsRecovery = await knowledgeCatalogProjectionNeedsRecovery(vaultId, recovery.db);
+      } catch (error) {
+        console.error(`[indexer] failed to inspect catalog recovery for vault ${vaultId}:`, error);
+      }
+      if (!needsRecovery && !recovery.requested) return;
+      if (recovery.requested) {
+        retry = 0;
+        continue;
+      }
+      const delays = recovery.retryDelaysMs;
+      const delayMs = delays.length === 0
+        ? 0
+        : delays[Math.min(retry, delays.length - 1)]!;
+      retry++;
+      await new Promise<void>((resolve) => {
+        const timer = setTimeout(resolve, delayMs);
+        if (typeof timer.unref === "function") timer.unref();
+      });
+    }
+  })().finally(() => {
+    if (catalogRecoveries.get(vaultId) === recovery) catalogRecoveries.delete(vaultId);
+  });
+  catalogRecoveries.set(vaultId, recovery);
+  return recovery.promise;
 }
 
 /**
  * Schedule a debounced (re)index for a doc. Called from the sync server's store
  * hook — repeated calls within the window reset the timer so only the last one
- * fires. Errors are logged, never thrown (indexing must not break sync).
+ * fires. The returned promise resolves only after the stale marker is durable,
+ * so a caller cannot acknowledge a canonical edit while current-only queries
+ * can still read the previous generation. Debounced indexing remains
+ * best-effort and logs its own failures.
  */
-export function scheduleIndex(docId: string, delayMs: number = DEBOUNCE_MS): void {
+export async function scheduleIndex(
+  docId: string,
+  delayMs: number = DEBOUNCE_MS,
+  db: TransactionalQueryable = defaultPool,
+): Promise<void> {
   const existing = pending.get(docId);
-  if (existing) clearTimeout(existing);
+  if (existing) clearTimeout(existing.timer);
+  const stale = existing?.stale ?? markKnowledgeIndexStale(docId, db);
   const timer = setTimeout(() => {
     pending.delete(docId);
-    indexDoc(docId).catch((err) => {
-      console.error(`[indexer] failed to index ${docId}:`, err);
-    });
+    stale
+      .catch((err) => {
+        // A stale-marker outage must not suppress the later indexing attempt.
+        console.error(`[indexer] failed to mark ${docId} stale:`, err);
+      })
+      .then(() => indexDoc(docId, db))
+      .catch((err) => {
+        console.error(`[indexer] failed to index ${docId}:`, err);
+      });
   }, delayMs);
   // Don't keep the event loop alive just for a pending index.
   if (typeof timer.unref === "function") timer.unref();
-  pending.set(docId, timer);
+  pending.set(docId, { timer, stale });
+  await stale;
 }
 
 /**
@@ -157,7 +524,9 @@ export async function backfillIndex(db: Queryable = defaultPool): Promise<number
   const { rows } = await db.query<{ id: string }>(
     `SELECT n.id FROM notes n
        LEFT JOIN note_index ni ON ni.doc_id = n.id
-      WHERE n.deleted_at IS NULL AND ni.doc_id IS NULL`,
+       LEFT JOIN note_knowledge_state ks ON ks.doc_id = n.id
+      WHERE n.deleted_at IS NULL
+        AND (ni.doc_id IS NULL OR ks.doc_id IS NULL OR ks.state <> 'current')`,
   );
   let count = 0;
   for (const { id } of rows) {
@@ -184,8 +553,37 @@ export async function purgeNoteIndex(
   db: Queryable = defaultPool,
 ): Promise<void> {
   if (docIds.length === 0) return;
+  const { rows: catalogVaults } = await db.query<{ vault_id: string }>(
+    `SELECT DISTINCT vault_id FROM notes
+      WHERE id = ANY($1::text[]) AND rel_path = $2`,
+    [docIds, KNOWLEDGE_SCHEMA_PATH],
+  );
+  for (const { vault_id: vaultId } of catalogVaults) {
+    await db.query(
+      `UPDATE note_knowledge_state ks
+          SET state = 'stale', generation = ks.generation + 1, error_code = NULL
+         FROM notes n
+        WHERE n.id = ks.doc_id AND n.vault_id = $1 AND n.deleted_at IS NULL
+          AND NOT (n.id = ANY($2::text[]))`,
+      [vaultId, docIds],
+    );
+  }
   await db.query("DELETE FROM note_index WHERE doc_id = ANY($1::text[])", [docIds]);
   await db.query("DELETE FROM note_links WHERE from_doc = ANY($1::text[])", [docIds]);
+  await db.query("DELETE FROM note_relationships WHERE from_doc = ANY($1::text[])", [docIds]);
+  await db.query("DELETE FROM note_labels WHERE doc_id = ANY($1::text[])", [docIds]);
+  await db.query("DELETE FROM note_property_values WHERE doc_id = ANY($1::text[])", [docIds]);
+  await db.query("DELETE FROM note_knowledge_identities WHERE doc_id = ANY($1::text[])", [docIds]);
+  await db.query("DELETE FROM note_knowledge_state WHERE doc_id = ANY($1::text[])", [docIds]);
+  for (const { vault_id: vaultId } of catalogVaults) {
+    const { rows } = await db.query<{ id: string }>(
+      `SELECT id FROM notes
+        WHERE vault_id = $1 AND deleted_at IS NULL AND NOT (id = ANY($2::text[]))
+        ORDER BY id`,
+      [vaultId, docIds],
+    );
+    for (const row of rows) await indexDocOnce(row.id, db);
+  }
 }
 
 // ── search ──────────────────────────────────────────────────────────────────
