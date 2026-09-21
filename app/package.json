@@ -8,6 +8,8 @@
     "node": ">=22"
   },
   "scripts": {
+    "prepare": "pnpm run setup:guards",
+    "setup:guards": "node ../scripts/install-git-guards.mjs",
     "generate:lucide-server-icons": "node scripts/generate-lucide-server-icons.mjs",
     "check:lucide-server-icons": "node scripts/generate-lucide-server-icons.mjs --check",
     "dev:desktop": "pnpm --filter desktop tauri dev",
@@ -15,8 +17,8 @@
     "build": "pnpm check:lucide-server-icons && turbo run build",
     "build:desktop": "pnpm --filter desktop tauri build",
     "check:publication": "node ../scripts/check-publication.mjs --scope tree",
-    "test:publication": "node ../scripts/check-publication.test.mjs",
-    "test": "node ../scripts/check-publication.test.mjs && node ../scripts/check-publication.mjs --scope tree && pnpm check:lucide-server-icons && turbo run test"
+    "test:publication": "node ../scripts/check-publication.test.mjs && node ../scripts/check-push.test.mjs && node ../scripts/install-git-guards.test.mjs",
+    "test": "pnpm run test:publication && node ../scripts/check-publication.mjs --scope tree && pnpm check:lucide-server-icons && turbo run test"
   },
   "devDependencies": {
     "railway": "^3.11.0",

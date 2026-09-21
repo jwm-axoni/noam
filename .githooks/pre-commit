@@ -1,0 +1,14 @@
+#!/bin/sh
+set -eu
+
+repository_root=$(git rev-parse --show-toplevel)
+cd "$repository_root"
+
+node scripts/check-publication.mjs --scope tree --source index --fail-on-review
+
+if ! command -v gitleaks >/dev/null 2>&1; then
+  echo "Commit blocked: gitleaks is required. See https://github.com/gitleaks/gitleaks#installing (for example: brew install gitleaks)" >&2
+  exit 1
+fi
+
+gitleaks git --staged --redact --no-banner

@@ -4,19 +4,48 @@ on:
   pull_request:
   push:
     branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+concurrency:
+  group: publication-readiness-${{ github.ref }}
+  cancel-in-progress: true
 
 jobs:
   publication-readiness:
     name: publication-readiness
     runs-on: ubuntu-latest
     steps:
-      - name: Check out with full history
-        uses: actions/checkout@v4
+      - name: Check out complete history
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           fetch-depth: 0
-      - name: Set up Node
-        uses: actions/setup-node@v4
+          persist-credentials: false
+
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
-          node-version: "22"
-      - name: Run publication check
-        run: node scripts/check-publication.mjs --scope all
+          node-version: 22
+
+      - name: Test repository guards
+        run: |
+          node scripts/check-publication.test.mjs
+          node scripts/check-push.test.mjs
+          node scripts/install-git-guards.test.mjs
+
+      - name: Scan current repository contents
+        run: node scripts/check-publication.mjs --scope tree --fail-on-review
+
+      - name: Scan all committed content
+        run: node scripts/check-publication.mjs --scope range --range HEAD --fail-on-review
+
+      - name: Scan for secrets
+        uses: gitleaks/gitleaks-action@e0c47f4f8be36e29cdc102c57e68cb5cbf0e8d1e
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GITLEAKS_VERSION: 8.30.1
+          GITLEAKS_ENABLE_COMMENTS: false
+          GITLEAKS_ENABLE_UPLOAD_ARTIFACT: false
