@@ -1,6 +1,7 @@
 import { AccountMenu } from "../AccountMenu";
 import * as ipc from "../../lib/ipc";
 import { useStore } from "../../store";
+import { BRAND_DOMAIN } from "../../lib/brand";
 
 const dispatchWindowEvent = (name: string) => window.dispatchEvent(new Event(name));
 
@@ -25,7 +26,7 @@ export function VaultFooter() {
         className="activity-button"
         title="Help"
         aria-label="Help"
-        onClick={() => void ipc.openExternal("https://noam.io").catch((error) => console.error("open help failed", error))}
+        onClick={() => void ipc.openExternal(`https://${BRAND_DOMAIN}`).catch((error) => console.error("open help failed", error))}
       >
         <svg viewBox="0 0 24 24" aria-hidden="true">
           <circle cx="12" cy="12" r="9" /><path d="M9.8 9a2.4 2.4 0 1 1 3.6 2.1c-.9.5-1.4 1.1-1.4 2.2" /><path d="M12 17h.01" />
