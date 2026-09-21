@@ -12,6 +12,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 ![Collaboration: live editing](https://img.shields.io/badge/collaboration-live_editing-7f73ff)
 ![AI: edits the same notes](https://img.shields.io/badge/AI-edits_the_same_notes-2b2724)
 ![Hosting: your server or ours](https://img.shields.io/badge/hosting-your_server_or_ours-7f73ff)
+![Privacy: no telemetry, offline by default](https://img.shields.io/badge/privacy-no_telemetry-2b2724)
 
 [Product overview](docs/Noam.md) · [Architecture specs](docs/specs/00-architecture-overview.md) · [Build status](docs/STATUS.md) · [Contributing](CONTRIBUTING.md)
 
@@ -61,7 +62,7 @@ The same access resolver protects live sync and remote MCP calls. Vault posture,
 
 ## Architecture
 
-![Architecture showing local tools editing Markdown files, Noam converting file changes into Yjs operations, and a permissioned server relaying those operations to a teammate](docs/assets/noam-architecture.png)
+![Hand-drawn architecture diagram: local Markdown files and a Rust bridge keep a Y.Text CRDT in sync with the editor, local AI, and a derived index, while an optional sync server relays only binary updates to a teammate device that re-derives its own files](docs/assets/noam-architecture-chalk.png)
 
 The bridge does the hard part:
 
@@ -84,7 +85,35 @@ On the server, Hocuspocus authenticates each document connection. Postgres store
 - Create MCP tokens for remote agents; local agents can work directly on disk.
 - Run the sync stack yourself with Docker and Postgres.
 
-Noam is in active development. There is not yet a published GitHub binary release. The live checklist in [`docs/STATUS.md`](docs/STATUS.md) separates implemented behavior from planned work.
+Noam is in active development. Signed, Apple-notarized macOS builds are published on the [Releases](../../releases) page (Apple Silicon; auto-update is not enabled yet). The live checklist in [`docs/STATUS.md`](docs/STATUS.md) separates implemented behavior from planned work.
+
+## Capabilities
+
+Beyond the core editor and sync, Noam adds a layer of automation and structured views. All of it is built on the same plain Markdown files, so nothing here locks a note into Noam.
+
+**Command workflows.** A workflow is an ordinary Markdown note that describes a prompt, a template, and a target. Run it from the action palette (`⌘⇧P`), the editor's `/` slash menu, or a keyboard shortcut you assign. Workflows fill in variables such as the date, the current selection, or the clipboard, then create a note from a template or append to an existing one. Because a workflow is a note, it syncs, versions, and travels like any other file.
+
+**Tasks.** Checkbox tasks use the familiar Obsidian Tasks markers: due `📅`, scheduled `⏳`, start `🛫`, done `✅`, a priority, and recurrence `🔁`. A Tasks panel lists them with a small query language and saved filters, and a task can be completed, rescheduled, or reprioritized from the keyboard. Completing a recurring task spawns its next occurrence with a stable identity, so two devices completing it at once converge instead of duplicating. A Rust index keeps the list fast in large vaults.
+
+**Calendar.** A month view marks the days that have notes and counts the tasks due on each. Opening a day creates or opens its daily note from your template; the weekly note works the same way. Its date tokens, including ISO week numbers, are shared with the workflow engine, so one date vocabulary drives both.
+
+**Kanban boards.** A note marked as a board renders as columns of cards that move between lanes by keyboard, with a one-click switch back to the raw Markdown. The format is compatible with Obsidian Kanban, and a move re-resolves its target against the live text, so a concurrent edit elsewhere never misplaces a card.
+
+**Packages and import.** Workflows and templates bundle into a portable package to share or reinstall; applying one is atomic and rolls back on failure. A QuickAdd importer converts many Obsidian QuickAdd macros into Noam workflows and reports anything it cannot translate rather than guessing.
+
+## Privacy and no default external reach
+
+Noam is local-first in the strict sense. Notes are plain files on your disk, and the app does its work — editing, search, indexing, the graph, tasks, and local AI access — entirely on your machine.
+
+![Hand-drawn trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI and works offline; the only line crossing the boundary is an opt-in sync of binary CRDT updates over TLS to a server you choose](docs/assets/noam-trust-boundary-chalk.png)
+
+- **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
+- **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
+- **You choose the server, or run your own.** Sync defaults to the optional managed instance, but Settings → Connection can point at your own server, and the whole stack (Node and Postgres) self-hosts with the included Docker setup. There is no separate cloud edition; the managed service runs this same open server code.
+- **Your Markdown never travels as files.** When you do sync, only opaque binary CRDT updates cross the wire over TLS, and each device re-derives its own `.md` files and index. Sync is not yet end-to-end encrypted, so a server you trust can reconstruct content; at-rest encryption is planned, and self-hosting closes the gap today.
+- **AI access is opt-in and governed.** A local agent reaches only the notes you point it at on disk. A remote agent needs an MCP token you mint, scoped to one vault and constrained by the same per-file permissions as people. Reads return a revision, so a stale write fails instead of overwriting newer work.
+- **Rendering is sandboxed.** Live preview and inline HTML strip scripts, styles, iframes, and event handlers, so a note cannot run code.
+- **Signed and notarized.** macOS builds are signed with a Developer ID certificate and notarized by Apple, so a downloaded release opens normally instead of triggering the unidentified-developer warning an unsigned app shows.
 
 ## Build from source
 
