@@ -50,6 +50,11 @@ jobs:
     name: build-macos (Developer ID + notarized + updater-signed)
     needs: publication-readiness
     runs-on: macos-latest
+    # Signing/notarization/updater private keys are exposed to this job, so it
+    # runs in a protected environment: create a `release` environment in repo
+    # settings with a required reviewer to gate every signed release behind an
+    # approval. Environment secrets are read here in addition to repo secrets.
+    environment: release
     steps:
       - name: Check out
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
