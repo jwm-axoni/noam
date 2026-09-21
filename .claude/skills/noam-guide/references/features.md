@@ -39,9 +39,7 @@ collaborative apps (Notion, Confluence) keep your data in their database. Noam b
   the top level once the structure is settled.
 - **Deleting a vault** is the owner's call and it is permanent on the server: the notes, the
   history and everyone's access go. Your own `.md` files stay on your disk unless you also
-  choose to move the folder to the Trash. If the vault is on Pro, deleting it also stops the
-  subscription (see "Hosting options"); if that step fails, nothing is deleted and Noam shows
-  the error.
+  choose to move the folder to the Trash.
 
 ## Writing
 
@@ -140,7 +138,7 @@ collaborative apps (Notion, Confluence) keep your data in their database. Noam b
 ## Team collaboration
 
 - **Invite** teammates by email, or hand out a **join code**. Invitations expire after 48 hours.
-  On a server with email configured (the managed service does) the invitee gets an email with a
+  On a server with email configured the invitee gets an email with a
   link that opens Noam on the invitation; otherwise Members shows a **Copy link** for each
   pending invitation to paste into chat. Someone invited by email who uses the join code instead
   ends up in exactly the same place, with the invited role.
@@ -204,9 +202,9 @@ collaborative apps (Notion, Confluence) keep your data in their database. Noam b
 ## Accounts and security
 
 - Email + password accounts (argon2id hashing). Google sign-in is available when the server has
-  it configured (the managed service does). **Forgot password?** on the sign-in screen emails a
-  one-hour reset link when the server has email configured (the managed service does; a
-  self-hosted server needs `EMAIL_FROM` + SMTP or Resend). An account created with Google can use
+  it configured. **Forgot password?** on the sign-in screen emails a
+  one-hour reset link when the server has email configured (needs `EMAIL_FROM` + SMTP or
+  Resend). An account created with Google can use
   the same link to set a password. Sign-up sends a confirmation email but it isn't required to
   sign in yet. No two-factor authentication.
 - Session token lives in the operating system keychain, never in a file.
@@ -227,45 +225,17 @@ collaborative apps (Notion, Confluence) keep your data in their database. Noam b
 
 ## Hosting options
 
+Noam is free and self-hosted only. There is no managed instance operated by the project and no
+paid tier — every user deploys their own server to their own cloud environment.
+
 - **Local only**: no server, no account, free.
-- **Self-hosted server**: Node + Postgres. Railway one-click, Docker Compose, or plain Docker.
-  The app asks which server before your first sign-in ("Noam managed service" or "Your own
-  server"), and the URL is checked against the server before it is saved; you can change it
-  later in Account settings → Connection. An account belongs to one server, so the sign-in form
-  always names the server it is signing you in to. Admins can send teammates one link,
+- **Self-hosted server**: Node + Postgres. Railway one-click, Docker Compose, or plain Docker
+  (`docs/DEPLOY.md`). The app asks for your server before your first sign-in, and the URL is
+  checked against the server before it is saved; you can change it later in Account settings →
+  Connection. An account belongs to one server, so the sign-in form always names the server it
+  is signing you in to. Admins can send teammates one link,
   `https://<your-server>/open/connect`, which opens the app and asks them to confirm.
-  No plan limits, and Google sign-in / billing are optional switches.
-- **Managed server** at `https://api.noam.io` (the default in the app). Same code as the
-  self-hosted server. It is live and self-serve today: a team can sign up, sync and collaborate
-  right away on the free tier, and upgrade from inside the app when they hit a cap.
-  - **Free tier**: up to 3 vaults per user and 3 members per vault (members plus pending invites). A vault that already has more members than that keeps them all; it just cannot add another until it upgrades.
-  - **Pro**: $10 per vault per month, or $97 per vault per year. Priced per vault, not per
-    person. Unlocks unlimited members, notes, devices and AI edits; a Pro vault does not count
-    toward the owner's free vaults. Two subscriptions exist today: monthly and yearly.
-  - **How to buy**: Vault Settings → Billing → Upgrade to Pro (owners and admins). Checkout opens
-    in the browser; the app flips to Pro as soon as payment lands. "Manage subscription" opens the
-    billing portal for invoices, plan changes and cancellation.
-  - **One subscription per vault.** A vault that is already on Pro cannot be bought a second
-    time; the app refuses the checkout instead of charging twice.
-  - **Your subscriptions in one place**: Vault Settings → Billing lists every vault you are in —
-    plan, status, renewal date and price, how many people are in it, and who looks after billing.
-    It also says how many of your 3 free vaults are in use. The tab opens even when the vault you
-    have open is a local one.
-  - **Deleting a Pro vault stops the billing**, at the end of the period you already paid for:
-    no further charges, and the paid time is not cut short. If the payment provider cannot be
-    reached, the vault is *not* deleted and the app tells you why. The subscription itself is
-    kept in a "From deleted vaults" list so you can still move it, cancel it outright, or open
-    the billing portal for it.
-  - **Move a subscription to another vault** (owners only): Vault Settings → Billing → Transfer,
-    from a live vault or from one in "From deleted vaults". Transfer opens a dialog that lists
-    every vault it can move to — each with its member count and Free plan — and explains what
-    happens to the vault it leaves; pick one and confirm. Only vaults you own that are not already
-    on Pro are offered (Transfer is greyed out with a reason when there are none). Same price, same
-    billing period; if the subscription had been set to end because its vault was deleted,
-    transferring makes it renew again. The vault it came from drops to Free.
-  - The public pricing page (noam.io/pricing) may still describe the Team plan as early access
-    or "talk to us". The app is ahead of the page: tell people they can upgrade in-app now, and
-    to use the pricing page as the contact route if they want to talk first.
+  No plan limits, and Google sign-in is an optional switch.
 
 ## Licensing
 

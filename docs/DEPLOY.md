@@ -3,9 +3,9 @@
 The server (`app/apps/server`) is a self-hostable Node + Postgres service: a Hono
 HTTP API and the Hocuspocus sync WebSocket, both served on a single public port.
 This guide covers running it with plain Docker and deploying it to Railway.
-Everything here is optional. The desktop app works fully offline with no server
-at all, and you can always use the managed backend from [noam.io](https://noam.io)
-instead of self-hosting: set the server URL in Settings to `https://api.noam.io`.
+Noam is free and self-hosted only — there is no managed backend to opt into.
+Deploying this server is optional only in the sense that the desktop app works
+fully offline with no server at all; turning on sync means deploying your own.
 
 ## Ports
 
@@ -194,9 +194,8 @@ note on every instance deployed from it. Nothing else is set: billing stays off
 (so there are **no** vault or member limits), Google sign-in stays hidden until
 you add OAuth credentials, and Redis is only needed to run several instances.
 
-Once it's up, open the desktop app: its first-run step asks whether your notes
-live on the managed service or **your own server**, and the generated
-`*.up.railway.app` URL goes there. You can also send your team
+Once it's up, open the desktop app: its first-run step asks for the server your
+notes live on, and the generated `*.up.railway.app` URL goes there. You can also send your team
 `https://<that URL>/open/connect` and let them click it.
 
 ### Maintaining the template
@@ -223,10 +222,10 @@ curl -sL https://railway.com/deploy/noam-server | grep -o '<title>[^<]*</title>'
 # expect: <title>Deploy &amp; Host Noam Server | Railway</title>
 ```
 
-> ⚠️ **Never use "generate template from this project" on the project that runs
-> the managed instance.** That flow copies a real project's service configuration,
-> and publishing it would push a public marketplace template built from production
-> — env values, domain and all. Always compose the template fresh, as above.
+> ⚠️ **Never use "generate template from this project" on a project running real
+> data.** That flow copies a real project's service configuration, and publishing
+> it would push a public marketplace template built from production — env values,
+> domain and all. Always compose the template fresh, as above.
 
 ## A staging instance
 
@@ -360,13 +359,13 @@ copy inside the container: `docker exec -it <container> node dist/scripts/set-pa
 
 ## Point the desktop app at your server
 
-An account belongs to **one server**. A teammate who signs up on the managed
-instance by mistake gets an account and a vault there, and nobody notices until
+An account belongs to **one server**. A teammate who signs up on the wrong
+server by mistake gets an account and a vault there, and nobody notices until
 you cannot see them in Members — so the app asks which server before it takes a
 password.
 
-**On first run**, the sign-in dialog opens on *"Where do your notes live?"* with
-two options: the managed service, or **Your own server**. Choosing your own asks
+**On first run**, the sign-in dialog opens on *"Where do your notes live?"* and
+asks for **your own server**. Choosing it asks
 for the URL and checks `GET <url>/health` before it goes any further, so a typo
 is one inline sentence instead of a `Load failed` three screens later. The
 sign-in form that follows names the server it is about to post to, with a
@@ -402,6 +401,23 @@ usable `Host`.
 > plain `http://` on `localhost` / `127.0.0.1`** — the webview's
 > `connect-src` allows all `https:` but only loopback for `http:`, so a LAN
 > server at `http://192.168.x.x:3010` needs TLS or an SSH tunnel.
+
+## AI access (MCP)
+
+The **MCP endpoint ships with the server** — there is nothing separate to deploy.
+Once your server is running, AI clients connect to it at
+
+```
+https://<your-server>/api/mcp
+```
+
+authenticating with a token minted in the desktop app (**Vault Settings → MCP**),
+scoped to one person and one vault and gated by the same per-file permissions as
+everything else. There is no separate MCP service to run or configure — it travels
+with wherever you host the server.
+
+Local-only users (no server) don't need MCP at all: because notes are plain `.md`
+files on disk, a local AI agent or editor extension edits the files directly.
 
 ## Scaling & high availability (spec 05)
 

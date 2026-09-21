@@ -18,14 +18,14 @@
     {
       "id": 1,
       "prompt": "My team of 6 uses Obsidian with a shared Dropbox folder and it keeps making conflicted copies. Would Noam fix that? Do we all need to pay, and can we keep our existing vault?",
-      "expected_output": "Yes: live merge, no conflicted copies; existing Obsidian vault opens as-is (plugins don't carry over); free locally/self-hosted; managed service free up to 3 vaults/3 members, then Pro $10/vault/month or $97/year bought in-app; team can start today.",
+      "expected_output": "Yes: live merge, no conflicted copies; existing Obsidian vault opens as-is (plugins don't carry over); Noam is free and self-hosted — the team deploys its own server (Railway or Docker), with unlimited vaults and members and no per-seat fee; team can start today.",
       "files": [],
       "assertions": [
         "Says conflicted copies do not happen because edits merge automatically",
         "Says the existing Obsidian vault folder can be opened directly without conversion",
         "Mentions that Obsidian plugins do not carry over",
-        "States the managed plan is live and self-serve now (upgrade in-app), with Pro at $10 per vault per month or $97 per year; does not say 'early access' or 'contact us for pricing'",
-        "Distinguishes free (local/self-host) from the paid managed Team plan",
+        "States Noam is free and self-hosted with no paid plan and no per-seat fee; the team runs its own server",
+        "Explains the team self-hosts one shared server (e.g. Railway or Docker) to sync together; there is no managed service",
         "Does not use the words CRDT, Yjs, or Hocuspocus"
       ]
     },

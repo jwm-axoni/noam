@@ -8,18 +8,14 @@ teammates can edit the same note with you live, and an AI assistant can read and
 notes too. Think "Obsidian, but multiplayer and AI-friendly".
 
 ## Is it free?
-The desktop app and the server are open source (Apache 2.0). Using it on your own computer is
-free forever, and you can run your own server for free with no limits. The managed backend
-(hosted by Noam, the app's default) also starts free: 3 vaults per user and 3 members per
-vault. Past that, upgrade a vault to Pro from inside the app.
+Yes. The desktop app and the server are open source (Apache 2.0), and Noam is free and
+self-hosted only — there is no managed service to pay for. Using it on your own computer is
+free forever, and deploying your own server (Docker or Railway) is free with no vault or
+member limits.
 
-## What does the paid plan cost, and can my team start today?
-Yes, today. Sign up in the app, turn on sync, invite the team. The free tier covers 3 people per
-vault and 3 vaults per person. When you need more members or more vaults, go to Vault Settings →
-Billing → Upgrade to Pro: $10 per vault per month or $97 per vault per year, priced per vault,
-not per person, with unlimited members. Only the vault owner or an admin pays; everyone else just
-needs a free account. noam.io/pricing is the place to ask questions or talk to the team, but
-nobody has to wait for a call to get started.
+## Can my team start today?
+Yes, today. Deploy your own server (see `docs/DEPLOY.md` for Docker or a one-click Railway
+option), sign up in the app, turn on sync, and invite the team. Every vault is unlimited.
 
 ## Can I leave a vault someone else owns?
 Yes. Open Vault Settings → Vaults, click **Leave** next to the vault and confirm. You lose access
@@ -30,27 +26,6 @@ want back in, ask the owner for a new invitation or join code. The owner of a va
 it; they delete it instead. If you only want the vault off one computer but want to stay a member,
 use **Remove from device**.
 
-## What happens to my subscription if I delete a vault?
-Deleting the vault stops the billing, but not mid-month: it is set to finish at the end of the
-period you have already paid for, so there is no further charge and no refund needed. If Noam
-cannot reach the payment provider to do that, it refuses to delete the vault and shows you the
-error, so you never end up paying for something that is gone. The subscription stays visible
-under Vault Settings → Billing → "From deleted vaults", where you can move it to another vault,
-cancel it straight away, or open the billing portal.
-
-## I deleted my Pro vault and made a new one. Can I move the subscription?
-Yes. Open Vault Settings → Billing, find it under "From deleted vaults", and choose **Transfer**.
-A dialog lists the vaults it can move to, with their member counts; pick the new vault (it has to
-be one you own that is not already on Pro), confirm, and it takes over the
-same price and the same billing period. Because the old vault was deleted, the subscription had
-been set to stop at the end of the period; transferring it starts it renewing again on the new
-vault. Only the owner can do this.
-
-## Can one vault have two subscriptions?
-No. A vault is either Free or on one Pro subscription. If you try to buy Pro for a vault that
-already has it, Noam refuses instead of charging you twice. If you want to change how you pay
-(monthly to yearly, say), use "Manage subscription" to open the billing portal.
-
 ## I forgot my password.
 On the sign-in screen choose **Forgot password?**, enter your email, and follow the link we
 send (valid for one hour). Setting a new password signs out every other device. If you first
@@ -60,7 +35,7 @@ email set up, ask the person running it: they can set a new password from the se
 
 ## Do I need an account?
 No. You can open a folder and start writing with no account and no internet. An account is only
-needed for sync between devices, team collaboration, and the hosted AI endpoint.
+needed for sync between devices, team collaboration, and the server's MCP AI endpoint.
 
 ## Does it work offline?
 Yes. Everything local (editing, search, backlinks, graph) works with no connection. When you
@@ -153,12 +128,12 @@ stable id, not by filename.
 Not yet. Desktop only; iOS is on the roadmap. Public note links open in any browser, read-only.
 
 ## Can I self-host?
-Yes. The server is Node + Postgres. One-click deploy to Railway, a Docker Compose bundle, or
-plain Docker; see `docs/DEPLOY.md`. The app asks which server on first run — "managed
-service, or your own?" — and you enter your URL there; it is checked before it is saved.
+Yes — it's the only way to run Noam. The server is Node + Postgres. One-click deploy to
+Railway, a Docker Compose bundle, or plain Docker; see `docs/DEPLOY.md`. The app asks for
+your server on first run, and you enter your URL there; it is checked before it is saved.
 Later you can change it in Account settings → Connection. To save your team the typing,
 send them `https://<your-server>/open/connect`: clicking it opens Noam and asks them to
-confirm connecting to your server. Self-hosted servers have no plan limits.
+confirm connecting to your server. There are no plan limits.
 
 ## What is NOT there (so you do not overpromise)?
 Rich WYSIWYG block editing, in-app AI chat, comments and @mentions, end-to-end encryption,

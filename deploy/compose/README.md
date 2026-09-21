@@ -1,9 +1,9 @@
 # Self-host the Noam server with Docker Compose
 
-One command, one machine you control, no vendor account. If you'd rather not
-manage a server at all, use the [Railway one-click deploy](../../docs/DEPLOY.md#option-b-railway-one-click)
-or the managed option at [noam.io](https://noam.io) — the desktop app is
-identical either way, you just point Server settings somewhere else.
+One command, one machine you control, no vendor account. Noam is free and
+self-hosted only — there is no managed option. If you'd rather not manage
+Docker Compose directly, use the [Railway one-click deploy](../../docs/DEPLOY.md#option-b-railway-one-click)
+instead — the desktop app is identical either way, you just point Server settings somewhere else.
 
 ```bash
 cd deploy/compose

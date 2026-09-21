@@ -11,7 +11,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 ![Files: local Markdown](https://img.shields.io/badge/files-local_Markdown-2b2724)
 ![Collaboration: live editing](https://img.shields.io/badge/collaboration-live_editing-7f73ff)
 ![AI: edits the same notes](https://img.shields.io/badge/AI-edits_the_same_notes-2b2724)
-![Hosting: your server or ours](https://img.shields.io/badge/hosting-your_server_or_ours-7f73ff)
+![Hosting: self-hosted, free and unlimited](https://img.shields.io/badge/hosting-self--hosted_free-7f73ff)
 ![Privacy: no telemetry, offline by default](https://img.shields.io/badge/privacy-no_telemetry-2b2724)
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-7f73ff)
 
@@ -110,7 +110,7 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 
 - **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
 - **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
-- **You choose the server, or run your own.** Sync defaults to the optional managed instance, but Settings → Connection can point at your own server, and the whole stack (Node and Postgres) self-hosts with the included Docker setup. There is no separate cloud edition; the managed service runs this same open server code.
+- **You run your own server.** Noam is free and self-hosted only — there is no managed instance to opt into. Settings → Connection points at the server you deploy, and the whole stack (Node and Postgres) self-hosts with the included Docker setup, free and unlimited.
 - **Your Markdown never travels as files.** When you do sync, only opaque binary CRDT updates cross the wire over TLS, and each device re-derives its own `.md` files and index. Sync is not yet end-to-end encrypted, so a server you trust can reconstruct content; at-rest encryption is planned, and self-hosting closes the gap today.
 - **AI access is opt-in and governed.** A local agent reaches only the notes you point it at on disk. A remote agent needs an MCP token you mint, scoped to one vault and constrained by the same per-file permissions as people. Reads return a revision, so a stale write fails instead of overwriting newer work.
 - **Rendering is sandboxed.** Live preview and inline HTML strip scripts, styles, iframes, and event handlers, so a note cannot run code.
