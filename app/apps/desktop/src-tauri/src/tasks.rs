@@ -308,10 +308,17 @@ pub fn parse_tasks(content: &str) -> Vec<ParsedTask> {
     let mut section: Vec<(usize, String)> = Vec::new();
     let mut fence: Option<String> = None;
     let mut u16_offset: i64 = 0;
-    let mut in_frontmatter = content
+    // A leading `---` fence is frontmatter, but only when the first line is
+    // EXACTLY `---` — `--- draft` or `----` is ordinary text, not a fence. The
+    // same rule the TS parser applies in `src/lib/tasks/parse.ts`.
+    let first_line = content
         .strip_prefix('\u{feff}')
         .unwrap_or(content)
-        .starts_with("---");
+        .split('\n')
+        .next()
+        .unwrap_or("");
+    let first_line = first_line.strip_suffix('\r').unwrap_or(first_line);
+    let mut in_frontmatter = first_line == "---";
 
     for (index, raw) in content.split('\n').enumerate() {
         let line = raw.strip_suffix('\r').unwrap_or(raw);
@@ -597,9 +604,16 @@ pub(crate) fn query(
         where_sql.push_str(" AND t.due IS NULL");
     }
     if let Some(value) = &query.path_prefix {
+        // `_` and `%` are LIKE wildcards; a path that literally contains one
+        // must match itself, not every sibling. Escape them (and the escape
+        // char) and declare the escape so the prefix stays a literal prefix.
+        let escaped = value
+            .replace('\\', "\\\\")
+            .replace('%', "\\%")
+            .replace('_', "\\_");
         push(
-            " AND lower(n.path) LIKE lower(?#) || '%'",
-            value.clone(),
+            " AND lower(n.path) LIKE lower(?#) || '%' ESCAPE '\\'",
+            escaped,
             &mut where_sql,
             &mut args,
         );
@@ -926,6 +940,64 @@ mod tests {
             .query_row("SELECT COUNT(*) FROM task_tags", [], |r| r.get(0))
             .unwrap();
         assert_eq!(orphans, 0);
+    }
+
+    #[test]
+    fn path_prefix_treats_underscore_and_percent_literally() {
+        let conn = conn();
+        note(&conn, "n1", "Projects/a_b/x.md");
+        note(&conn, "n2", "Projects/aXb/decoy.md"); // matches only if `_` is a wildcard
+        note(&conn, "n3", "Notes/50%/y.md");
+        note(&conn, "n4", "Notes/5099/z.md"); // matches only if `%` is a wildcard
+        index_tasks(&conn, "n1", "- [ ] one\n", 1).unwrap();
+        index_tasks(&conn, "n2", "- [ ] two\n", 1).unwrap();
+        index_tasks(&conn, "n3", "- [ ] three\n", 1).unwrap();
+        index_tasks(&conn, "n4", "- [ ] four\n", 1).unwrap();
+
+        let underscore = query(
+            &conn,
+            &TaskQuery {
+                path_prefix: Some("Projects/a_b/".into()),
+                ..Default::default()
+            },
+            &TaskPageRequest::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            underscore.items.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            vec!["one"]
+        );
+
+        let percent = query(
+            &conn,
+            &TaskQuery {
+                path_prefix: Some("Notes/50%/".into()),
+                ..Default::default()
+            },
+            &TaskPageRequest::default(),
+        )
+        .unwrap();
+        assert_eq!(
+            percent.items.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            vec!["three"]
+        );
+    }
+
+    #[test]
+    fn a_loose_leading_dashes_line_is_not_frontmatter() {
+        // `--- draft` is not an exact fence, so the task below it is kept.
+        let tasks = parse_tasks("--- draft\n- [ ] Task\n");
+        assert_eq!(
+            tasks.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            vec!["Task"]
+        );
+
+        // A proper `---` fence still opens frontmatter and swallows its keys.
+        let tasks = parse_tasks("---\nkey: val\n---\n- [ ] Task\n");
+        assert_eq!(
+            tasks.iter().map(|t| t.text.as_str()).collect::<Vec<_>>(),
+            vec!["Task"]
+        );
     }
 
     #[test]
