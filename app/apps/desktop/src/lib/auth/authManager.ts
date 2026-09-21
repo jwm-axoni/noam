@@ -61,9 +61,9 @@ export class AuthManager {
    */
   async init(): Promise<SessionInfo | null> {
     try {
-      // `resolveServerUrl` — not the raw persisted value — so a dev build that
-      // was once pointed at the managed instance doesn't silently keep talking
-      // to production on every later launch.
+      // `resolveServerUrl` normalises the persisted value and falls back to the
+      // build default when nothing is configured — "" on a release build, so an
+      // unconfigured install stays serverless until the user picks one.
       const url = resolveServerUrl(await ipc.getServerUrl());
       this.serverUrl = stripSlash(url);
       this.api.setBaseUrl(this.serverUrl);

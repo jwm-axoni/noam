@@ -265,8 +265,8 @@ export const auth = betterAuth({
     // consent screen and enforces the very same per-file ACL an mcp_ token does.
     //
     // loginPage/consentPage are branded HTML we serve ourselves (see
-    // routes/oauth-connect.ts) so the whole flow works on a headless server
-    // (api.noam.io) and any self-hoster, with no separate web frontend.
+    // routes/oauth-connect.ts) so the whole flow works on any headless,
+    // self-hosted instance, with no separate web frontend.
     mcp({
       // Canonical resource id advertised in the protected-resource metadata:
       // the MCP endpoint clients actually POST to.

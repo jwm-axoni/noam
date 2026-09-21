@@ -258,7 +258,7 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
     label: "Connection",
     icon: "server",
     settings: [
-      { id: "server-url", label: "Server URL", description: "Choose the managed service or a self-hosted Noam server." },
+      { id: "server-url", label: "Server URL", description: "Your Noam server's address." },
     ],
   },
   {

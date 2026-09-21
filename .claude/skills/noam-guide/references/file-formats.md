@@ -57,7 +57,7 @@ app, not a code editor. The exclusion exists so you can point Noam at a real pro
 If you want code in your second brain, paste it into a note inside a fenced code block, or
 attach the file to a note. Do not expect syntax highlighting of a standalone `.py` file.
 
-**Size limits (managed and self-hosted servers).**
+**Size limits (self-hosted servers).**
 
 | Thing | Limit | Where set |
 |---|---|---|

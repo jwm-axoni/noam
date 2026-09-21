@@ -10,7 +10,7 @@ import { ApiError } from "./api";
 
 export interface ResetFailureContext {
   email: string;
-  /** Host of the server the request went to, e.g. "api.noam.io". */
+  /** Host of the server the request went to, e.g. "sync.example.com". */
   serverHost: string;
 }
 

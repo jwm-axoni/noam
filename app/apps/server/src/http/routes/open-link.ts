@@ -63,7 +63,7 @@ openLinkRoutes.get("/open/note/:orgId/:docId", (c) => {
   <h1>Opening this note in ${esc(BRAND_NAME)}…</h1>
   <p>If nothing happens, ${esc(BRAND_NAME)} may not be installed on this device.</p>
   <a class="button" href="${esc(deepLink)}">Open in ${esc(BRAND_NAME)}</a>
-  <p><a class="plain" href="https://noam.io" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
+  <p><a class="plain" href="https://noamapp.io" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
   <script>location.href = ${JSON.stringify(deepLink)};</script>
 </main>
 </body>
@@ -117,7 +117,7 @@ openLinkRoutes.get("/open/connect", (c) => {
   <p>Your ${esc(BRAND_NAME)} app will ask you to confirm before it connects.
      If nothing happens, ${esc(BRAND_NAME)} may not be installed on this device.</p>
   <a class="button" href="${esc(deepLink)}">Connect ${esc(BRAND_NAME)}</a>
-  <p><a class="plain" href="https://noam.io" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
+  <p><a class="plain" href="https://noamapp.io" rel="noopener">Get ${esc(BRAND_NAME)}</a></p>
   <script>location.href = ${JSON.stringify(deepLink)};</script>
 </main>
 </body>

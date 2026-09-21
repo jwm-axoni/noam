@@ -33,22 +33,20 @@ an owner or account name.
 | Brand vs codename ("context"), rebrand rules | `docs/BRANDING.md` |
 | Developer orientation, conventions | `CLAUDE.md` at the repo root |
 
-## 3. The website (pricing, downloads, positioning)
+## 3. The website (downloads, positioning)
 
-For price and plans, trust `references/features.md` ("Hosting options"), which mirrors the
-server's billing code and the app's Upgrade to Pro dialog. The public pricing page may still say
-the Team plan is in early access; the in-app purchase is live.
+Noam is free and self-hosted only — there is no managed service or paid tier, so there is no
+pricing page. For how hosting works, trust `references/features.md` ("Hosting options").
 
 | Page | URL |
 |---|---|
-| Home | https://noam.io |
-| Pricing | https://noam.io/pricing |
-| Download (current version, per-platform installers) | https://noam.io/download |
-| Compare with Obsidian, Notion, Tana, Reflect, Logseq, Anytype, Confluence | https://noam.io/compare and `/compare/<product>` |
-| Security and privacy statements | https://noam.io/security · https://noam.io/privacy |
-| Open source and licensing | https://noam.io/open-source |
-| Blog (team second brain, MCP, Obsidian for teams) | https://noam.io/blog |
-| Docs landing (points back to GitHub) | https://noam.io/docs |
+| Home | https://noamapp.io |
+| Download (current version, per-platform installers) | https://noamapp.io/download |
+| Compare with Obsidian, Notion, Tana, Reflect, Logseq, Anytype, Confluence | https://noamapp.io/compare and `/compare/<product>` |
+| Security and privacy statements | https://noamapp.io/security · https://noamapp.io/privacy |
+| Open source and licensing | https://noamapp.io/open-source |
+| Blog (team second brain, MCP, Obsidian for teams) | https://noamapp.io/blog |
+| Docs landing (points back to GitHub) | https://noamapp.io/docs |
 | Source, releases, issues | The current repository URL supplied by the user |
 
 ## 4. Code (only for a precise behaviour the docs do not state)
@@ -61,9 +59,8 @@ Do a targeted read of one file, never a sweep. Good entry points:
 | Which files become synced notes | `app/apps/desktop/src/lib/sync/registry.ts` (`NOTE_EXTS`) |
 | Image/PDF preview kinds | `app/apps/desktop/src/lib/preview.ts` |
 | Drag-drop / paste attachment behaviour | `app/apps/desktop/src/lib/attachments.ts` |
-| Server limits and free-tier caps | `app/apps/server/src/config.ts`, `app/apps/server/.env.example` |
-| Paid plan prices and checkout | `app/apps/server/src/http/routes/billing.ts`, `app/apps/desktop/src/components/UpgradeDialog.tsx` |
-| Subscription state, cancel/transfer, deleted-vault tombstones | `app/apps/server/src/billing/store.ts`, `app/apps/server/migrations/024_subscription_tombstones.sql` |
+| Server limits | `app/apps/server/src/config.ts`, `app/apps/server/.env.example` |
+| Optional operator-configured billing (off by default; not the project's own pricing) | `app/apps/server/src/http/routes/billing.ts`, `app/apps/desktop/src/components/UpgradeDialog.tsx` |
 | Attachment size limit | `app/apps/server/src/http/routes/blobs.ts` |
 | Permission rules | `app/apps/server/src/permissions/resolver.ts` |
 | MCP tools list | `app/apps/server/src/mcp/` |
@@ -78,9 +75,6 @@ Do a targeted read of one file, never a sweep. Good entry points:
 - `docs/specs/REQUIREMENTS.md` lists graph view, semantic search and version history as
   deferred. All three shipped.
 - `CHANGELOG.md` at the repo root is abandoned; use `docs/RELEASE_NOTES.md`.
-- noam.io/pricing describes the Team plan as "early access, talk to us". The managed Pro plan is
-  live and self-serve in the app (Vault Settings → Billing); see `features.md`. Code:
-  `app/apps/server/src/http/routes/billing.ts` (plans) and `config.ts` (free caps).
 
 ## Recency check
 

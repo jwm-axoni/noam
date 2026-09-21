@@ -2,12 +2,11 @@
 // dialog asks, and the one it used to hide.
 //
 // The old sign-in form had ONE server: whatever `DEFAULT_SERVER_URL` said, with
-// a collapsed `<details>` "Server settings" at the bottom of the card. For the
-// managed instance that is right. For a self-hosting team it is a trap: every
-// member who installs the app signs up on api.noam.io, gets an account and a
-// vault there, and only finds out when their admin cannot see them (#91). So the
-// choice is now a step of its own, both options carrying equal weight, and the
-// form that follows says which server it is about to post credentials to.
+// a collapsed `<details>` "Server settings" at the bottom of the card. There is
+// no managed Noam service — every user self-hosts — so a release build has no
+// default server at all, and a fresh install must be asked for its address
+// before it can post credentials anywhere. So the choice is now a step of its
+// own, and the form that follows says which server it is about to post to.
 //
 // Pure on purpose: the desktop workspace has no DOM test harness, so the
 // decision table and the URL normalizer are plain functions with a unit test,
@@ -18,9 +17,10 @@ import { DEFAULT_SERVER_URL } from "../api";
 /**
  * What the user answered, persisted per device (`lib/prefs.ts`).
  *
- * `null` (never asked) is a distinct third state, not a synonym for "managed":
- * it is the only thing that makes the step appear at all, so defaulting it
- * would silently restore the old behaviour.
+ * `null` (never asked) is a distinct third state: it is the only thing that
+ * makes the step appear at all, so defaulting it would silently restore the old
+ * behaviour. Every user self-hosts, so the UI now only ever writes "custom";
+ * the legacy "managed" is kept so an older device's persisted value still reads.
  */
 export type ServerChoice = "managed" | "custom";
 
@@ -109,10 +109,9 @@ export function plainHttpHint(url: string): string | null {
  *
  * Everyone who used the app before this step existed has a persisted choice of
  * `null`, and a good number of them deliberately pointed at their own server
- * through the old `<details>`. Asking them again — and defaulting them to
- * managed if they just close the card — would be the exact failure this step is
- * meant to prevent, so a non-default URL is read as a self-host answer already
- * given.
+ * through the old `<details>`. Asking them again would be needless, so any
+ * non-default configured URL is read as a self-host answer already given. With
+ * a release build's empty default, that means any non-empty URL implies one.
  */
 export function impliedServerChoice(
   serverUrl: string,

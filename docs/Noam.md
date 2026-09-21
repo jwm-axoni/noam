@@ -9,7 +9,7 @@ tags: [thread, second-brain, spec, build-from-scratch]
 
 # Noam
 
-**Context** is the product an owner buys: the shared, always-current context your team *and* your
+**Context** is the shared, always-current context your team *and* your
 AI both work from. **Noam** is the brand. This folder is the build spec: what we are building,
 why, the chosen stack, and the live status.
 
@@ -100,8 +100,8 @@ round-trip lossless. Full detail: [[03-sync-engine]].
 ## Deployment
 
 Self-hosting and production deployment (Docker, Railway, env vars, the single-port `/sync`
-topology) are covered in [[DEPLOY]]. The managed backend is live at `https://api.noam.io`;
-the desktop app points at it (or at any self-hosted instance) via the server URL in Settings.
+topology) are covered in [[DEPLOY]]. Noam is free and self-hosted only; there is no managed
+backend. The desktop app points at whichever server you deploy via the server URL in Settings.
 
 The current local Developer ID signing, notarization, artifact verification, and
 clean-publication process is covered in [[RELEASE]]. Release automation and
@@ -162,4 +162,4 @@ See [[STATUS]] for the live build checklist.
 4. **Rust owns disk; UI is stateless about files.** The web UI never touches the filesystem. It
    calls typed Rust commands and subscribes to events.
 5. **Reuse patterns, not code.** Study the OSS references, own our implementation.
-6. **Self-hostable, no vendor lock-in.** Everything runs on our infra (Tauri + Node + Postgres).
+6. **Self-hostable, no vendor lock-in.** Everything runs on your own infra (Tauri + Node + Postgres).

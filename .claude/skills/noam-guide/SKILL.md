@@ -1,6 +1,6 @@
 ---
 name: noam-guide
-description: Answer any question about Noam (the team second-brain app at noam.io) in plain, non-technical language — what it is, what it can and cannot do, which file formats it supports (Markdown, images, PDF, DOCX, XLSX, code files), how sync, offline, sharing, permissions, version history, AI/MCP, pricing, platforms and self-hosting work. Use this whenever someone asks "does Noam…", "can Noam…", "how does Noam…", compares it with Obsidian/Notion/Logseq, or asks what happens to a file type in a vault, even if they do not say the word Noam but are clearly asking about this product's features.
+description: Answer any question about Noam (the free, self-hosted team second-brain app at noamapp.io) in plain, non-technical language — what it is, what it can and cannot do, which file formats it supports (Markdown, images, PDF, DOCX, XLSX, code files), how sync, offline, sharing, permissions, version history, AI/MCP, platforms and self-hosting work. Use this whenever someone asks "does Noam…", "can Noam…", "how does Noam…", compares it with Obsidian/Notion/Logseq, or asks what happens to a file type in a vault, even if they do not say the word Noam but are clearly asking about this product's features.
 ---
 
 # Noam guide
@@ -20,9 +20,9 @@ Word documents will work. Give them a correct, short, plain answer.
      or two files the routing table names. If you are not inside the repository, fetch the same
    paths from the repository URL supplied by the user. Never assume a GitHub
    owner when the local repository is unavailable;
-   - the website for downloads and positioning. For price and plans, `features.md` ("Hosting
-     options") is the source: the managed Pro plan is live and self-serve in the app, and the
-     public pricing page can lag behind it;
+   - the website for positioning and release links. For how hosting works, `features.md` ("Hosting
+     options") is the source: Noam is free and self-hosted only, with no managed instance and no
+     paid tiers;
    - a single targeted code file only when the docs are silent on a precise behaviour.
    Never sweep the whole repository for a question; it is slow and the docs already answer it.
 
@@ -45,7 +45,7 @@ Word documents will work. Give them a correct, short, plain answer.
 
 5. **Point to where it is.** When relevant, end with where the person finds the thing in the app
    ("right-click the note → Share", "Vault Settings → MCP") or a single link (a docs file or a
-   noam.io page). One pointer, not a bibliography.
+   noamapp.io page). One pointer, not a bibliography.
 
 6. **Match the depth asked.** A yes/no question gets a paragraph. "Explain how Noam works" gets
    a few short sections. A developer asking about internals can be sent to `CLAUDE.md` and
@@ -89,13 +89,9 @@ That is about 110 words. It names every format asked about, says what does not w
   note text; it is not end-to-end encrypted. See `faq.md`.
 - "Does it sync my images?" Only through the note (the `attachments/` folder). An image copied
   into a sub-folder stays local. See `file-formats.md`.
-- "How much does it cost? Can my team start now?" Yes, now. Free locally and self-hosted with no
-  limits; the managed service is free up to 3 vaults per user and 3 members per vault, then Pro
-  at $10 per vault per month or $97 per year, bought in-app under Vault Settings → Billing. Do not
-  say "early access" or "contact us for pricing"; that wording on the website is out of date.
-- "What if I delete a paid vault?" Billing stops at the end of the period already paid for, and
-  the subscription can be transferred to another vault the owner has (Vault Settings → Billing).
-  One vault holds at most one subscription. See `faq.md`.
+- "How much does it cost? Can my team start now?" Yes, now. Noam is free and self-hosted only —
+  there is no managed service and no paid tier. Deploy your own server (Docker or Railway; see
+  `docs/DEPLOY.md`) and every vault is unlimited.
 - "Is there a mobile / web app?" No. iOS is planned; public links open read-only in a browser.
 - "Does it have AI built in?" It has an AI *connection point* (MCP) and works with any local
   agent; it ships no model and no chat panel.
