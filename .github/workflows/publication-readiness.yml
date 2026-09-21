@@ -1,0 +1,22 @@
+name: Publication readiness
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+jobs:
+  publication-readiness:
+    name: publication-readiness
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out with full history
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+      - name: Run publication check
+        run: node scripts/check-publication.mjs --scope all
