@@ -894,6 +894,24 @@ export const getServerUrl = () => invoke<string | null>("get_server_url");
 export const setServerUrl = (url: string | null) =>
   invoke<void>("set_server_url", { url });
 
+// ---- Update preferences (per-user toggle + managed IT policy) --------------
+// `managed` reflects an env var / read-only config-dir policy the app only ever
+// reads; `locked` means the per-user toggle can't be changed here (a scripted
+// `setAutoCheckUpdates` is refused by Rust too).
+
+export interface ManagedUpdatePolicy {
+  enabled: boolean;
+  locked: boolean;
+}
+export interface UpdatePreferences {
+  autoCheckEnabled: boolean;
+  managed: ManagedUpdatePolicy;
+}
+export const getUpdatePreferences = () =>
+  invoke<UpdatePreferences>("get_update_preferences");
+export const setAutoCheckUpdates = (enabled: boolean) =>
+  invoke<void>("set_auto_check_updates", { enabled });
+
 // ---- Per-vault sync registry config (.context/config.json) ----------------
 // Raw JSON string; the TS sync layer owns the schema (server vault id + doc-id
 // map) so it travels with the vault across devices (spec 03 §5).

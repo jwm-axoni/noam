@@ -13,6 +13,7 @@ import { check, type Update } from "@tauri-apps/plugin-updater";
 import { useSyncExternalStore } from "react";
 
 import { bridgeManager } from "./bridge";
+import { getUpdatePreferences } from "./ipc";
 
 export type UpdateState =
   | { phase: "idle" }
@@ -187,6 +188,18 @@ export async function backgroundUpdateCheck(): Promise<void> {
     state.phase === "installing"
   ) {
     return;
+  }
+  // Respect the per-user "automatically check for updates" toggle and any
+  // managed IT policy. The manual checkForUpdate() path (the Settings button)
+  // is deliberately NOT gated — a user can always ask. If preferences can't be
+  // read (a dev build without the command), fall through to the historic check.
+  try {
+    const prefs = await getUpdatePreferences();
+    if (!prefs.autoCheckEnabled || (prefs.managed.locked && !prefs.managed.enabled)) {
+      return;
+    }
+  } catch {
+    // Ignore: keep the default launch/poll behaviour.
   }
   await checkForUpdate();
 }

@@ -31,6 +31,17 @@ fn has_updater_settings(config: &tauri::Config) -> bool {
         .is_some_and(|value| !value.is_null())
 }
 
+/// Whether to register the updater plugin at all: the distribution config must
+/// carry updater settings AND a managed policy must not force updates fully off
+/// (`locked && !enabled`). Suppressing registration is the strongest lock —
+/// there is then no polling and no update wall for a user to bypass.
+fn should_register_updater(
+    config: &tauri::Config,
+    policy: &commands::ManagedUpdatePolicy,
+) -> bool {
+    has_updater_settings(config) && !policy.disables()
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     let builder = tauri::Builder::default();
@@ -76,9 +87,13 @@ pub fn run() {
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
             // A source build has no updater endpoint/key. Registering the plugin
-            // without its config panics before the first window can open.
+            // without its config panics before the first window can open. A
+            // managed policy that locks updates off suppresses it too.
             #[cfg(desktop)]
-            if has_updater_settings(app.config()) {
+            if should_register_updater(
+                app.config(),
+                &commands::managed_update_policy(app.handle()),
+            ) {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
             }
@@ -168,6 +183,8 @@ pub fn run() {
             commands::write_external_file,
             commands::get_server_url,
             commands::set_server_url,
+            commands::get_update_preferences,
+            commands::set_auto_check_updates,
             commands::get_vaults_root,
             commands::set_vaults_root,
             commands::pick_vaults_root,
@@ -202,7 +219,8 @@ pub fn run() {
 
 #[cfg(test)]
 mod startup_tests {
-    use super::has_updater_settings;
+    use super::{has_updater_settings, should_register_updater};
+    use crate::commands::ManagedUpdatePolicy;
 
     #[test]
     fn source_config_starts_without_distribution_updater_settings() {
@@ -226,5 +244,21 @@ mod startup_tests {
             .0
             .insert("updater".into(), serde_json::Value::Null);
         assert!(!has_updater_settings(&config));
+    }
+
+    #[test]
+    fn disabled_managed_policy_suppresses_updater_registration() {
+        // Even a release config that carries distribution updater settings must
+        // not register the plugin once a managed policy locks updates off.
+        let mut config = tauri::Config::default();
+        config.plugins.0.insert(
+            "updater".into(),
+            serde_json::json!({"pubkey": "release-key", "endpoints": ["https://example.com/update.json"]}),
+        );
+        let disabled = ManagedUpdatePolicy { enabled: false, locked: true };
+        assert!(!should_register_updater(&config, &disabled));
+        // No policy leaves the release config registering as before.
+        let no_policy = ManagedUpdatePolicy { enabled: true, locked: false };
+        assert!(should_register_updater(&config, &no_policy));
     }
 }

@@ -88,7 +88,7 @@ const RECENT_LIMIT: usize = 10;
 /// note open on someone else's install.
 const LARGE_DOC_LOG_BYTES: usize = 1024 * 1024;
 
-#[derive(Serialize, Deserialize, Default, Clone)]
+#[derive(Serialize, Deserialize, Clone)]
 pub struct AppConfig {
     /// Legacy single last-opened vault. Superseded by `recent_vaults`; kept so
     /// old configs migrate cleanly and nothing else that reads it breaks.
@@ -106,6 +106,32 @@ pub struct AppConfig {
     /// same migration pattern as `last_vault` → `recent_vaults` above.
     #[serde(default, alias = "workspace_root")]
     vaults_root: Option<String>,
+    /// Per-user "automatically check for updates" toggle. Default ON preserves
+    /// the historic mandatory-update behaviour; an IT managed policy can lock it
+    /// (see `managed_update_policy`). `default_true` covers an old config.json
+    /// written before this field existed.
+    #[serde(default = "default_true")]
+    auto_check_updates: bool,
+}
+
+/// serde default for `auto_check_updates`: absent ⇒ the historic "on".
+fn default_true() -> bool {
+    true
+}
+
+/// Manual `Default` (not derived) so a fresh install — or a config that fails to
+/// parse and falls back to `unwrap_or_default` — keeps auto-check ON. A derived
+/// `Default` would zero the bool to `false` and silently disable updates.
+impl Default for AppConfig {
+    fn default() -> Self {
+        Self {
+            last_vault: None,
+            recent_vaults: Vec::new(),
+            server_url: None,
+            vaults_root: None,
+            auto_check_updates: true,
+        }
+    }
 }
 
 // ---- helpers --------------------------------------------------------------
@@ -200,6 +226,68 @@ fn write_config(app: &AppHandle, state: &State<AppState>, cfg: &AppConfig) -> Ap
     std::fs::write(p, serde_json::to_string_pretty(cfg)?)?;
     *state.config.lock().unwrap() = Some(cfg.clone());
     Ok(())
+}
+
+// ---- managed (IT) update policy -------------------------------------------
+//
+// An enterprise override the user cannot bypass. The app only ever READS these
+// — it never writes them. Two sources, checked in order:
+//   1. env `NOAM_UPDATER_POLICY` — `disabled` ⇒ off + locked; unset ⇒ no policy.
+//   2. a read-only `managed-policy.json` in the app config dir, shaped
+//      `{ "autoUpdate": { "enabled": false, "locked": true } }`.
+// No policy ⇒ `{ enabled: true, locked: false }` (auto-check governed by the
+// per-user toggle). `locked && !enabled` is the strongest state: it also
+// suppresses the updater plugin entirely (see `lib.rs`).
+
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ManagedUpdatePolicy {
+    pub enabled: bool,
+    pub locked: bool,
+}
+
+impl ManagedUpdatePolicy {
+    /// The strongest lock: policy forces updates off. Callers use this to skip
+    /// updater-plugin registration outright.
+    pub fn disables(&self) -> bool {
+        self.locked && !self.enabled
+    }
+}
+
+/// The `managed-policy.json` on-disk shape. Only `autoUpdate` is read.
+#[derive(Deserialize)]
+struct ManagedPolicyFile {
+    #[serde(rename = "autoUpdate")]
+    auto_update: Option<ManagedAutoUpdate>,
+}
+
+#[derive(Deserialize)]
+struct ManagedAutoUpdate {
+    #[serde(default = "default_true")]
+    enabled: bool,
+    #[serde(default)]
+    locked: bool,
+}
+
+/// Resolve the effective managed update policy (env first, then the read-only
+/// config-dir file, else no policy).
+pub fn managed_update_policy(app: &AppHandle) -> ManagedUpdatePolicy {
+    if let Ok(v) = std::env::var("NOAM_UPDATER_POLICY") {
+        if v == "disabled" {
+            return ManagedUpdatePolicy { enabled: false, locked: true };
+        }
+    }
+    if let Ok(dir) = app.path().app_config_dir() {
+        if let Ok(s) = std::fs::read_to_string(dir.join("managed-policy.json")) {
+            if let Some(au) = serde_json::from_str::<ManagedPolicyFile>(&s)
+                .ok()
+                .and_then(|f| f.auto_update)
+            {
+                return ManagedUpdatePolicy { enabled: au.enabled, locked: au.locked };
+            }
+        }
+    }
+    ManagedUpdatePolicy { enabled: true, locked: false }
 }
 
 fn now_ms() -> u64 {
@@ -600,6 +688,45 @@ pub async fn get_server_url(
     state: State<'_, AppState>,
 ) -> AppResult<Option<String>> {
     Ok(read_config(&app, &state).server_url)
+}
+
+/// The user's auto-check preference plus the effective managed policy, so the UI
+/// can render the toggle and (when locked) disable it.
+#[derive(Debug, Clone, Copy, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct UpdatePreferences {
+    pub auto_check_enabled: bool,
+    pub managed: ManagedUpdatePolicy,
+}
+
+/// Read the update preferences: the stored per-user toggle and the managed
+/// policy (env / config-dir file). The TS layer combines them.
+#[tauri::command]
+pub async fn get_update_preferences(
+    app: AppHandle,
+    state: State<'_, AppState>,
+) -> AppResult<UpdatePreferences> {
+    let managed = managed_update_policy(&app);
+    let auto_check_enabled = read_config(&app, &state).auto_check_updates;
+    Ok(UpdatePreferences { auto_check_enabled, managed })
+}
+
+/// Persist the per-user "automatically check for updates" toggle. Refused when a
+/// managed policy locks it, so a scripted `invoke` cannot bypass IT policy.
+#[tauri::command]
+pub async fn set_auto_check_updates(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    enabled: bool,
+) -> AppResult<()> {
+    if managed_update_policy(&app).locked {
+        return Err(AppError::new(
+            "auto-update is managed by your organization and can't be changed here",
+        ));
+    }
+    let mut cfg = read_config(&app, &state);
+    cfg.auto_check_updates = enabled;
+    write_config(&app, &state, &cfg)
 }
 
 // ---- vaults root + `current` pointer --------------------------------------

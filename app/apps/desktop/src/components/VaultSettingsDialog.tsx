@@ -2460,10 +2460,36 @@ function clientLabel(ua: string | null): string {
 function UpdatesTab() {
   const update = useUpdateState();
   const [version, setVersion] = useState<string | null>(null);
+  const [autoCheck, setAutoCheck] = useState(true);
+  const [managed, setManaged] = useState<ipc.ManagedUpdatePolicy>({
+    enabled: true,
+    locked: false,
+  });
 
   useEffect(() => {
     void currentVersion().then(setVersion);
+    void ipc
+      .getUpdatePreferences()
+      .then((p) => {
+        setAutoCheck(p.autoCheckEnabled);
+        setManaged(p.managed);
+      })
+      .catch(() => {});
   }, []);
+
+  // Optimistic flip; revert if Rust refuses (a managed policy locks it).
+  const flipAutoCheck = async (next: boolean) => {
+    setAutoCheck(next);
+    try {
+      await ipc.setAutoCheckUpdates(next);
+    } catch {
+      setAutoCheck(!next);
+    }
+  };
+
+  // When a policy locks the toggle, show the effective managed value, not the
+  // user's stored preference.
+  const autoCheckShown = managed.locked ? managed.enabled : autoCheck;
 
   const busy = update.phase === "checking" ||
     update.phase === "downloading" ||
@@ -2504,6 +2530,29 @@ function UpdatesTab() {
         <span className="menu-row-label">Current version</span>
         <span className="mono">{version ?? "…"}</span>
       </div>
+
+      <label className="menu-row toggle-row" data-setting-id="auto-check-updates" tabIndex={-1}>
+        <span className="menu-row-label">
+          Automatically check for updates
+          <span className="field-hint">
+            When off, Noam won't look for new versions on its own — use "Check
+            for updates" below whenever you want. Running an old version can
+            misbehave with sync, so staying current is recommended.
+          </span>
+        </span>
+        <Switch
+          checked={autoCheckShown}
+          disabled={managed.locked}
+          ariaLabel="Automatically check for updates"
+          title={managed.locked ? "Managed by your organization" : undefined}
+          onChange={(next) => void flipAutoCheck(next)}
+        />
+      </label>
+      {managed.locked && (
+        <div className="muted">
+          Managed by your organization.
+        </div>
+      )}
 
       <div className="update-actions">
         <button
