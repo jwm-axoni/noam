@@ -882,9 +882,9 @@ function forgetOrgVault(orgId: string): void {
 // refreshVault and — deliberately — KEPT across sign-out (that's the whole
 // point: you can pick a synced vault to sign back into).
 // Namespaced by server: vault ids and names belong to ONE instance, so a cache
-// shared across servers shows the managed instance's vaults while the app is
-// pointed at localhost (offering to open vaults that don't exist there, under
-// ids that will never resolve). The un-suffixed key is read once as a fallback
+// shared across servers shows one server's vaults while the app is pointed at
+// another (offering to open vaults that don't exist there, under ids that will
+// never resolve). The un-suffixed key is read once as a fallback
 // so an existing install doesn't lose its list on upgrade.
 const KNOWN_VAULTS_KEY = "context.knownVaults";
 const knownVaultsKey = (serverUrl: string) => `${KNOWN_VAULTS_KEY}:${serverUrl}`;

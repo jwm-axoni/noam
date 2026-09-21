@@ -11,11 +11,11 @@ import {
  *
  * There is no component-render harness in this workspace, so the rules that
  * decide WHERE the sign-in dialog opens — and what counts as a server address —
- * live in pure functions and get pinned here. The stake is not cosmetic: get
- * `decideAuthStep` wrong in the "never asked" direction and a self-hosting
- * team's members go back to signing up on the managed instance; get
- * `normalizeServerUrl` wrong and a deep link decides where a password is
- * posted.
+ * live in pure functions and get pinned here. The stake is not cosmetic: every
+ * user self-hosts and a release build has no default server, so get
+ * `decideAuthStep` wrong in the "never asked" direction and a fresh install
+ * skips the step that asks for the address; get `normalizeServerUrl` wrong and
+ * a deep link decides where a password is posted.
  */
 describe("normalizeServerUrl", () => {
   it("prepends https to a bare host", () => {
@@ -76,48 +76,59 @@ describe("serverHost", () => {
 });
 
 describe("impliedServerChoice", () => {
-  const def = "https://api.noam.io";
-
-  it("reads a non-default URL as a self-host answer already given", () => {
-    expect(impliedServerChoice("https://notes.example.com", def)).toBe("custom");
+  // A release build has no default server, so anything non-empty is an answer.
+  it("reads any configured URL as a self-host answer when there is no default", () => {
+    expect(impliedServerChoice("https://notes.example.com", "")).toBe("custom");
+    expect(impliedServerChoice("https://api.noam.io", "")).toBe("custom");
   });
 
-  it("treats the default (however it was spelled) as no answer", () => {
-    expect(impliedServerChoice(def, def)).toBeNull();
-    expect(impliedServerChoice("https://api.noam.io/", def)).toBeNull();
+  it("treats an empty/unconfigured server as no answer", () => {
+    expect(impliedServerChoice("", "")).toBeNull();
+    expect(impliedServerChoice("   ", "")).toBeNull();
+  });
+
+  it("still treats a device sitting on the (dev) default as no answer", () => {
+    expect(
+      impliedServerChoice("http://localhost:3010", "http://localhost:3010"),
+    ).toBeNull();
+    expect(
+      impliedServerChoice("http://localhost:3010/", "http://localhost:3010"),
+    ).toBeNull();
   });
 });
 
 describe("decideAuthStep", () => {
-  const def = "https://api.noam.io";
-
-  it("asks on a first run with nothing persisted", () => {
+  it("asks on a first run with no server configured", () => {
     expect(
-      decideAuthStep({ choice: null, serverUrl: def, defaultServerUrl: def }),
+      decideAuthStep({ choice: null, serverUrl: "", defaultServerUrl: "" }),
     ).toBe("choose-server");
   });
 
   it("does not ask again once the question is answered", () => {
     expect(
-      decideAuthStep({ choice: "managed", serverUrl: def, defaultServerUrl: def }),
-    ).toBe("form");
-    expect(
       decideAuthStep({
         choice: "custom",
         serverUrl: "https://notes.example.com",
-        defaultServerUrl: def,
+        defaultServerUrl: "",
+      }),
+    ).toBe("form");
+    // A device carrying the legacy "managed" value still routes past the step.
+    expect(
+      decideAuthStep({
+        choice: "managed",
+        serverUrl: "https://api.noam.io",
+        defaultServerUrl: "",
       }),
     ).toBe("form");
   });
 
-  it("does not ask a pre-#91 device that already points at its own server", () => {
-    // It answered through the old <details>; asking again risks defaulting it
-    // to managed, which is the whole bug.
+  it("does not ask a device that already points at its own server", () => {
+    // It answered through the old <details>; asking again would be needless.
     expect(
       decideAuthStep({
         choice: null,
         serverUrl: "https://notes.example.com",
-        defaultServerUrl: def,
+        defaultServerUrl: "",
       }),
     ).toBe("form");
   });
@@ -127,9 +138,9 @@ describe("decideAuthStep", () => {
       expect(
         decideAuthStep({
           choice,
-          serverUrl: def,
+          serverUrl: "",
           pendingServerLink: "https://notes.example.com",
-          defaultServerUrl: def,
+          defaultServerUrl: "",
         }),
       ).toBe("confirm-link");
     }
@@ -138,10 +149,10 @@ describe("decideAuthStep", () => {
   it("ignores an empty pending link", () => {
     expect(
       decideAuthStep({
-        choice: "managed",
-        serverUrl: def,
+        choice: "custom",
+        serverUrl: "https://notes.example.com",
         pendingServerLink: "",
-        defaultServerUrl: def,
+        defaultServerUrl: "",
       }),
     ).toBe("form");
   });

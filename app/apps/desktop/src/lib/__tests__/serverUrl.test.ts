@@ -1,14 +1,10 @@
 import { describe, it, expect } from "vitest";
-import {
-  resolveServerUrl,
-  DEFAULT_SERVER_URL,
-  LOCAL_SERVER_URL,
-  PRODUCTION_SERVER_URL,
-} from "../api";
+import { resolveServerUrl, DEFAULT_SERVER_URL, LOCAL_SERVER_URL } from "../api";
 
-// Vitest runs with import.meta.env.DEV === true, which is exactly the mode
-// these rules are about: a dev build must never end up talking to production
-// just because the URL was persisted once.
+// Vitest runs with import.meta.env.DEV === true, so the build default is the
+// local stack. There is no managed instance to guard against — a release build
+// has no default at all — so `resolveServerUrl` now just normalizes the
+// persisted value and falls back to the default when there is none.
 describe("resolveServerUrl (dev build)", () => {
   it("defaults to the local stack when nothing is persisted", () => {
     expect(DEFAULT_SERVER_URL).toBe(LOCAL_SERVER_URL);
@@ -17,11 +13,10 @@ describe("resolveServerUrl (dev build)", () => {
     expect(resolveServerUrl("   ")).toBe(LOCAL_SERVER_URL);
   });
 
-  it("ignores a persisted production URL", () => {
-    // The reported state: config.json held api.noam.io, so every launch of
-    // `pnpm dev:desktop` was reading and writing real vaults.
-    expect(resolveServerUrl(PRODUCTION_SERVER_URL)).toBe(LOCAL_SERVER_URL);
-    expect(resolveServerUrl("https://api.noam.io/")).toBe(LOCAL_SERVER_URL);
+  it("honours any persisted server, trailing slash stripped", () => {
+    // No dev-guard: whatever was persisted is used as-is (once cleaned), so a
+    // staging / LAN / self-host override from Settings keeps working.
+    expect(resolveServerUrl("https://api.noam.io/")).toBe("https://api.noam.io");
   });
 
   it("honours any other persisted server", () => {

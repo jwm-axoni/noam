@@ -171,8 +171,10 @@ export function initAccentTheme(): void {
 const SERVER_CHOICE_KEY = "context.serverChoice";
 
 /**
- * The answer to "managed service, or your own server?" — asked once, on the
- * first sign-in this device ever sees (see `lib/auth/serverChoice.ts`).
+ * Whether this device has picked its Noam server — asked once, on the first
+ * sign-in this device ever sees (see `lib/auth/serverChoice.ts`). Every user
+ * self-hosts, so the only value written now is "custom"; the legacy "managed"
+ * is still accepted when reading an older device's config.
  *
  * Device-local like the theme, and deliberately NOT the server URL itself: that
  * lives in the Rust app config, because the auth manager needs it before any
