@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, writeFileSync } from "node:fs";
+import { mkdtempSync, symlinkSync, unlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import test from "node:test";
@@ -12,8 +12,8 @@ function run(root, policy, extraArgs = []) {
   return spawnSync(process.execPath, [script, "--root", root, "--policy", policy, "--scope", "tree", "--format", "json", ...extraArgs], { encoding: "utf8" });
 }
 
-function git(root, args) {
-  const result = spawnSync("git", args, { cwd: root, encoding: "utf8" });
+function git(root, args, env = process.env) {
+  const result = spawnSync("git", args, { cwd: root, encoding: "utf8", env });
   assert.equal(result.status, 0, result.stderr || result.stdout);
   return result.stdout.trim();
 }
@@ -98,6 +98,76 @@ test("scans content that was added and removed within a commit range", () => {
   const result = run(root, policy, ["--scope", "range", "--range", "HEAD"]);
   assert.equal(result.status, 1, result.stderr || result.stdout);
   assert.equal(JSON.parse(result.stdout).findings[0]?.rule, "personal-email-provider");
+});
+
+test("scans a path whose Git type changed into a text blob within a commit range", () => {
+  const root = mkdtempSync(join(tmpdir(), "noam-publication-typechange-"));
+  initializeRepository(root);
+  const policy = fixturePolicy(root);
+  writeFileSync(join(root, "README.md"), "Clean root.\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-m", "Clean root"]);
+
+  const link = join(root, "notes.txt");
+  symlinkSync("README.md", link);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-m", "Add a link"]);
+
+  // A type change (symlink to regular blob) is reported as `T`, which a diff filter of ACMR drops.
+  const email = ["private.person", "gmail.com"].join("@");
+  unlinkSync(link);
+  writeFileSync(link, `${email}\n`);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-m", "Replace the link with a regular file"]);
+
+  unlinkSync(link);
+  symlinkSync("README.md", link);
+  git(root, ["add", "-A"]);
+  git(root, ["commit", "-m", "Restore the link"]);
+
+  const result = run(root, policy, ["--scope", "range", "--range", "HEAD"]);
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.ok(report.findings.some((finding) => finding.rule === "personal-email-provider"), result.stdout);
+  assert.doesNotMatch(result.stdout, /private\.person/);
+});
+
+test("scans a commit body, not only the commit subject", () => {
+  const root = mkdtempSync(join(tmpdir(), "noam-publication-body-"));
+  initializeRepository(root);
+  const policy = fixturePolicy(root);
+  writeFileSync(join(root, "README.md"), "Clean root.\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-m", "Clean root"]);
+  const email = ["private.person", "gmail.com"].join("@");
+  git(root, ["commit", "--allow-empty", "-m", "Clean subject", "-m", `Reported by ${email}`]);
+
+  const result = run(root, policy, ["--scope", "range", "--range", "HEAD", "--fail-on-review"]);
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.ok(report.findings.some((finding) => finding.rule === "personal-email-provider"), result.stdout);
+  assert.doesNotMatch(result.stdout, /private\.person/);
+});
+
+test("scans the committer identity, not only the author identity", () => {
+  const root = mkdtempSync(join(tmpdir(), "noam-publication-committer-"));
+  initializeRepository(root);
+  const policy = fixturePolicy(root);
+  writeFileSync(join(root, "README.md"), "Clean root.\n");
+  git(root, ["add", "."]);
+  git(root, ["commit", "-m", "Clean root"]);
+  const email = ["private.person", "gmail.com"].join("@");
+  git(root, ["commit", "--allow-empty", "-m", "Clean subject"], {
+    ...process.env,
+    GIT_COMMITTER_NAME: "Private Person",
+    GIT_COMMITTER_EMAIL: email,
+  });
+
+  const result = run(root, policy, ["--scope", "range", "--range", "HEAD", "--fail-on-review"]);
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  const report = JSON.parse(result.stdout);
+  assert.ok(report.findings.some((finding) => finding.rule === "personal-email-provider"), result.stdout);
+  assert.doesNotMatch(result.stdout, /private\.person/);
 });
 
 test("can fail closed when a rule requires human review", () => {

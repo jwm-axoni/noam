@@ -128,6 +128,29 @@ test("rejects old history grafted in by an unrelated-history merge", () => {
   assert.match(result.stderr, /does not descend solely from the approved clean root/);
 });
 
+test("rejects an annotated tag whose own message carries private content", () => {
+  const fixture = createFixture();
+  const email = ["private.person", "gmail.com"].join("@");
+  // The tagger identity and annotation live on the tag object itself, so nothing in the commit range
+  // that Git dereferences the tag into contains them.
+  git(fixture.root, ["tag", "-a", "v0.0.1", "-m", `Cut for ${email}`, fixture.cleanRoot]);
+  const tagObject = git(fixture.root, ["rev-parse", "v0.0.1"]);
+  assert.equal(git(fixture.root, ["cat-file", "-t", tagObject]), "tag");
+
+  const result = runGuard(fixture, { localObject: tagObject });
+  assert.equal(result.status, 1, result.stderr || result.stdout);
+  assert.match(result.stdout, /personal-email-provider/);
+  assert.doesNotMatch(result.stdout, /private\.person/);
+});
+
+test("allows an annotated tag whose message is clean", () => {
+  const fixture = createFixture();
+  git(fixture.root, ["tag", "-a", "v0.0.2", "-m", "Clean release", fixture.cleanRoot]);
+  const result = runGuard(fixture, { localObject: git(fixture.root, ["rev-parse", "v0.0.2"]) });
+  assert.equal(result.status, 0, result.stderr || result.stdout);
+  assert.match(result.stdout, /Push guard passed/);
+});
+
 test("rejects private content that was committed and later removed", () => {
   const fixture = createFixture();
   const email = ["private.person", "gmail.com"].join("@");

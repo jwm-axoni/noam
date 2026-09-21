@@ -17,7 +17,7 @@ function git(root, args) {
   return result.stdout.trim();
 }
 
-function createFixture() {
+function createFixture({ existingHooksPath = null, installEnv = {} } = {}) {
   const root = mkdtempSync(join(tmpdir(), "noam-install-guards-"));
   git(root, ["init", "--initial-branch=main"]);
   git(root, ["config", "user.name", "Install Guard Test"]);
@@ -34,9 +34,10 @@ function createFixture() {
   mkdirSync(bin);
   writeFileSync(join(bin, "gitleaks"), "#!/bin/sh\nexit 0\n");
   chmodSync(join(bin, "gitleaks"), 0o755);
-  const installed = run(root, process.execPath, [join(root, "scripts", "install-git-guards.mjs")]);
+  if (existingHooksPath) git(root, ["config", "--local", "core.hooksPath", existingHooksPath]);
+  const installed = run(root, process.execPath, [join(root, "scripts", "install-git-guards.mjs")], { ...process.env, ...installEnv });
   assert.equal(installed.status, 0, installed.stderr || installed.stdout);
-  return { root, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
+  return { root, installed, env: { ...process.env, PATH: `${bin}:${process.env.PATH}` } };
 }
 
 test("hooks still guard a checkout that has no .githooks folder", () => {
@@ -55,4 +56,31 @@ test("hooks still guard a checkout that has no .githooks folder", () => {
   const push = run(fixture.root, "git", ["push", rogue, "legacy"], fixture.env);
   assert.notEqual(push.status, 0, push.stderr || push.stdout);
   assert.equal(run(rogue, "git", ["rev-parse", "--verify", "legacy"]).status, 128);
+});
+
+test("leaves a contributor's own hooks path in place instead of silently disabling it", () => {
+  const foreignHooksPath = mkdtempSync(join(tmpdir(), "noam-foreign-hooks-"));
+  const fixture = createFixture({ existingHooksPath: foreignHooksPath });
+
+  assert.equal(git(fixture.root, ["config", "--local", "--get", "core.hooksPath"]), foreignHooksPath);
+  assert.match(fixture.installed.stderr, /core\.hooksPath/);
+  assert.match(fixture.installed.stderr, /NOAM_GUARD_REPLACE_HOOKS_PATH/);
+});
+
+test("replaces a contributor's own hooks path only when the override asks for it", () => {
+  const foreignHooksPath = mkdtempSync(join(tmpdir(), "noam-foreign-hooks-"));
+  const fixture = createFixture({ existingHooksPath: foreignHooksPath, installEnv: { NOAM_GUARD_REPLACE_HOOKS_PATH: "1" } });
+
+  assert.match(git(fixture.root, ["config", "--local", "--get", "core.hooksPath"]), /noam-guard-hooks$/);
+});
+
+test("installs silently when the hooks path is already the one it manages", () => {
+  const fixture = createFixture();
+  const managed = git(fixture.root, ["config", "--local", "--get", "core.hooksPath"]);
+  assert.match(managed, /noam-guard-hooks$/);
+
+  const reinstalled = run(fixture.root, process.execPath, [join(fixture.root, "scripts", "install-git-guards.mjs")]);
+  assert.equal(reinstalled.status, 0, reinstalled.stderr || reinstalled.stdout);
+  assert.equal(reinstalled.stderr, "");
+  assert.equal(git(fixture.root, ["config", "--local", "--get", "core.hooksPath"]), managed);
 });

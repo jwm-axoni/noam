@@ -17,6 +17,7 @@ function parseArgs(argv) {
     scope: "tree",
     source: "working",
     range: null,
+    tag: null,
     failOnReview: false,
     format: "text",
     output: null,
@@ -29,18 +30,19 @@ function parseArgs(argv) {
     else if (value === "--scope") options.scope = argv[++index];
     else if (value === "--source") options.source = argv[++index];
     else if (value === "--range") options.range = argv[++index];
+    else if (value === "--tag") options.tag = argv[++index];
     else if (value === "--fail-on-review") options.failOnReview = true;
     else if (value === "--format") options.format = argv[++index];
     else if (value === "--output") options.output = resolve(argv[++index]);
     else if (value === "--help" || value === "-h") {
-      console.log("Usage: node scripts/check-publication.mjs [--root PATH] [--policy PATH] [--scope tree|history|range|remote|all] [--source working|index] [--range REVISION_RANGE] [--fail-on-review] [--format text|json] [--output PATH]");
+      console.log("Usage: node scripts/check-publication.mjs [--root PATH] [--policy PATH] [--scope tree|history|range|tag|remote|all] [--source working|index] [--range REVISION_RANGE] [--tag OBJECT] [--fail-on-review] [--format text|json] [--output PATH]");
       process.exit(0);
     } else {
       throw new Error(`Unknown argument: ${value}`);
     }
   }
 
-  if (!["tree", "history", "range", "remote", "all"].includes(options.scope)) {
+  if (!["tree", "history", "range", "tag", "remote", "all"].includes(options.scope)) {
     throw new Error(`Unsupported scope: ${options.scope}`);
   }
   if (!["working", "index"].includes(options.source)) {
@@ -51,6 +53,9 @@ function parseArgs(argv) {
   }
   if (options.scope === "range" && !options.range) {
     throw new Error("--scope range requires --range REVISION_RANGE");
+  }
+  if (options.scope === "tag" && !options.tag) {
+    throw new Error("--scope tag requires --tag OBJECT");
   }
   return options;
 }
@@ -92,7 +97,9 @@ function listWorkingFiles(root, ignoredDirectories) {
 }
 
 function listIndexFiles(root) {
-  const result = run("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMR", "-z"], root);
+  // `T` belongs in every diff filter here: a path flipped from a symlink or gitlink into a regular
+  // blob is reported as a type change, so ACMR alone let prohibited content through unscanned.
+  const result = run("git", ["diff", "--cached", "--name-only", "--diff-filter=ACMRT", "-z"], root);
   if (result.status !== 0) throw new Error(result.stderr.trim() || "Unable to read the Git index");
   return result.stdout.split("\0").filter(Boolean);
 }
@@ -214,16 +221,21 @@ function scanIndex(root, scanText) {
   return { findings, scannedFiles };
 }
 
+// Prohibited data hides in the commit body and in the committer identity just as easily as in the
+// subject and the author, so every part of the message and both identities are scanned. Bodies span
+// lines, so each commit is terminated with a NUL to keep the commit count accurate.
+const commitMetadataFormat = "%H%x09%an%x09%ae%x09%cn%x09%ce%x09%s%n%b";
+
 function scanHistory(root, scanText) {
-  const result = run("git", ["log", "--all", "--format=%H%x09%an%x09%ae%x09%s"], root);
+  const result = run("git", ["log", "--all", `--format=${commitMetadataFormat}%x00`], root);
   if (result.status !== 0) {
     return {
       findings: [{ severity: "review", rule: "history-unavailable", path: "git-history", line: 1, evidence: "No Git history found" }],
       scannedCommits: 0,
     };
   }
-  const lines = result.stdout.trim() ? result.stdout.trim().split("\n") : [];
-  return { findings: scanText(result.stdout, "git-history", "history"), scannedCommits: lines.length };
+  const entries = result.stdout.split("\0").filter((entry) => entry.trim());
+  return { findings: scanText(result.stdout, "git-history", "history"), scannedCommits: entries.length };
 }
 
 function scanRange(root, revisionRange, scanText) {
@@ -241,11 +253,11 @@ function scanRange(root, revisionRange, scanText) {
   let scannedFiles = 0;
 
   for (const commit of commits) {
-    const metadata = run("git", ["show", "-s", "--format=%H%x09%an%x09%ae%x09%s", commit], root);
+    const metadata = run("git", ["show", "-s", `--format=${commitMetadataFormat}`, commit], root);
     if (metadata.status === 0) findings.push(...scanText(metadata.stdout, `git-history/${commit}`, "history"));
     else findings.push({ severity: "review", rule: "commit-metadata-unavailable", path: `git-history/${commit}`, line: 1, evidence: "Unable to read commit metadata" });
 
-    const pathsResult = run("git", ["diff-tree", "--root", "-m", "--no-commit-id", "--name-only", "--diff-filter=ACMR", "-r", "-z", commit], root);
+    const pathsResult = run("git", ["diff-tree", "--root", "-m", "--no-commit-id", "--name-only", "--diff-filter=ACMRT", "-r", "-z", commit], root);
     if (pathsResult.status !== 0) {
       findings.push({ severity: "review", rule: "commit-tree-unavailable", path: `git-history/${commit}`, line: 1, evidence: "Unable to read commit tree" });
       continue;
@@ -267,6 +279,20 @@ function scanRange(root, revisionRange, scanText) {
   return { findings, scannedFiles, scannedCommits: commits.length };
 }
 
+// An annotated tag carries its own tagger identity and message. Nothing reachable through a commit
+// range contains them, so the tag object has to be read directly.
+function scanTag(root, tagObject, scanText) {
+  const result = run("git", ["cat-file", "-p", tagObject], root, null);
+  if (result.status !== 0) {
+    return {
+      findings: [{ severity: "review", rule: "tag-unavailable", path: `git-tag/${tagObject}`, line: 1, evidence: "Unable to read tag object content" }],
+      scannedTags: 0,
+    };
+  }
+  const scanned = scanBuffer(result.stdout, `git-tag/${tagObject}`, "history", scanText);
+  return { findings: scanned.findings, scannedTags: scanned.scanned ? 1 : 0 };
+}
+
 function scanRemote(root, scanText) {
   const result = run("git", ["remote", "-v"], root);
   if (result.status !== 0 || !result.stdout.trim()) {
@@ -281,7 +307,7 @@ function scanRemote(root, scanText) {
 
 function printText(report) {
   console.log(`Publication readiness: ${report.blockers} blocker(s), ${report.reviewItems} review item(s)`);
-  console.log(`Scanned ${report.scannedFiles} file(s), ${report.scannedCommits} commit(s), ${report.scannedRemotes} remote entry(s)`);
+  console.log(`Scanned ${report.scannedFiles} file(s), ${report.scannedCommits} commit(s), ${report.scannedTags} tag object(s), ${report.scannedRemotes} remote entry(s)`);
   for (const finding of report.findings) {
     console.log(`${finding.severity.toUpperCase()} ${finding.rule} ${finding.path}:${finding.line} ${finding.evidence}`);
   }
@@ -293,6 +319,7 @@ const scanText = createScanner(policy);
 const findings = [];
 let scannedFiles = 0;
 let scannedCommits = 0;
+let scannedTags = 0;
 let scannedRemotes = 0;
 
 if (options.scope === "tree" || options.scope === "all") {
@@ -311,6 +338,11 @@ if (options.scope === "range") {
   scannedFiles += range.scannedFiles;
   scannedCommits += range.scannedCommits;
 }
+if (options.scope === "tag") {
+  const tag = scanTag(options.root, options.tag, scanText);
+  findings.push(...tag.findings);
+  scannedTags += tag.scannedTags;
+}
 if (options.scope === "remote" || options.scope === "all") {
   const remote = scanRemote(options.root, scanText);
   findings.push(...remote.findings);
@@ -324,8 +356,10 @@ const report = {
   scope: options.scope,
   source: options.source,
   range: options.range,
+  tag: options.tag,
   scannedFiles,
   scannedCommits,
+  scannedTags,
   scannedRemotes,
   blockers: finalFindings.filter((finding) => finding.severity === "blocker").length,
   reviewItems: finalFindings.filter((finding) => finding.severity === "review").length,

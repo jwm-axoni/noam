@@ -73,6 +73,7 @@ if (!validationRemote && !(policy.allowedPushRepositories ?? []).includes(normal
 const input = readFileSync(0, "utf8").trim();
 const updates = input ? input.split("\n").map((line) => line.trim().split(/\s+/)) : [];
 const ranges = new Set();
+const tagObjects = new Set();
 
 for (const fields of updates) {
   if (fields.length !== 4) {
@@ -89,10 +90,32 @@ for (const fields of updates) {
     fail("outgoing history does not descend solely from the approved clean root commit.");
     continue;
   }
+  // Git hands the hook the tag object itself for an annotated tag. Turning that straight into a
+  // revision range makes rev-list dereference it to commits, so the tagger identity and the
+  // annotation text are never scanned; the tag object has to be checked on its own as well.
+  const objectType = run("git", ["cat-file", "-t", localObject], options.root);
+  if (objectType.status !== 0) {
+    fail(`unable to determine the type of pushed object ${localObject}.`);
+    continue;
+  }
+  if (objectType.stdout.trim() === "tag") tagObjects.add(localObject);
+
   ranges.add(remoteObject === zeroObject ? localObject : `${remoteObject}..${localObject}`);
 }
 
 if (process.exitCode) process.exit();
+
+for (const tagObject of tagObjects) {
+  const publication = run(process.execPath, [
+    resolve(scriptDirectory, "check-publication.mjs"),
+    "--root", options.root,
+    "--policy", policyPath,
+    "--scope", "tag",
+    "--tag", tagObject,
+    "--fail-on-review",
+  ], options.root);
+  requireSuccess(publication, "publication tag scan");
+}
 
 for (const revisionRange of ranges) {
   const publication = run(process.execPath, [
