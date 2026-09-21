@@ -23,7 +23,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 
 ![Noam desktop showing the starter Markdown vault, live editor, file tree, outline, and note graph](docs/assets/noam-app-workspace.png)
 
-The desktop app keeps the file tree, Markdown editor, links, outline, and graph in one workspace. This screenshot uses Noam's starter vault and contains no private user notes.
+The desktop app keeps the file tree, Markdown editor, links, outline, and graph in one workspace.
 
 ## The problem Noam solves
 
@@ -36,7 +36,7 @@ Noam keeps both models:
 - **A Rust bridge keeps them equal.** File changes become Yjs operations; Yjs changes are written back atomically.
 - **Permissions apply before data moves.** Human sync and MCP access use the same folder and file rules.
 
-The result is a workspace a person, teammate, or AI can edit through the interface best suited to them, without creating separate copies of the note.
+The result is a workspace that a person, teammate, or AI can edit through the interface best suited to them, without creating separate copies of the note.
 
 ![Diagram showing a person, teammate, and local AI converging through Noam on one portable Markdown file](docs/assets/noam-convergence.png)
 
@@ -69,7 +69,7 @@ The bridge does the hard part:
 
 1. A person, Git operation, text editor, or local AI changes a `.md` file.
 2. The Rust watcher computes the change and applies it to a Yjs `Y.Text` document.
-3. CodeMirror and authorized peers edit that same Yjs document.
+3. CodeMirror and authorized peers edit the same Yjs document.
 4. Remote operations are serialized back to the local file with echo-loop suppression and atomic writes.
 5. SQLite indexes search, links, and tags from the files. It is derived data and can be rebuilt.
 
