@@ -62,7 +62,7 @@ The same access resolver protects live sync and remote MCP calls. Vault posture,
 
 ## Architecture
 
-![Hand-drawn architecture diagram: local Markdown files and a Rust bridge keep a Y.Text CRDT in sync with the editor, local AI, and a derived index, while an optional sync server relays only binary updates to a teammate device that re-derives its own files](docs/assets/noam-architecture-chalk.png)
+![Noam architecture diagram: local Markdown files and a Rust bridge keep a Y.Text CRDT in sync with the editor, local AI, and a derived index, while an optional sync server relays only binary updates to a teammate device that re-derives its own files](docs/assets/noam-bridge.png)
 
 The bridge does the hard part:
 
@@ -105,7 +105,7 @@ Beyond the core editor and sync, Noam adds a layer of automation and structured 
 
 Noam is local-first in the strict sense. Notes are plain files on your disk, and the app does its work — editing, search, indexing, the graph, tasks, and local AI access — entirely on your machine.
 
-![Hand-drawn trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI and works offline; the only line crossing the boundary is an opt-in sync of binary CRDT updates over TLS to a server you choose](docs/assets/noam-trust-boundary-chalk.png)
+![Noam trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI and works offline; the only line crossing the boundary is an opt-in sync of binary CRDT updates over TLS to a server you choose](docs/assets/noam-trust-boundary.png)
 
 - **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
 - **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
