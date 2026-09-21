@@ -309,7 +309,7 @@ function pageShell(title: string, inner: string): string {
 <body>
 <main>
 ${inner}
-<footer>Shared via ${esc(BRAND_NAME)} · <a href="https://noam.io" rel="noopener noreferrer">Get ${esc(BRAND_NAME)}</a></footer>
+<footer>Shared via ${esc(BRAND_NAME)} · <a href="https://noamapp.io" rel="noopener noreferrer">Get ${esc(BRAND_NAME)}</a></footer>
 </main>
 </body>
 </html>`;

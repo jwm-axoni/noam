@@ -196,6 +196,11 @@ function GeneralTab({
   // The sidebar paints before the session restore finishes, so this page can be
   // open while we still don't know whether anyone is signed in.
   const authPending = authStatus === "unknown";
+  // Billing is off by default on self-host (no POLAR_ACCESS_TOKEN ⇒
+  // GET /api/billing/config returns { enabled: false }), so the upgrade nudge
+  // below — the only paywall UI this tab can show — stays hidden unless a
+  // self-hoster deliberately turns billing on.
+  const billingEnabled = useStore((s) => s.billingConfig?.enabled === true);
 
   const [name, setName] = useState(vault?.name ?? "");
   const [busy, setBusy] = useState(false);
@@ -303,7 +308,7 @@ function GeneralTab({
               <div className="muted">You'll need to sign in first — this button will prompt you.</div>
             )}
             {error && <div className="auth-error">{error}</div>}
-            {limitNudge && (
+            {billingEnabled && limitNudge && (
               <LimitNudge
                 kind={limitNudge.kind}
                 limit={limitNudge.limit}
@@ -328,7 +333,7 @@ function GeneralTab({
         </code>
       </div>
 
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
+      {billingEnabled && upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
     </div>
   );
 }
@@ -916,7 +921,7 @@ function VaultsTab() {
       </div>
       {joinError && <div className="auth-error">{joinError}</div>}
       {actionError && <div className="auth-error">{actionError}</div>}
-      {limitNudge && (
+      {billingEnabled && limitNudge && (
         <LimitNudge
           kind={limitNudge.kind}
           limit={limitNudge.limit}
@@ -1034,7 +1039,7 @@ function VaultsTab() {
         </>
       )}
 
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
+      {billingEnabled && upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
 
       {confirmLeave && (
         <ConfirmDialog
@@ -1102,6 +1107,9 @@ function MembersTab({ canManage }: { canManage: boolean }) {
   // Invite links are built against the server this vault lives on, not a
   // constant: a self-hosted vault's invitation only resolves on its own server.
   const serverUrl = useStore((s) => s.serverUrl);
+  // Billing is off by default on self-host — see GeneralTab's billingEnabled
+  // for why the upgrade nudge below only shows when a self-hoster opts in.
+  const billingEnabled = useStore((s) => s.billingConfig?.enabled === true);
 
   const [inviteEmail, setInviteEmail] = useState("");
   const [inviteRole, setInviteRole] = useState<"member" | "admin">("member");
@@ -1315,7 +1323,7 @@ function MembersTab({ canManage }: { canManage: boolean }) {
           )}
         </div>
       )}
-      {limitNudge && (
+      {billingEnabled && limitNudge && (
         <LimitNudge
           kind={limitNudge.kind}
           limit={limitNudge.limit}
@@ -1434,7 +1442,7 @@ function MembersTab({ canManage }: { canManage: boolean }) {
         </>
       )}
 
-      {upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
+      {billingEnabled && upgradeOpen && <UpgradeDialog onClose={() => setUpgradeOpen(false)} />}
     </div>
   );
 }

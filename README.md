@@ -11,7 +11,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 ![Files: local Markdown](https://img.shields.io/badge/files-local_Markdown-2b2724)
 ![Collaboration: live editing](https://img.shields.io/badge/collaboration-live_editing-7f73ff)
 ![AI: edits the same notes](https://img.shields.io/badge/AI-edits_the_same_notes-2b2724)
-![Hosting: your server or ours](https://img.shields.io/badge/hosting-your_server_or_ours-7f73ff)
+![Hosting: self-hosted, free and unlimited](https://img.shields.io/badge/hosting-self--hosted_free-7f73ff)
 ![Privacy: no telemetry, offline by default](https://img.shields.io/badge/privacy-no_telemetry-2b2724)
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-7f73ff)
 
@@ -23,7 +23,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 
 ![Noam desktop showing the starter Markdown vault, live editor, file tree, outline, and note graph](docs/assets/noam-app-workspace.png)
 
-The desktop app keeps the file tree, Markdown editor, links, outline, and graph in one workspace. This screenshot uses Noam's starter vault and contains no private user notes.
+The desktop app keeps the file tree, Markdown editor, links, outline, and graph in one workspace.
 
 ## The problem Noam solves
 
@@ -36,7 +36,7 @@ Noam keeps both models:
 - **A Rust bridge keeps them equal.** File changes become Yjs operations; Yjs changes are written back atomically.
 - **Permissions apply before data moves.** Human sync and MCP access use the same folder and file rules.
 
-The result is a workspace a person, teammate, or AI can edit through the interface best suited to them, without creating separate copies of the note.
+The result is a workspace that a person, teammate, or AI can edit through the interface best suited to them, without creating separate copies of the note.
 
 ![Diagram showing a person, teammate, and local AI converging through Noam on one portable Markdown file](docs/assets/noam-convergence.png)
 
@@ -69,7 +69,7 @@ The bridge does the hard part:
 
 1. A person, Git operation, text editor, or local AI changes a `.md` file.
 2. The Rust watcher computes the change and applies it to a Yjs `Y.Text` document.
-3. CodeMirror and authorized peers edit that same Yjs document.
+3. CodeMirror and authorized peers edit the same Yjs document.
 4. Remote operations are serialized back to the local file with echo-loop suppression and atomic writes.
 5. SQLite indexes search, links, and tags from the files. It is derived data and can be rebuilt.
 
@@ -110,7 +110,7 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 
 - **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
 - **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
-- **You choose the server, or run your own.** Sync defaults to the optional managed instance, but Settings → Connection can point at your own server, and the whole stack (Node and Postgres) self-hosts with the included Docker setup. There is no separate cloud edition; the managed service runs this same open server code.
+- **You run your own server.** Noam is free and self-hosted only — there is no managed instance to opt into. Settings → Connection points at the server you deploy, and the whole stack (Node and Postgres) self-hosts with the included Docker setup, free and unlimited.
 - **Your Markdown never travels as files.** When you do sync, only opaque binary CRDT updates cross the wire over TLS, and each device re-derives its own `.md` files and index. Sync is not yet end-to-end encrypted, so a server you trust can reconstruct content; at-rest encryption is planned, and self-hosting closes the gap today.
 - **AI access is opt-in and governed.** A local agent reaches only the notes you point it at on disk. A remote agent needs an MCP token you mint, scoped to one vault and constrained by the same per-file permissions as people. Reads return a revision, so a stale write fails instead of overwriting newer work.
 - **Rendering is sandboxed.** Live preview and inline HTML strip scripts, styles, iframes, and event handlers, so a note cannot run code.

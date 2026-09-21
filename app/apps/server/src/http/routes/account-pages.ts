@@ -9,8 +9,8 @@ import { invitationState, loadInvitation } from "../../registry/invitations.js";
 
 /**
  * Account pages served by this (headless) server (issue #99) — the human side
- * of the email flows, on the same branded chrome as the MCP OAuth screens so
- * they work on api.noam.io and on any self-host with no web frontend:
+ * of the email flows, on the same branded chrome as the MCP OAuth screens —
+ * the server's own pages, works headless on any self-hosted instance:
  *
  *   GET /forgot-password         ask for the reset email (linked from /oauth/login)
  *   GET /reset-password?token=…  choose a new password (the emailed link), then
@@ -241,7 +241,7 @@ accountPageRoutes.get("/invite/:id", async (c) => {
     <p class="sub" style="margin-top:18px">Sign in with <b>${esc(
       inv.email,
     )}</b> — or create an account with that address — and you'll land in the vault.</p>
-    <p class="foot">Don't have ${esc(BRAND_NAME)} yet? <a href="https://noam.io" rel="noopener">Get it</a>, then open this link again.</p>
+    <p class="foot">Don't have ${esc(BRAND_NAME)} yet? <a href="https://noamapp.io" rel="noopener">Get it</a>, then open this link again.</p>
     <script>location.href = ${JSON.stringify(deepLink)};</script>`;
   return c.html(page({ title: `Join ${inv.organizationName}`, body }));
 });

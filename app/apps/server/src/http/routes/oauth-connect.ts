@@ -18,9 +18,9 @@ import { esc, page } from "../pages.js";
  *   POST /oauth/consent  → records the vault binding, completes consent,
  *                          bounces back to the client's redirect_uri.
  *
- * Served by this (headless) server itself so the flow works on api.noam.io
- * and any self-hoster with no separate web frontend. Page chrome + branding come
- * from ../pages.ts (shared with the account pages).
+ * Served by this (headless) server itself so the flow works headless on any
+ * self-hosted instance, with no separate web frontend. Page chrome + branding
+ * come from ../pages.ts (shared with the account pages).
  */
 
 const AUTHORIZE_PATH = "/api/auth/mcp/authorize";

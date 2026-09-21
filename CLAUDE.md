@@ -17,17 +17,16 @@ Three pieces; this repository holds the first two.
   automation and auto-update are disabled until the clean repository, new updater key,
   and neutral release URL are ready. macOS releases use Developer ID signing and Apple
   notarization. See `docs/RELEASE.md`.
-- **Backend server** (`app/apps/server`) — self-hostable Node + Postgres source.
-  The managed option runs this **same server code**, publicly reachable at
-  `https://api.noam.io`; users choose an instance via the server URL in Settings. There is
-  no separate "managed edition" of the server. Self-host/deploy guide: `docs/DEPLOY.md`.
-- **Website + managed service** — lives outside this public repo. The README links
-  [noam.io](https://noam.io) as the managed option, and that is the only mention this
-  repo gets.
+- **Backend server** (`app/apps/server`) — self-hostable Node + Postgres source. There is no
+  managed instance operated by this project; every user deploys their own server to their own
+  cloud environment and enters that server's URL in Settings. Self-host/deploy guide:
+  `docs/DEPLOY.md`.
+- **Website** — lives outside this public repo, at [noamapp.io](https://noamapp.io); that is
+  the only mention this repo gets.
 
-**Boundary rule:** this repository is intended for publication. Never commit anything about how *our* managed instance
-is operated — hosting/provider, deploy config for our instance, domains/DNS, dashboards,
-billing, or secrets. Managed-service work happens in private repositories.
+**Boundary rule:** this repository is intended for publication. Never commit anything about private
+infrastructure — hosting/provider accounts, deploy config for anyone's specific instance, domains/DNS,
+dashboards, billing, or secrets.
 
 ## The one idea to hold in your head
 
