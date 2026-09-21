@@ -33,7 +33,10 @@ Key invariants you must not break (details in `CLAUDE.md`):
 
 ## Development setup
 
-Prerequisites: Node ≥ 22, Rust/Cargo, Docker. From `app/`, run `pnpm install` once.
+Prerequisites: Node ≥ 22, Rust/Cargo, Docker, and
+[gitleaks](https://github.com/gitleaks/gitleaks#installing) on your `PATH`
+(for example, `brew install gitleaks` on macOS). From `app/`, run
+`pnpm install` once.
 
 **Server** (from `app/apps/server/`):
 
@@ -57,11 +60,39 @@ Run the relevant suites before opening a PR:
   `concurrent`, `rewrite`, `roundtrip`) gate correctness of the whole product.
 - Desktop Rust: `cargo test` in `src-tauri/`.
 
+## Repository publication guards
+
+Run `pnpm run setup:guards` from `app/` after cloning. `pnpm install` also runs
+this setup automatically. The local hooks then check the exact staged snapshot
+before every commit and the complete outgoing commit range before every push.
+Setup copies the hooks from `.githooks/` into the Git directory, so they keep
+running on a checkout that lacks that folder; rerun it after changing a hook.
+
+The push guard only permits this repository's approved GitHub destination and
+requires every outgoing branch to descend from the clean public root commit and
+from no other root, so a merge that grafts in unrelated old history is refused.
+It also runs both the publication policy and gitleaks over history, so adding a
+private value and deleting it in a later commit still blocks the push. The
+commit and push hooks refuse to run without gitleaks installed.
+
+The one other push target the guard accepts is the local no-mistakes validation
+gate: a remote named `no-mistakes` whose URL is an absolute path of the form
+`…/.no-mistakes/repos/<12 hex>.git`. It is a bare repository on your own disk
+that the required validation pipeline pushes through, not a publication
+destination. The remote name alone grants nothing: any other URL under that
+name is rejected, and pushes to the gate still pass the lineage, history and
+gitleaks checks.
+
+Git hooks can be skipped locally, so GitHub repeats the full checks in the
+required `publication-readiness` workflow. Do not merge while that check is
+missing or failing.
+
 ## Pull request checklist
 
 - [ ] Discussed non-trivial changes in an issue first.
 - [ ] Tests pass locally; new behavior has tests.
 - [ ] No secrets, credentials, or `.env` files committed.
+- [ ] The `publication-readiness` check passes.
 - [ ] Followed the existing code style of the files you touched.
 
 ## Reporting security issues
