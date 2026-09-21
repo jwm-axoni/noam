@@ -1,0 +1,233 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Noam trust boundary — chalkboard</title>
+<style>
+:root{
+  --board:#232323;
+  --ink:#F4F4F1;
+  --ink72:rgba(244,244,241,.72);
+  --ink56:rgba(244,244,241,.56);
+  --ink42:rgba(244,244,241,.42);
+  --hair:rgba(244,244,241,.13);
+  --stroke:rgba(244,244,241,.78);
+  --orange:#FF824D; --blue:#7FD1FE; --yellow:#F7DF91; --pink:#FFD2E1; --purple:#CBB6EA;
+  --sans:ui-sans-serif,system-ui,-apple-system,"Segoe UI",Helvetica,Arial,sans-serif;
+  --hand:"Caveat","Bradley Hand","Segoe Print",cursive;
+}
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{background:var(--board);}
+.board{position:relative;width:1600px;height:760px;background:var(--board);overflow:hidden;
+  font-family:var(--sans);color:var(--ink);-webkit-font-smoothing:antialiased;}
+
+header{position:absolute;left:56px;top:40px;width:1200px;z-index:5;}
+.eyebrow{font-size:12px;font-weight:700;letter-spacing:.17em;text-transform:uppercase;color:var(--ink42);}
+h1{font-size:33px;font-weight:680;letter-spacing:-.03em;margin-top:9px;color:var(--ink);}
+.thesis{margin-top:9px;font-size:15px;line-height:1.45;color:var(--ink72);max-width:900px;}
+
+.boundary{position:absolute;left:64px;top:210px;width:940px;height:470px;z-index:1;
+  background:rgba(127,209,254,.03);}
+.devtag{position:absolute;left:96px;top:230px;z-index:3;font-family:var(--hand);font-size:30px;color:var(--blue);}
+
+.rbox{position:absolute;z-index:2;display:flex;flex-direction:column;justify-content:center;align-items:center;
+  text-align:center;padding:14px 18px;background:rgba(14,14,14,.34);}
+.rbox .label{font-size:17px;font-weight:600;letter-spacing:-.01em;color:var(--ink);}
+.rbox .label.mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;font-size:19px;}
+.rbox .sub{margin-top:5px;font-size:12px;line-height:1.35;color:var(--ink56);}
+.rbox .tag{font-size:10px;font-weight:700;letter-spacing:.14em;text-transform:uppercase;margin-bottom:7px;color:var(--purple);}
+
+.mdfiles{left:100px;top:320px;width:272px;height:118px;}
+.editor{left:396px;top:320px;width:272px;height:118px;}
+.search{left:692px;top:320px;width:272px;height:118px;}
+.graph{left:100px;top:500px;width:272px;height:118px;}
+.tasks{left:396px;top:500px;width:272px;height:118px;}
+.localai{left:692px;top:500px;width:272px;height:118px;}
+.server{left:1180px;top:372px;width:320px;height:132px;}
+
+.hand{position:absolute;z-index:5;font-family:var(--hand);color:var(--ink72);line-height:1.1;}
+.inside-note{left:280px;top:636px;width:520px;text-align:center;font-size:27px;color:var(--ink72);}
+.caption{left:1074px;top:548px;width:474px;text-align:center;font-size:28px;color:var(--ink);}
+.flab{position:absolute;z-index:5;font-size:11.5px;font-weight:600;letter-spacing:.02em;color:var(--blue);
+  background:var(--board);padding:2px 7px;text-align:center;line-height:1.25;}
+
+.ink{position:absolute;inset:0;width:1600px;height:760px;pointer-events:none;z-index:4;}
+#ink-g path{fill:none;stroke:var(--stroke);stroke-width:1.4;stroke-linecap:round;stroke-linejoin:round;}
+
+.grain{position:absolute;inset:0;z-index:6;pointer-events:none;mix-blend-mode:screen;opacity:.5;
+  background-size:130px 130px;
+  background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='130' height='130'%3E%3Cfilter id='g'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.82' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3CfeComponentTransfer%3E%3CfeFuncR type='gamma' exponent='9' amplitude='0.22' offset='0'/%3E%3CfeFuncG type='gamma' exponent='9' amplitude='0.22' offset='0'/%3E%3CfeFuncB type='gamma' exponent='9' amplitude='0.22' offset='0'/%3E%3CfeFuncA type='discrete' tableValues='1'/%3E%3C/feComponentTransfer%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23g)'/%3E%3C/svg%3E");}
+</style>
+</head>
+<body>
+<div class="board" id="board">
+  <header>
+    <p class="eyebrow">Noam · trust boundary</p>
+    <h1>Local-first: no default external reach</h1>
+    <p class="thesis">Every feature runs on your machine against plain files. Nothing is sent anywhere by default — sync is a single opt-in channel that carries only opaque binary CRDT updates.</p>
+  </header>
+
+  <div class="boundary" id="boundary"></div>
+  <div class="devtag">Your device</div>
+
+  <div class="rbox mdfiles" id="mdfiles" data-accent="ink"><div class="label mono">.md files</div></div>
+  <div class="rbox editor" id="editor" data-accent="ink"><div class="label">editor</div></div>
+  <div class="rbox search" id="search" data-accent="ink"><div class="label">search + index</div></div>
+  <div class="rbox graph" id="graph" data-accent="ink"><div class="label">graph</div></div>
+  <div class="rbox tasks" id="tasks" data-accent="ink"><div class="label">tasks</div></div>
+  <div class="rbox localai" id="localai" data-accent="ink"><div class="label">local AI</div></div>
+
+  <div class="rbox server" id="server" data-accent="purple">
+    <div class="tag">optional</div>
+    <div class="label">A sync server you choose</div>
+  </div>
+
+  <div class="flab" style="left:1006px;top:404px;width:196px;">opt-in sync · binary CRDT over TLS</div>
+  <div class="hand inside-note">everything works here, offline</div>
+  <div class="hand caption">No telemetry. Nothing leaves until you sign in.</div>
+
+  <svg class="ink" viewBox="0 0 1600 760" aria-hidden="true">
+    <defs>
+      <filter id="chalk" x="-20%" y="-20%" width="140%" height="140%">
+        <feTurbulence type="fractalNoise" baseFrequency="0.9" numOctaves="2" seed="11" stitchTiles="stitch" result="grain"/>
+        <feColorMatrix in="grain" type="matrix"
+          values="0 0 0 0 0  0 0 0 0 0  0 0 0 0 0  0 0 0 0.72 0.42" result="ga"/>
+        <feComposite in="SourceGraphic" in2="ga" operator="in"/>
+      </filter>
+    </defs>
+    <g id="ink-g" filter="url(#chalk)"></g>
+  </svg>
+
+  <div class="grain" aria-hidden="true"></div>
+</div>
+
+<script>
+/* Self-contained seeded double-stroke chalk engine. No network, no Math.random,
+   no time — jitter is seeded from a stable per-element key so re-renders are
+   byte-identical. Each stroke is drawn twice: one near-crisp pass + one wobbly. */
+(function(){
+  "use strict";
+  var NS='http://www.w3.org/2000/svg';
+  var AC={orange:'#FF824D',blue:'#7FD1FE',yellow:'#F7DF91',pink:'#FFD2E1',purple:'#CBB6EA',ink:'rgba(244,244,241,.78)'};
+
+  function fnv(str){var h=2166136261>>>0;for(var i=0;i<str.length;i++){h^=str.charCodeAt(i);h=Math.imul(h,16777619)>>>0;}return h>>>0;}
+  function mulberry32(a){return function(){a=(a+0x6D2B79F5)>>>0;var t=Math.imul(a^(a>>>15),1|a);t=(t+Math.imul(t^(t>>>7),61|t))^t;return((t^(t>>>14))>>>0)/4294967296;};}
+  function seeded(s){return mulberry32(fnv(String(s)));}
+  function n2(v){return Math.round(v*100)/100;}
+
+  function bez(p){
+    if(p.length<2)return '';
+    var d='M'+n2(p[0][0])+' '+n2(p[0][1]);
+    if(p.length===2){var a=p[0],b=p[1];return d+' C'+n2(a[0]+(b[0]-a[0])/3)+' '+n2(a[1]+(b[1]-a[1])/3)+', '+n2(a[0]+2*(b[0]-a[0])/3)+' '+n2(a[1]+2*(b[1]-a[1])/3)+', '+n2(b[0])+' '+n2(b[1]);}
+    for(var i=0;i<p.length-1;i++){var p0=p[i-1]||p[i],p1=p[i],p2=p[i+1],p3=p[i+2]||p[i+1];
+      d+=' C'+n2(p1[0]+(p2[0]-p0[0])/6)+' '+n2(p1[1]+(p2[1]-p0[1])/6)+', '+n2(p2[0]-(p3[0]-p1[0])/6)+' '+n2(p2[1]-(p3[1]-p1[1])/6)+', '+n2(p2[0])+' '+n2(p2[1]);}
+    return d;
+  }
+
+  function roughLine(x1,y1,x2,y2,seed,amp){
+    var base=amp||1.6,r=seeded(seed+'|ln');
+    var dx=x2-x1,dy=y2-y1,L=Math.hypot(dx,dy)||1,nx=-dy/L,ny=dx/L,d='';
+    var amps=[base*0.28,base*1.15];
+    for(var pass=0;pass<2;pass++){
+      var a=amps[pass],j=function(){return (r()*2-1)*a;};
+      var sx=x1+j()*.5,sy=y1+j()*.5,ex=x2+j()*.5,ey=y2+j()*.5,o1=j(),o2=j();
+      d+='M'+n2(sx)+' '+n2(sy)+' C'+n2(x1+dx*.33+nx*o1)+' '+n2(y1+dy*.33+ny*o1)+', '+n2(x1+dx*.66+nx*o2)+' '+n2(y1+dy*.66+ny*o2)+', '+n2(ex)+' '+n2(ey)+' ';
+    }
+    return d.trim();
+  }
+
+  function roughPoly(pts,seed,amp){
+    var base=amp||1.7,r=seeded(seed+'|py'),d='';
+    for(var pass=0;pass<2;pass++){
+      var a=base*(pass?1.1:0.32);
+      var j=pts.map(function(p,i){var k=(i===0||i===pts.length-1)?.6:1;return[p[0]+(r()*2-1)*a*k,p[1]+(r()*2-1)*a*k];});
+      d+=(pass?' ':'')+bez(j);
+    }
+    return d;
+  }
+
+  function roughRect(x,y,w,h,seed,amp){
+    var cap=Math.max(2,Math.min(6,Math.min(w,h)*.22));
+    var r=seeded(seed+'|rc'),o=function(){return Math.min(2.5+r()*3.5,cap);},a=amp||1.4;
+    var t=o(),rt=o(),b=o(),l=o();
+    return [
+      roughLine(x-t,y,x+w+t,y,seed+'|t',a),
+      roughLine(x+w,y-rt,x+w,y+h+rt,seed+'|r',a),
+      roughLine(x+w+b,y+h,x-b,y+h,seed+'|b',a),
+      roughLine(x,y+h+l,x,y-l,seed+'|l',a)
+    ].join(' ');
+  }
+
+  /* Rounded-rect perimeter as sampled points (clockwise from the top edge). */
+  function roundRectPts(x,y,w,h,r){
+    var pts=[],seg=7;
+    function arc(cx,cy,a0,a1){for(var i=0;i<=seg;i++){var a=a0+(a1-a0)*i/seg;pts.push([cx+Math.cos(a)*r,cy+Math.sin(a)*r]);}}
+    pts.push([x+r,y]);pts.push([x+w-r,y]);
+    arc(x+w-r,y+r,-Math.PI/2,0);
+    pts.push([x+w,y+h-r]);
+    arc(x+w-r,y+h-r,0,Math.PI/2);
+    pts.push([x+r,y+h]);
+    arc(x+r,y+h-r,Math.PI/2,Math.PI);
+    pts.push([x,y+r]);
+    arc(x+r,y+r,Math.PI,Math.PI*1.5);
+    pts.push([x+r,y]);
+    return pts;
+  }
+
+  /* Walk a polyline emitting dashes; each dash is a double-stroke roughLine. */
+  function dashedAlong(pts,seed,dash,gap,amp){
+    var d='',rem=dash,on=true,k=0;
+    for(var i=0;i<pts.length-1;i++){
+      var ax=pts[i][0],ay=pts[i][1],bx=pts[i+1][0],by=pts[i+1][1];
+      var segLen=Math.hypot(bx-ax,by-ay);if(!segLen)continue;
+      var ux=(bx-ax)/segLen,uy=(by-ay)/segLen,t0=0;
+      while(t0<segLen-0.001){
+        var step=Math.min(rem,segLen-t0);
+        if(on)d+=' '+roughLine(ax+ux*t0,ay+uy*t0,ax+ux*(t0+step),ay+uy*(t0+step),seed+'|d'+(k++),amp||0.9);
+        t0+=step;rem-=step;
+        if(rem<=0.001){on=!on;rem=on?dash:gap;}
+      }
+    }
+    return d.trim();
+  }
+
+  var board=document.getElementById('board'),g=document.getElementById('ink-g');
+  function rectIn(el){var a=el.getBoundingClientRect(),b=board.getBoundingClientRect();
+    return{x:a.left-b.left,y:a.top-b.top,w:a.width,h:a.height,cx:a.left-b.left+a.width/2,cy:a.top-b.top+a.height/2};}
+  function addPath(d,color,opacity,width){var p=document.createElementNS(NS,'path');p.setAttribute('d',d);
+    if(color)p.style.stroke=color;if(opacity!=null)p.style.opacity=opacity;if(width)p.style.strokeWidth=width;g.appendChild(p);return p;}
+  function headAt(tip,ctrl,seed){var ang=Math.atan2(tip[1]-ctrl[1],tip[0]-ctrl[0]),H=14;
+    return roughPoly([[tip[0]-Math.cos(ang-0.42)*H,tip[1]-Math.sin(ang-0.42)*H],tip],seed+'a',1)+' '+roughPoly([[tip[0]-Math.cos(ang+0.42)*H,tip[1]-Math.sin(ang+0.42)*H],tip],seed+'b',1);}
+
+  function drawBoxes(){
+    document.querySelectorAll('.rbox').forEach(function(el){
+      var R=rectIn(el),col=AC[el.dataset.accent]||AC.ink,emph=el.hasAttribute('data-emph');
+      addPath(roughRect(R.x-2,R.y-2,R.w+4,R.h+4,el.id,emph?1.7:1.35),col,null,emph?2.0:1.5);
+    });
+  }
+
+  function render(){
+    g.innerHTML='';
+    drawBoxes();
+
+    /* The trust boundary: a dashed rounded rectangle. */
+    var B=rectIn(document.getElementById('boundary'));
+    addPath(dashedAlong(roundRectPts(B.x,B.y,B.w,B.h,26),'device-boundary',17,12,1.15),AC.blue,0.82,1.7);
+
+    /* The ONLY line crossing the boundary — faint inside, solid once it crosses. */
+    var yc=438, edge=B.x+B.w;               /* boundary right edge */
+    var srvL=1180;                          /* server left edge */
+    addPath(roughLine(edge-190,yc,edge,yc,'cross-in',1.3),AC.blue,0.30,1.7);   /* faint, inside */
+    addPath(roughLine(edge,yc,srvL-8,yc,'cross-out',1.7),AC.blue,0.95,2.0);    /* solid, outside */
+    addPath(headAt([srvL-8,yc],[edge,yc],'cross-head'),AC.blue,0.95,2.0);
+    /* a small tick marking where it pierces the boundary */
+    addPath(roughLine(edge,yc-9,edge,yc+9,'cross-tick',1.1),AC.blue,0.6,1.5);
+
+    document.documentElement.setAttribute('data-ready','1');
+  }
+  if(document.readyState==='complete')render();
+  else window.addEventListener('load',render);
+})();
+</script>
+</body>
+</html>
