@@ -15,7 +15,7 @@ Noam keeps every note as a real `.md` file on your computer, then adds live coll
 ![Privacy: no telemetry, offline by default](https://img.shields.io/badge/privacy-no_telemetry-2b2724)
 ![License: Apache 2.0](https://img.shields.io/badge/license-Apache_2.0-7f73ff)
 
-[Product overview](docs/Noam.md) · [Architecture specs](docs/specs/00-architecture-overview.md) · [Build status](docs/STATUS.md) · [Contributing](CONTRIBUTING.md)
+[Website](https://noamapp.io) · [Product overview](docs/Noam.md) · [Architecture specs](docs/specs/00-architecture-overview.md) · [Build status](docs/STATUS.md) · [Contributing](CONTRIBUTING.md)
 
 </div>
 
@@ -36,7 +36,7 @@ Noam keeps both models:
 - **A Rust bridge keeps them equal.** File changes become Yjs operations; Yjs changes are written back atomically.
 - **Permissions apply before data moves.** Human sync and MCP access use the same folder and file rules.
 
-The result is a workspace that a person, teammate, or AI can edit through the interface best suited to them, without creating separate copies of the note.
+The result: one note that a person, a teammate, or an AI can each edit their own way, with no duplicate copies.
 
 ![Diagram showing a person, teammate, and local AI converging through Noam on one portable Markdown file](docs/assets/noam-convergence.png)
 
@@ -96,7 +96,7 @@ Beyond the core editor and sync, Noam adds a layer of automation and structured 
 
 **Tasks.** Checkbox tasks use the familiar Obsidian Tasks markers: due `📅`, scheduled `⏳`, start `🛫`, done `✅`, a priority, and recurrence `🔁`. A Tasks panel lists them with a small query language and saved filters, and a task can be completed, rescheduled, or reprioritized from the keyboard. Completing a recurring task spawns its next occurrence with a stable identity, so two devices completing it at once converge instead of duplicating. A Rust index keeps the list fast in large vaults.
 
-**Calendar.** A month view marks the days that have notes and counts the tasks due on each. Opening a day creates or opens its daily note from your template; the weekly note works the same way. Its date tokens, including ISO week numbers, are shared with the workflow engine, so one date vocabulary drives both.
+**Calendar.** A month view marks the days that have notes and counts the tasks due on each. Opening a day creates or opens its daily note from your template; the weekly note works the same way. Its date tokens, including ISO week numbers, are shared with the workflow engine, so dates work the same way in both.
 
 **Kanban boards.** A note marked as a board renders as columns of cards that move between lanes by keyboard, with a one-click switch back to the raw Markdown. The format is compatible with Obsidian Kanban, and a move re-resolves its target against the live text, so a concurrent edit elsewhere never misplaces a card.
 
@@ -104,13 +104,13 @@ Beyond the core editor and sync, Noam adds a layer of automation and structured 
 
 ## Privacy and no default external reach
 
-Noam is local-first in the strict sense. Notes are plain files on your disk, and the app does its work — editing, search, indexing, the graph, tasks, and local AI access — entirely on your machine.
+Noam is local-first in the strict sense. Notes are plain files on your disk, and the app does its work (editing, search, indexing, the graph, tasks, and local AI access) entirely on your machine.
 
 ![Noam trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI and works offline; the only line crossing the boundary is an opt-in sync of binary CRDT updates over TLS to a server you choose](docs/assets/noam-trust-boundary.png)
 
 - **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
 - **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
-- **You run your own server.** Noam is free and self-hosted only — there is no managed instance to opt into. Settings → Connection points at the server you deploy, and the whole stack (Node and Postgres) self-hosts with the included Docker setup, free and unlimited.
+- **You run your own server.** Noam is free and self-hosted only: there is no managed instance to opt into. Settings → Connection points at the server you deploy, and the whole stack (Node and Postgres) self-hosts with the included Docker setup, free and unlimited.
 - **Your Markdown never travels as files.** When you do sync, only opaque binary CRDT updates cross the wire over TLS, and each device re-derives its own `.md` files and index. Sync is not yet end-to-end encrypted, so a server you trust can reconstruct content; at-rest encryption is planned, and self-hosting closes the gap today.
 - **AI access is opt-in and governed.** A local agent reaches only the notes you point it at on disk. A remote agent needs an MCP token you mint, scoped to one vault and constrained by the same per-file permissions as people. Reads return a revision, so a stale write fails instead of overwriting newer work.
 - **Rendering is sandboxed.** Live preview and inline HTML strip scripts, styles, iframes, and event handlers, so a note cannot run code.
@@ -120,10 +120,10 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 
 ### macOS (recommended)
 
-**[Download Noam 0.1.59 for macOS (.dmg)](https://github.com/jwm-axoni/noam/releases/download/v0.1.59/Noam_0.1.59_aarch64.dmg)** — open it and drag **Noam** to **Applications**. (Or grab any version from [Releases](https://github.com/jwm-axoni/noam/releases).) Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
+**[Download Noam 0.1.59 for macOS (.dmg)](https://github.com/jwm-axoni/noam/releases/download/v0.1.59/Noam_0.1.59_aarch64.dmg)**. Open it and drag **Noam** to **Applications**. (Or grab any version from [Releases](https://github.com/jwm-axoni/noam/releases).) Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
 
 - **Apple Silicon only.** Intel Macs are not supported yet.
-- Auto-update is not enabled yet — check the Releases page for new versions.
+- Auto-update is not enabled yet, so check the Releases page for new versions.
 
 ## Build from source
 
