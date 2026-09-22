@@ -128,6 +128,14 @@
   grid-column: 1 / -1;
   grid-row: 1 / -1;
 }
+.workspace-dock-right.has-stack {
+  display: flex;
+  flex-direction: column;
+  overflow-y: auto;
+}
+.workspace-dock-right.has-stack > .workspace-zone-separator {
+  flex: 0 0 var(--workspace-separator-size);
+}
 .workspace-dock-group.is-temporarily-hidden { display: none; }
 .workspace-dock-axis-x.has-split > .workspace-zone-separator { grid-column: 2; }
 .workspace-dock-axis-y.has-split > .workspace-zone-separator { grid-row: 2; }

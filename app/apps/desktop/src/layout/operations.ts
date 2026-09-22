@@ -3,6 +3,7 @@ import {
   PANEL_ALLOWED_ZONES,
   PANEL_MULTIPLICITY,
   createDefaultLayout,
+  canSplitZone,
   type LayoutGroup,
   type LayoutTab,
   type LayoutV1,
@@ -17,6 +18,7 @@ import {
   TOOL_GROUP_MIN,
   clampPreferredDockWidth,
   clampSplitRatio,
+  stackGroupSizes,
 } from "./geometry";
 
 export type LayoutOperation =
@@ -62,6 +64,7 @@ export type LayoutOperation =
   | { type: "set-zone-collapsed"; zone: "left" | "right"; collapsed: boolean }
   | { type: "resize-zone"; zone: "left" | "right"; width: number }
   | { type: "set-split-ratio"; zone: ZoneId; ratio: number; availableSize: number }
+  | { type: "resize-stack-pair"; zone: "right"; index: number; size: number; availableSize: number }
   | { type: "focus-group"; groupId: string }
   | { type: "cancel" }
   | { type: "reset"; legacyLeftWidth?: number };
@@ -72,7 +75,7 @@ function copyLayout(layout: LayoutV1): LayoutV1 {
     zones: {
       left: { ...layout.zones.left, groupIds: [...layout.zones.left.groupIds] },
       center: { ...layout.zones.center, groupIds: [...layout.zones.center.groupIds] },
-      right: { ...layout.zones.right, groupIds: [...layout.zones.right.groupIds] },
+      right: { ...layout.zones.right, groupIds: [...layout.zones.right.groupIds], groupSizes: layout.zones.right.groupSizes ? { ...layout.zones.right.groupSizes } : undefined },
     },
     groups: Object.fromEntries(
       Object.entries(layout.groups).map(([id, group]) => [
@@ -103,6 +106,8 @@ function removeEmptyGroup(layout: LayoutV1, group: LayoutGroup): void {
   layout.zones[zoneId].groupIds = layout.zones[zoneId].groupIds.filter(
     (id) => id !== group.id,
   );
+  delete layout.zones[zoneId].groupSizes?.[group.id];
+  if (layout.zones[zoneId].groupIds.length < 2) delete layout.zones[zoneId].groupSizes;
   delete layout.groups[group.id];
   if (zoneId !== "center" && layout.zones[zoneId].groupIds.length === 0) {
     layout.zones[zoneId].userCollapsed = true;
@@ -434,7 +439,7 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
       const from = next.groups[operation.fromGroupId];
       const tab = from?.tabs.find((candidate) => candidate.id === operation.tabId);
       if (!target || !from || !tab || !zone.groupIds.includes(target.id) ||
-          tab.kind !== "panel" || zone.groupIds.length >= 2 ||
+          tab.kind !== "panel" || !canSplitZone(operation.zone, zone, operation.axis) ||
           !canMoveTabToZone(next, tab, operation.zone)) break;
       // Moving a group's sole tab beside itself would manufacture an empty group.
       if (target === from && !from.permanent && from.tabs.length === 1) break;
@@ -447,12 +452,20 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
         operation.after === false ? targetMinimum : movingMinimum,
       );
       if (ratio == null) break;
+      const heights = operation.zone === "right" && operation.axis === "y"
+        ? Object.fromEntries(zone.groupIds.map((id, i) => [id, stackGroupSizes(zone, operation.availableSize)[i]!]))
+        : undefined;
       const detached = detachTab(next, from, tab.id);
       if (!detached) break;
       const newId = uniqueId(`group:${operation.zone}:split`, next.groups);
       next.groups[newId] = { id: newId, tabs: [detached], activeTabId: detached.id };
       const targetIndex = zone.groupIds.indexOf(target.id);
       zone.groupIds.splice(operation.after === false ? targetIndex : targetIndex + 1, 0, newId);
+      if (heights) {
+        heights[newId] = heights[target.id]! / 2;
+        heights[target.id] = heights[newId]!;
+        zone.groupSizes = heights;
+      }
       zone.axis = operation.axis;
       zone.ratio = ratio;
       zone.userCollapsed = false;
@@ -460,69 +473,28 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
       changed = true;
       break;
     }
-    case "split-group": {
-      const zone = next.zones[operation.zone];
-      const group = next.groups[operation.groupId];
-      const tab = group?.tabs.find((candidate) => candidate.id === operation.tabId);
-      const panel = tab?.kind === "panel" ? next.panels[tab.panelId] : null;
-      const secondMinimum = tab ? tabMinimum(next, tab, operation.axis) : TOOL_GROUP_MIN;
-      const remaining = group?.tabs.filter((candidate) => candidate.id !== operation.tabId) ?? [];
-      const firstMinimum = operation.axis === "y"
-        ? GROUP_HEIGHT_MIN
-        : group?.permanent
-          ? CENTER_NOTE_MIN
-          : Math.max(TOOL_GROUP_MIN, ...remaining.map((candidate) => tabMinimum(next, candidate, operation.axis)));
-      const ratio = clampSplitRatio(
-        operation.availableSize,
-        0.5,
-        firstMinimum,
-        secondMinimum,
-      );
-      if (
-        group && tab && (group.permanent || remaining.length > 0) &&
-        zone.groupIds.includes(group.id) && zone.groupIds.length < 2 && ratio != null &&
-        tab.kind === "panel" && panel && PANEL_ALLOWED_ZONES[panel.type].includes(operation.zone)
-      ) {
-        const newId = uniqueId(`group:${operation.zone}:split`, next.groups);
-        next.groups[newId] = { id: newId, tabs: [], activeTabId: null };
-        const oldIndex = zone.groupIds.indexOf(group.id);
-        zone.groupIds.splice(operation.after === false ? oldIndex : oldIndex + 1, 0, newId);
-        zone.axis = operation.axis;
-        zone.ratio = ratio;
-        const fromIndex = group.tabs.indexOf(tab);
-        group.tabs.splice(fromIndex, 1);
-        if (group.activeTabId === tab.id) group.activeTabId = group.tabs[fromIndex]?.id ?? group.tabs[fromIndex - 1]?.id ?? null;
-        next.groups[newId]!.tabs.push(tab);
-        next.groups[newId]!.activeTabId = tab.id;
-        next.focusedGroupId = newId;
-        removeEmptyGroup(next, group);
-        changed = true;
-      }
-      break;
-    }
+    case "split-group":
+      return applyLayoutOperation(layout, {
+        ...operation, type: "split-tab", fromGroupId: operation.groupId, targetGroupId: operation.groupId,
+      });
     case "join-zone": {
       const zone = next.zones[operation.zone];
-      if (zone.groupIds.length === 2) {
-        const requestedTarget = operation.zone === "center"
-          ? CENTER_NOTE_GROUP_ID
-          : operation.targetGroupId;
-        const targetId = requestedTarget && zone.groupIds.includes(requestedTarget)
-          ? requestedTarget
-          : zone.groupIds[0]!;
-        const sourceId = zone.groupIds.find((id) => id !== targetId)!;
-        const target = next.groups[targetId];
-        const source = next.groups[sourceId];
-        if (target && source && !source.tabs.some((tab) => tab.kind === "note" && target.id !== CENTER_NOTE_GROUP_ID)) {
-          const sourceWasFocused = next.focusedGroupId === sourceId;
-          target.tabs.push(...source.tabs);
-          if (sourceWasFocused && source.activeTabId) target.activeTabId = source.activeTabId;
-          else target.activeTabId ??= source.activeTabId;
-          zone.groupIds = [targetId];
-          delete next.groups[sourceId];
-          if (sourceWasFocused) next.focusedGroupId = targetId;
-          changed = true;
+      if (zone.groupIds.length < 2) break;
+      const requested = operation.zone === "center" ? CENTER_NOTE_GROUP_ID : operation.targetGroupId;
+      const targetId = requested && zone.groupIds.includes(requested) ? requested : zone.groupIds[0]!;
+      const target = next.groups[targetId]!;
+      for (const sourceId of zone.groupIds.filter(id => id !== targetId)) {
+        const source = next.groups[sourceId]!;
+        target.tabs.push(...source.tabs);
+        if (next.focusedGroupId === sourceId) {
+          target.activeTabId = source.activeTabId;
+          next.focusedGroupId = targetId;
         }
+        delete next.groups[sourceId];
       }
+      zone.groupIds = [targetId];
+      delete zone.groupSizes;
+      changed = true;
       break;
     }
     case "swap-zone-groups": {
@@ -563,6 +535,18 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
       }
       break;
     }
+    case "resize-stack-pair": {
+      const zone = next.zones.right;
+      const index = operation.index;
+      if (zone.axis !== "y" || !Number.isInteger(index) || index < 0 || index >= zone.groupIds.length - 1 || !Number.isFinite(operation.size)) break;
+      const sizes = stackGroupSizes(zone, operation.availableSize);
+      const pair = sizes[index]! + sizes[index + 1]!;
+      sizes[index] = Math.min(pair - GROUP_HEIGHT_MIN, Math.max(GROUP_HEIGHT_MIN, operation.size));
+      sizes[index + 1] = pair - sizes[index]!;
+      zone.groupSizes = Object.fromEntries(zone.groupIds.map((id, i) => [id, sizes[i]!]));
+      changed = true;
+      break;
+    }
     case "focus-group":
       if (next.groups[operation.groupId] && next.focusedGroupId !== operation.groupId) {
         next.focusedGroupId = operation.groupId;
@@ -599,5 +583,6 @@ export function isPanelVisible(layout: LayoutV1, type: PanelType): boolean {
   const zoneId = zoneForGroup(layout, found.groupId);
   if (!zoneId) return false;
   const siblings = layout.zones[zoneId].groupIds;
-  return siblings.length <= 1 || layout.focusedGroupId === found.groupId;
+  return (zoneId === "right" && layout.zones.right.axis === "y") ||
+    siblings.length <= 1 || layout.focusedGroupId === found.groupId;
 }

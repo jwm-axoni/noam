@@ -382,6 +382,7 @@ export function Editor() {
   const lineNumbers = useStore((s) => s.lineNumbers);
   const previousReadOnlyRef = useRef(readOnly);
   const editorMeasure = useStore((s) => s.editorMeasure);
+  const editorFontSize = useStore((s) => s.editorFontSize);
   const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   // Wraps the presence stack + its roster popover so an outside click can be
@@ -930,7 +931,7 @@ export function Editor() {
       : null;
 
   return (
-    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
       <div className="editor-topbar">
           {readOnly && (
             <div
@@ -965,9 +966,9 @@ export function Editor() {
               <button
                 type="button"
                 className="editor-action-secondary"
-                aria-label={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
+                aria-label={editorMeasure === "full" ? "Use normal note width" : "Use wide note width"}
                 aria-pressed={editorMeasure === "full"}
-                title={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
+                title={editorMeasure === "full" ? "Use normal note width" : "Use wide note width"}
                 onClick={() => useStore.getState().toggleEditorWide()}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3" /></svg>
@@ -981,7 +982,7 @@ export function Editor() {
                     type="button"
                     onClick={() => useStore.getState().toggleEditorWide()}
                   >
-                    {editorMeasure === "full" ? "Normal note width" : "Full note width"}
+                    {editorMeasure === "full" ? "Normal note width" : "Wide note width"}
                   </button>
                 </div>
               </details>

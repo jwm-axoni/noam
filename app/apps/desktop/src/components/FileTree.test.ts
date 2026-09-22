@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   setItemColor: vi.fn(),
   mutateBackgroundText: vi.fn(),
   toggle: vi.fn(),
+  openParents: vi.fn(),
+  scrollTo: vi.fn(async () => {}),
 }));
 
 vi.mock("../store", () => ({
@@ -92,7 +94,7 @@ vi.mock("react-arborist", async () => {
       const [editing, setEditing] = useState<string | null>(null);
       mocks.renameInline.mockImplementation(onRename);
       mocks.edit.mockImplementation((path: string) => setEditing(path));
-      useImperativeHandle(ref, () => ({ edit: mocks.edit }));
+      useImperativeHandle(ref, () => ({ edit: mocks.edit, openParents: mocks.openParents, scrollTo: mocks.scrollTo, idToIndex: { "A.md": 0 }, visibleStartIndex: 0, visibleStopIndex: 1 }));
       const render = (nodes: TreeNode[], depth = 0): ReturnType<typeof createElement>[] =>
         nodes.flatMap((data) => [
           createElement(Row, {
@@ -172,6 +174,27 @@ describe("FileTree refused move callbacks", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+  });
+
+  it("defers explicit reveals while hidden and does not replay them on later tab switches", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const flushFrames = async () => {
+      for (let i = 0; i < 5; i++) await act(async () => { frames.splice(0).forEach(callback => callback(0)); });
+    };
+    mocks.state.tree = node("", [node("A.md")]);
+    mocks.state.revealRequest = { path: "A.md", token: 1, edit: false };
+    await act(async () => root.render(createElement(FileTree, { visible: false })));
+    await flushFrames();
+    expect(mocks.openParents).not.toHaveBeenCalled();
+    expect(mocks.scrollTo).not.toHaveBeenCalled();
+    await act(async () => root.render(createElement(FileTree, { visible: true })));
+    await flushFrames();
+    expect(mocks.scrollTo).toHaveBeenCalledExactlyOnceWith("A.md", "smart");
+    await act(async () => root.render(createElement(FileTree, { visible: false })));
+    await act(async () => root.render(createElement(FileTree, { visible: true })));
+    await flushFrames();
+    expect(mocks.scrollTo).toHaveBeenCalledTimes(1);
   });
 
   it("keeps the file list sized while its dock tab is hidden and restores the new size", async () => {

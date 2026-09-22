@@ -15,6 +15,18 @@ function storage(initial: Record<string, string>) {
 afterEach(() => Reflect.deleteProperty(globalThis, "localStorage"));
 
 describe("graph settings migration", () => {
+  it("migrates old default physics once while retaining a custom charge and filters", () => {
+    storage({
+      "context.graph.settings.v6:panel:graph": JSON.stringify({ charge: -10.8, hideOrphans: true }),
+      "context.graph.settings.v6:panel:graph:second": JSON.stringify({ charge: -80, scope: "local" }),
+    });
+    expect(loadSettings("panel:graph")).toMatchObject({ charge: -24, hideOrphans: true });
+    expect(loadSettings("panel:graph:second")).toMatchObject({ charge: -80, scope: "local" });
+    // Once the new key exists, even an intentional choice of the old value stays.
+    storage({ [`${SETTINGS_STORAGE_KEY}:panel:graph`]: JSON.stringify({ charge: -10.8 }) });
+    expect(loadSettings("panel:graph").charge).toBe(-10.8);
+  });
+
   it("uses type colors and visible orphans for new graph instances", () => {
     storage({});
     expect(loadSettings("panel:new")).toMatchObject({ colorMode: "type", minDegree: 0, hideOrphans: false });

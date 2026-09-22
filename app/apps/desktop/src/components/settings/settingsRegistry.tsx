@@ -115,9 +115,9 @@ export const SETTINGS_SECTIONS: readonly SettingsSectionDefinition[] = [
       },
       {
         id: "note-typography",
-        label: "Note typography",
+        label: "Note font size",
         description: "Typography used to read and edit notes.",
-        keywords: ["font", "text"],
+        keywords: ["font", "text", "size", "typography", "reading", "zoom"],
       },
     ],
   },

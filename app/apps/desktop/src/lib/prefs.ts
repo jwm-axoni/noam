@@ -475,6 +475,34 @@ export const VIEW_MODE_OPTIONS: ReadonlyArray<{
 
 // ---- Editor layout ----------------------------------------------------------
 
+const EDITOR_FONT_SIZE_KEY = "context.editorFontSize";
+export const EDITOR_FONT_SIZE_MIN = 12;
+export const EDITOR_FONT_SIZE_MAX = 22;
+export const EDITOR_FONT_SIZE_DEFAULT = 16;
+
+export function clampEditorFontSize(value: number): number {
+  return Number.isFinite(value)
+    ? Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(value)))
+    : EDITOR_FONT_SIZE_DEFAULT;
+}
+
+export function readEditorFontSize(): number {
+  try {
+    const raw = localStorage.getItem(EDITOR_FONT_SIZE_KEY);
+    return raw == null || raw.trim() === "" ? EDITOR_FONT_SIZE_DEFAULT : clampEditorFontSize(Number(raw));
+  } catch {
+    return EDITOR_FONT_SIZE_DEFAULT;
+  }
+}
+
+export function writeEditorFontSize(size: number): void {
+  try {
+    localStorage.setItem(EDITOR_FONT_SIZE_KEY, String(clampEditorFontSize(size)));
+  } catch {
+    // Device storage can be denied; the store retains the live choice.
+  }
+}
+
 const EDITOR_MEASURE_KEY = "context.editorMeasure";
 /** The last non-full width, which the Wide toggle returns to. */
 const EDITOR_NORMAL_MEASURE_KEY = "context.editorMeasureNormal";

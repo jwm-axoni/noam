@@ -29,7 +29,7 @@ export function EditorSettings() {
         id="content-width"
         className="setting-row-stack"
         label={<label htmlFor="settings-content-width">Content width</label>}
-        description="How wide note text runs before it wraps. Drag to the end for the full pane."
+        description="How wide note text runs before it wraps. The final stop uses the Wide preset."
       >
         <span className="range-field">
           <input

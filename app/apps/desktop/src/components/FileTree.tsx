@@ -301,7 +301,7 @@ const ICON_TRASH = (
   </TreeSvg>
 );
 
-export function FileTree() {
+export function FileTree({ visible = true }: { visible?: boolean }) {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
   const syncEnabled = useStore((s) => s.syncEnabled);
@@ -1511,8 +1511,9 @@ export function FileTree() {
    * `RowShared.selectedPath`.
    */
   const revealRequest = useStore((s) => s.revealRequest);
+  const handledReveal = useRef<typeof revealRequest>(null);
   useEffect(() => {
-    if (!revealRequest) return;
+    if (!visible || !revealRequest || handledReveal.current === revealRequest) return;
     const { path, edit } = revealRequest;
     let cancelled = false;
     void (async () => {
@@ -1567,6 +1568,7 @@ export function FileTree() {
             void t.scrollTo(path, "smart")?.then(() => {
               if (cancelled) return;
               // Only a visible row can be edited, so this waits for the scroll.
+              handledReveal.current = revealRequest;
               if (edit) void t.edit(path);
               if (wasOnScreen) return;
               useStore.getState().setRevealedPath(path);
@@ -1581,12 +1583,16 @@ export function FileTree() {
         }
         if (tries < 30) requestAnimationFrame(() => land(tries + 1));
       };
-      land();
+      // Let the visible panel paint and ResizeObserver commit its dimensions
+      // before Arborist computes a scroll offset. Cleanup cancels either frame.
+      requestAnimationFrame(() => {
+        if (!cancelled) requestAnimationFrame(() => land());
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [revealRequest]);
+  }, [revealRequest, visible]);
 
   /**
    * Refuse a create/import at the vault root when the root is frozen.

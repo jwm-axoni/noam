@@ -185,6 +185,18 @@ beforeEach(() => {
   });
 });
 
+describe("file tree stays put on note navigation", () => {
+  it("opens notes without issuing a file-tree reveal", async () => {
+    await open("a.md");
+    expect(useStore.getState().openNote?.path).toBe("a.md");
+    expect(useStore.getState().revealRequest).toBeNull();
+    useStore.getState().requestReveal("a.md");
+    const explicit = useStore.getState().revealRequest;
+    await open("b.md");
+    expect(useStore.getState().revealRequest).toBe(explicit);
+  });
+});
+
 describe("layout note-tab ordering", () => {
   it("appends new tabs and never moves an existing one when it is re-activated", async () => {
     await open("a.md");
@@ -431,11 +443,11 @@ describe("createNoteIn / createNoteAt", () => {
 
 describe("requestReveal", () => {
   it("bumps a token so the SAME path re-fires — a reveal is an event", async () => {
-    await open("a.md");
+    useStore.getState().requestReveal("a.md");
     const first = useStore.getState().revealRequest!;
     expect(first.path).toBe("a.md");
 
-    await open("a.md");
+    useStore.getState().requestReveal("a.md");
     const second = useStore.getState().revealRequest!;
     expect(second.path).toBe("a.md");
     expect(second.token).toBeGreaterThan(first.token);
@@ -443,8 +455,8 @@ describe("requestReveal", () => {
     expect(second).not.toBe(first);
   });
 
-  it("is fired by every note open, whatever the caller", async () => {
-    await open("Deep/Folder/note.md");
+  it("supports an explicit reveal of a nested note", () => {
+    useStore.getState().requestReveal("Deep/Folder/note.md");
     expect(useStore.getState().revealRequest).toMatchObject({
       path: "Deep/Folder/note.md",
       edit: false,

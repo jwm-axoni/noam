@@ -6,6 +6,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clampEditorMeasure,
+  clampEditorFontSize,
+  readEditorFontSize,
+  writeEditorFontSize,
   EDITOR_MEASURE_DEFAULT,
   EDITOR_MEASURE_MAX,
   EDITOR_MEASURE_MIN,
@@ -358,5 +361,26 @@ describe("clampEditorMeasure", () => {
     expect(clampEditorMeasure(Number.NaN)).toBe(EDITOR_MEASURE_DEFAULT);
     expect(clampEditorMeasure(Number.POSITIVE_INFINITY)).toBe(EDITOR_MEASURE_MAX);
     expect(clampEditorMeasure(Number.NEGATIVE_INFINITY)).toBe(EDITOR_MEASURE_MIN);
+  });
+});
+
+describe("editor font size", () => {
+  it("defaults to 16px and persists a clamped size", () => {
+    stubStorage();
+    expect(readEditorFontSize()).toBe(16);
+    for (const [input, expected] of [[12, 12], [22, 22], [30, 22], [2, 12], [18.6, 19]]) {
+      writeEditorFontSize(input);
+      expect(readEditorFontSize()).toBe(expected);
+    }
+  });
+  it("recovers from malformed or denied storage", () => {
+    for (const value of ["", "bad", "Infinity"]) {
+      stubStorage({ "context.editorFontSize": value });
+      expect(readEditorFontSize()).toBe(16);
+    }
+    stubThrowingStorage();
+    expect(readEditorFontSize()).toBe(16);
+    expect(() => writeEditorFontSize(20)).not.toThrow();
+    expect(clampEditorFontSize(NaN)).toBe(16);
   });
 });

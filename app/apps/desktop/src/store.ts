@@ -47,6 +47,9 @@ import { createWithUniqueSlug, slugifyName } from "./lib/orgSlug";
 import {
   type ActivityStatus,
   type EditorMeasure,
+  readEditorFontSize,
+  writeEditorFontSize,
+  clampEditorFontSize,
   readActivityStatus,
   readMentionSound,
   readDefaultViewMode,
@@ -413,6 +416,8 @@ interface AppStore {
   /** How wide the editor's prose column runs: a measure in `ch`, or "full" for
    *  the whole pane. Device-local (Settings → Appearance). */
   editorMeasure: EditorMeasure;
+  editorFontSize: number;
+  setEditorFontSize: (size: number) => void;
   /** Last normal width, retained even when device storage is unavailable. */
   editorNormalMeasure: number;
   /** Show the editor's line-number gutter. Off by default. */
@@ -1309,8 +1314,9 @@ async function finishNoteCreate(
   await get().openNoteByPath(path);
   // The new note's name is typed into its INLINE TITLE, not the sidebar's
   // rename box: a note created empty shows its filename at the top of itself,
-  // and that is where the cursor belongs. `openNoteByPath` already revealed the
-  // row; it just does not go into edit mode any more.
+  // and that is where the cursor belongs. Creating a note explicitly reveals
+  // its new row; opening an existing note leaves the tree alone.
+  get().requestReveal(path);
   if (opts?.edit) get().setPendingTitleFocus(path);
   return path;
 }
@@ -1439,6 +1445,7 @@ export const useStore = create<AppStore>((set, get) => ({
   viewMode: readDefaultViewMode(),
   editorMeasure: (migrateEditorMeasureDefault(), readEditorMeasure()),
   editorNormalMeasure: readEditorNormalMeasure(),
+  editorFontSize: readEditorFontSize(),
   lineNumbers: readLineNumbers(),
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
@@ -1825,11 +1832,7 @@ export const useStore = create<AppStore>((set, get) => ({
       // Tab membership is committed only after the epoch-guarded open succeeds.
       // Failed and superseded opens leave the previous active surface intact.
       commitSuccessfulNoteOpen(path);
-      // Whichever note becomes active gets shown in the sidebar. Unconditional
-      // on purpose: it is idempotent (`openParents` on open parents and
-      // `scrollTo(…, "auto")` on a visible row both do nothing), and the
-      // alternative is threading a flag through all of this action's callers.
-      get().requestReveal(path);
+      // Navigation leaves the Files tree where the user put it. Reveal is explicit.
       // Tell teammates which note we're now viewing (drives their sidebar dots).
       // The announced id must be the SERVER doc_id — see `viewingDocId`, which
       // exists to hold that reasoning and a regression test for it.
@@ -2619,6 +2622,12 @@ export const useStore = create<AppStore>((set, get) => ({
       viewMode: mode,
       viewModeOverrides: { ...state.viewModeOverrides, [path]: mode },
     }));
+  },
+
+  setEditorFontSize: (size) => {
+    const editorFontSize = clampEditorFontSize(size);
+    writeEditorFontSize(editorFontSize);
+    set({ editorFontSize });
   },
 
   setEditorMeasure: (measure) => {

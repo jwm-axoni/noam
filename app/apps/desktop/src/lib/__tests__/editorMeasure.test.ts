@@ -48,16 +48,15 @@ describe("slider ↔ measure", () => {
 
   it("reads out characters, or the word", () => {
     expect(measureLabel(88)).toBe("88 characters");
-    expect(measureLabel("full")).toBe("Full width");
+    expect(measureLabel("full")).toBe("Wide");
   });
 });
 
 describe("the token the editor follows", () => {
-  it("carries the measure in ch, and full width as a percentage", () => {
+  it("bounds Wide at 90ch and applies the font size on the editor column", () => {
     expect(editorMeasureStyle(72)["--editor-measure"]).toBe("72ch");
-    // 100% makes `(100% - var(--editor-measure)) / 2` zero, so `--editor-pad-x`
-    // falls back to the gutter — which is what "full" means.
-    expect(editorMeasureStyle("full")["--editor-measure"]).toBe("100%");
+    expect(editorMeasureStyle("full", 20)["--editor-measure"]).toBe("90ch");
+    expect(editorMeasureStyle(72, 20)["--type-document-size"]).toBe("20px");
   });
 });
 

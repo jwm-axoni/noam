@@ -2,52 +2,52 @@
    data-theme chooses light/dark, while data-theme-preset chooses these values. */
 
 :root[data-theme-preset="minimal"] {
-  --bg-app: #f3f5f7;
+  --bg-app: #f5f5f5;
   --bg-surface: #ffffff;
-  --bg-subtle: #f7f8f9;
-  --bg-hover: #edf0f2;
-  --bg-active: #e2e6e9;
-  --text-primary: #202428;
-  --text-secondary: #646b72;
-  --text-tertiary: #92989e;
-  --text-faint: #b9bec3;
-  --accent: #4f6f91;
-  --accent-hover: #3d5c7c;
+  --bg-subtle: #f5f5f5;
+  --bg-hover: #eeeeee;
+  --bg-active: #e6e6e6;
+  --text-primary: #0f0f0f;
+  --text-secondary: #757575;
+  --text-tertiary: #b5b5b5;
+  --text-faint: #c7c7c7;
+  --accent: #6a8695;
+  --accent-hover: #526d7b;
   --accent-soft: #e8eef4;
   --accent-soft-hover: #dbe5ee;
-  --accent-gradient: linear-gradient(135deg, #6f8ba6 0%, #4f6f91 100%);
+  --accent-gradient: linear-gradient(135deg, #6f8ba6 0%, #6a8695 100%);
   --link: #356c9c;
-  --border: rgba(31, 38, 45, 0.09);
-  --border-strong: rgba(31, 38, 45, 0.16);
-  --focus-ring: 0 0 0 3px rgba(79, 111, 145, 0.28);
+  --border: #e6e6e6;
+  --border-strong: #d4d4d4;
+  --focus-ring: 0 0 0 3px rgba(106, 134, 149, 0.28);
   --graph-void-core: #fafbfc;
   --graph-void-mid: #eef1f3;
   --graph-void-rim: #dde2e6;
-  --graph-node: #4f6f91;
-  --graph-node-strong: #3d5c7c;
-  --graph-node-glow: rgba(79, 111, 145, 0.55);
-  --graph-node-dim: rgba(79, 111, 145, 0.48);
-  --graph-link-dim: rgba(79, 111, 145, 0.28);
+  --graph-node: #6a8695;
+  --graph-node-strong: #526d7b;
+  --graph-node-glow: rgba(106, 134, 149, 0.55);
+  --graph-node-dim: rgba(106, 134, 149, 0.48);
+  --graph-link-dim: rgba(106, 134, 149, 0.28);
 }
 
 :root[data-theme-preset="minimal"][data-theme="dark"] {
-  --bg-app: #121416;
-  --bg-surface: #1b1e21;
-  --bg-subtle: #17191c;
-  --bg-hover: #25292d;
-  --bg-active: #30353a;
-  --text-primary: #f0f2f3;
-  --text-secondary: #aab0b5;
-  --text-tertiary: #737a80;
-  --text-faint: #575e64;
-  --accent: #8aa8c4;
-  --accent-hover: #a2bdd4;
-  --accent-soft: rgba(138, 168, 196, 0.16);
-  --accent-soft-hover: rgba(138, 168, 196, 0.24);
-  --link: #84b7df;
-  --border: rgba(240, 242, 243, 0.09);
-  --border-strong: rgba(240, 242, 243, 0.17);
-  --focus-ring: 0 0 0 3px rgba(138, 168, 196, 0.34);
+  --bg-app: #212121;
+  --bg-surface: #262626;
+  --bg-subtle: #212121;
+  --bg-hover: #303030;
+  --bg-active: #363636;
+  --text-primary: #d1d1d1;
+  --text-secondary: #999999;
+  --text-tertiary: #595959;
+  --text-faint: #484848;
+  --accent: #889eaa;
+  --accent-hover: #a2b4be;
+  --accent-soft: rgba(136, 158, 170, 0.16);
+  --accent-soft-hover: rgba(136, 158, 170, 0.24);
+  --link: #a2b4be;
+  --border: #363636;
+  --border-strong: #484848;
+  --focus-ring: 0 0 0 3px rgba(136, 158, 170, 0.34);
 }
 
 :root[data-theme-preset="graphite"],

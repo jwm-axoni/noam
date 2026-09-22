@@ -7,6 +7,8 @@
 import type { CSSProperties } from "react";
 import {
   clampEditorMeasure,
+  clampEditorFontSize,
+  EDITOR_FONT_SIZE_DEFAULT,
   EDITOR_MEASURE_MAX,
   EDITOR_MEASURE_MIN,
   EDITOR_MEASURE_STEP,
@@ -16,21 +18,18 @@ import {
 /** The widest share of the pane the column may take, however wide the measure:
  *  Obsidian Minimal's `maxWidth: 88%`. Must match `--editor-pad-x` in tokens.css. */
 export const EDITOR_MAX_FRACTION = 0.88;
+export const EDITOR_WIDE_MEASURE = 90;
 
 /** The slider starts at the narrowest real measure. */
 export const EDITOR_MEASURE_SLIDER_MIN = EDITOR_MEASURE_MIN;
-/**
- * …and ends one step past the widest one, at the only position that means
- * "full width". A stop at the end of the same gesture reads as "wider, wider,
- * all of it"; a separate switch beside the slider would ask the user to hold
- * two controls in their head for one decision.
- */
+/** The final slider stop selects the bounded Wide preset, stored as "full"
+ *  for compatibility with existing preferences. */
 export const EDITOR_MEASURE_SLIDER_MAX = EDITOR_MEASURE_MAX + EDITOR_MEASURE_STEP;
 /** The pref's own step, re-exported so one import wires the whole control. */
 export { EDITOR_MEASURE_STEP } from "./prefs";
 
 /** Slider position → preference. The top stop is tested FIRST, so anything at
- *  or past it — `Infinity` included — reads as full width; everything else goes
+ *  or past it — `Infinity` included — selects Wide; everything else goes
  *  through the clamp, which snaps to the step, pins `-Infinity` to the narrowest
  *  measure and answers NaN with the default. */
 export function sliderToMeasure(pos: number): EditorMeasure {
@@ -45,7 +44,7 @@ export function measureToSlider(measure: EditorMeasure): number {
 
 /** The readout beside the slider, and the slider's own `aria-valuetext`. */
 export function measureLabel(measure: EditorMeasure): string {
-  return measure === "full" ? "Full width" : `${measure} characters`;
+  return measure === "full" ? "Wide" : `${measure} characters`;
 }
 
 /** A style object rather than a class: the value is a number the user picked,
@@ -53,10 +52,13 @@ export function measureLabel(measure: EditorMeasure): string {
  *  whole implementation — `--editor-pad-x` and its eleven consumers (the
  *  `.cm-line` inset, the block widgets, the rules, the loading skeleton) follow
  *  it with no JavaScript at all. */
-type MeasureStyle = CSSProperties & Record<"--editor-measure", string>;
+type MeasureStyle = CSSProperties & Record<"--editor-measure" | "--type-document-size", string>;
 
-export function editorMeasureStyle(measure: EditorMeasure): MeasureStyle {
-  return { "--editor-measure": measure === "full" ? "100%" : `${measure}ch` };
+export function editorMeasureStyle(measure: EditorMeasure, fontSize = EDITOR_FONT_SIZE_DEFAULT): MeasureStyle {
+  return {
+    "--editor-measure": `${measure === "full" ? EDITOR_WIDE_MEASURE : measure}ch`,
+    "--type-document-size": `${clampEditorFontSize(fontSize)}px`,
+  };
 }
 
 export interface PreviewColumnInput {
@@ -81,15 +83,10 @@ export interface PreviewColumn {
 /**
  * The Settings preview's geometry, to scale.
  *
- * The real column is whatever `--editor-pad-x` leaves behind:
- * `pane − 2·max(gutter, (pane − measure) / 2)`, which reduces to
- * `min(measure, pane − 2·gutter)` — the measure you asked for, unless the
- * window is too narrow to grant it, in which case the gutters win. "Full" is
- * that second term on its own. Everything is then multiplied by
- * `preview / pane`, so the miniature is a photograph of the real window rather
- * than an impression of one: at 88ch in a wide window it shows a column with
- * air either side, and in a window narrower than the measure it correctly shows
- * no air at all.
+ * The column is capped by its chosen measure, the minimum gutters, and 88% of
+ * the pane. The component converts Wide to 90ch in pixels before calling this
+ * helper. The legacy "full" input means the pane cap without a measure cap.
+ * Scale the resulting column by `preview / pane` to draw the miniature.
  */
 export function computePreviewColumn(input: PreviewColumnInput): PreviewColumn {
   const { gutterPx, measurePx, previewWidth } = input;

@@ -206,9 +206,9 @@ function readColors(el: Element): Colors {
     nodeFallback: get("--text-tertiary") || "#9a9aa5",
     accent: get("--accent") || FALLBACK_ACCENT,
     surface: dark ? "dark" : "light",
-    // Resting labels stay muted; the open/hover label brightens to full.
-    label: dark ? "rgba(205, 210, 224, 0.6)" : "rgba(43, 46, 64, 0.62)",
-    labelActive: dark ? "#f2f4fb" : "#20232f",
+    // Use readable theme text; zoom gating controls label density.
+    label: get("--text-primary") || (dark ? "#d1d1d1" : "#20232f"),
+    labelActive: get("--text-primary") || (dark ? "#d1d1d1" : "#20232f"),
   };
 }
 
