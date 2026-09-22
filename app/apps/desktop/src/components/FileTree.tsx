@@ -137,6 +137,10 @@ function useDimensions(): [React.RefObject<HTMLDivElement | null>, Dimensions] {
     if (!ref.current) return;
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect;
+      // Inactive dock tabs stay mounted under display:none. Keep the last
+      // visible size so hiding Files cannot give Arborist a negative viewport
+      // after subtracting the toolbar, or disturb its virtual scroll state.
+      if (r.width <= 0 || r.height <= 0) return;
       setDim({ width: r.width, height: r.height });
     });
     ro.observe(ref.current);
@@ -2313,7 +2317,7 @@ export function FileTree() {
             idAccessor="id"
             openByDefault={false}
             width={dim.width}
-            height={dim.height - 34 - (selectMode ? 36 : 0)}
+            height={Math.max(0, dim.height - 34 - (selectMode ? 36 : 0))}
             indent={16}
             rowHeight={28}
             onToggle={onToggle}

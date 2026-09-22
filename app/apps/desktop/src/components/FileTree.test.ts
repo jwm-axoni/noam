@@ -81,7 +81,9 @@ vi.mock("@tauri-apps/api/webview", () => ({
 vi.mock("react-arborist", async () => {
   const { createElement, useImperativeHandle, useState } = await import("react");
   return {
-    Tree: ({ data, children: Row, ref, onRename }: {
+    Tree: ({ data, children: Row, ref, onRename, width, height }: {
+      width: number;
+      height: number;
       data: TreeNode[];
       children: ComponentType<NodeRendererProps<TreeNode>>;
       ref: import("react").Ref<unknown>;
@@ -109,7 +111,7 @@ vi.mock("react-arborist", async () => {
           }),
           ...render(data.children ?? [], depth + 1),
         ]);
-      return createElement("div", {}, render(data));
+      return createElement("div", { "data-tree-height": height, "data-tree-width": width }, render(data));
     },
   };
 });
@@ -131,10 +133,17 @@ function deferred<T>() {
 describe("FileTree refused move callbacks", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let resize: (width: number, height: number) => void;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = (width, height) => callback(
+          [{ contentRect: { width, height } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
       observe() {}
       disconnect() {}
     });
@@ -163,6 +172,31 @@ describe("FileTree refused move callbacks", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+  });
+
+  it("keeps the file list sized while its dock tab is hidden and restores the new size", async () => {
+    mocks.state.tree = node("", [node("A.md"), node("B.md")]);
+    await act(async () => root.render(createElement(FileTree)));
+    await act(async () => resize(320, 900));
+    const list = container.querySelector<HTMLElement>("[data-tree-height]")!;
+    expect(Number(list.dataset.treeHeight)).toBe(866);
+    // Switching to Workflows hides Files with display:none. ResizeObserver
+    // reports zero for the mounted Files panel until the user switches back.
+    await act(async () => resize(0, 0));
+    expect(Number(list.dataset.treeHeight)).toBe(866);
+    expect(Number(list.dataset.treeWidth)).toBe(320);
+    await act(async () => resize(280, 700));
+    expect(Number(list.dataset.treeHeight)).toBe(666);
+    expect(Number(list.dataset.treeWidth)).toBe(280);
+    expect(container.querySelector("[data-tree-height]")).toBe(list);
+    expect(container.querySelectorAll("[data-tree-path]")).toHaveLength(2);
+  });
+
+  it("never gives the virtualized list a negative height in a short dock", async () => {
+    mocks.state.tree = node("", [node("A.md")]);
+    await act(async () => root.render(createElement(FileTree)));
+    await act(async () => resize(280, 20));
+    expect(Number(container.querySelector<HTMLElement>("[data-tree-height]")!.dataset.treeHeight)).toBeGreaterThanOrEqual(0);
   });
 
   /** Let React, a lazy chunk and a promise chain settle, bounded. */
