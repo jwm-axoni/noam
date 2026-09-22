@@ -2,10 +2,13 @@
 
 import { useState, type KeyboardEvent } from "react";
 import {
+  EDITOR_FONT_SIZE_MIN,
+  EDITOR_FONT_SIZE_MAX,
   readHeadingColorMode,
   setHeadingColorMode,
   type HeadingColorMode,
 } from "../../lib/prefs";
+import { useStore } from "../../store";
 import { MenuSelect } from "../MenuSelect";
 import { ThemeToggle } from "../ThemeToggle";
 import { SettingRow } from "./SettingRow";
@@ -21,6 +24,7 @@ import {
 } from "../../lib/theme";
 
 export function AppearanceSettings() {
+  const fontSize = useStore((state) => state.editorFontSize);
   const [headingColor, setHeadingColor] = useState<HeadingColorMode>(() =>
     readHeadingColorMode(),
   );
@@ -177,10 +181,20 @@ export function AppearanceSettings() {
       </SettingRow>
       <SettingRow
         id="note-typography"
-        label="Note typography"
-        description="Noam uses its bundled reading typeface for note text, so notes remain available offline."
+        label={<label htmlFor="settings-editor-font-size">Note font size</label>}
+        description="Adjust note text size on this device."
+        className="setting-row-stack"
       >
-        <span className="setting-static-value">Open Sauce Two</span>
+        <span className="range-field">
+          <input id="settings-editor-font-size" className="range-input" type="range"
+            min={EDITOR_FONT_SIZE_MIN} max={EDITOR_FONT_SIZE_MAX} step={1}
+            value={fontSize} aria-label="Note font size" aria-valuetext={`${fontSize} pixels`}
+            onChange={(event) => useStore.getState().setEditorFontSize(Number(event.target.value))} />
+          <span className="range-value">{fontSize}px</span>
+        </span>
+        <p style={{ fontFamily: "var(--font-body)", fontSize: `${fontSize}px`, lineHeight: 1.6, margin: 0 }}>
+          A place for your notes, ideas, and the connections between them.
+        </p>
       </SettingRow>
     </>
   );

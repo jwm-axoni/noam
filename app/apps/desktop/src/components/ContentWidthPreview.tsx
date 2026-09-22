@@ -4,7 +4,8 @@ import { useEffect, useRef, useState } from "react";
 // anyway; importing it here is what makes Settings look right in `vite dev`
 // before the (lazy) editor chunk has ever been loaded.
 import "./editor.css";
-import { computePreviewColumn } from "../lib/editorMeasure";
+import { useStore } from "../store";
+import { computePreviewColumn, EDITOR_WIDE_MEASURE } from "../lib/editorMeasure";
 import type { EditorMeasure } from "../lib/prefs";
 
 /**
@@ -37,12 +38,12 @@ const FALLBACK_CH_PX = 9;
  * and it is not the root font either: `ch` resolves at the element that uses
  * the token, and that element is `.cm-line`.
  */
-function measureChPx(): number {
+function measureChPx(fontSize: number): number {
   const probe = document.createElement("span");
   probe.setAttribute("aria-hidden", "true");
   probe.style.cssText =
     "position:absolute;top:0;left:-9999px;white-space:pre;visibility:hidden;" +
-    "pointer-events:none;font-family:var(--font-body);font-size:var(--fs-lg)";
+    `pointer-events:none;font-family:var(--font-body);font-size:${fontSize}px`;
   probe.textContent = "0".repeat(PROBE_CHARS);
   document.body.appendChild(probe);
   const width = probe.getBoundingClientRect().width / PROBE_CHARS;
@@ -56,9 +57,7 @@ function readGutterPx(): number {
   return Number.isFinite(px) && px > 0 ? px : FALLBACK_GUTTER_PX;
 }
 
-/** What a `ch` is worth, and how much air the editor insists on at each edge.
- *  Neither can change while the panel is open: the font is a local woff2 loaded
- *  at startup and the gutter is a token. Measured once, off the resize path. */
+/** Measure the selected font size and gutter separately from pane resizing. */
 interface Scale {
   chPx: number;
   gutterPx: number;
@@ -70,13 +69,14 @@ interface Widths {
 }
 
 export function ContentWidthPreview({ measure }: { measure: EditorMeasure }) {
+  const fontSize = useStore((state) => state.editorFontSize);
   const pageRef = useRef<HTMLDivElement | null>(null);
   const [scale, setScale] = useState<Scale | null>(null);
   const [widths, setWidths] = useState<Widths | null>(null);
 
   useEffect(() => {
-    setScale({ chPx: measureChPx(), gutterPx: readGutterPx() });
-  }, []);
+    setScale({ chPx: measureChPx(fontSize), gutterPx: readGutterPx() });
+  }, [fontSize]);
 
   useEffect(() => {
     const page = pageRef.current;
@@ -111,7 +111,7 @@ export function ContentWidthPreview({ measure }: { measure: EditorMeasure }) {
       ? computePreviewColumn({
           paneWidth: widths.paneWidth,
           gutterPx: scale.gutterPx,
-          measurePx: measure === "full" ? "full" : scale.chPx * measure,
+          measurePx: scale.chPx * (measure === "full" ? EDITOR_WIDE_MEASURE : measure),
           previewWidth: widths.previewWidth,
         })
       : null;

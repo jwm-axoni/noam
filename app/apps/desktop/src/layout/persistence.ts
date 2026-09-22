@@ -10,6 +10,7 @@ import {
   type LayoutTab,
   type LayoutV1,
   type LayoutZone,
+  type ZoneId,
   type PanelInstance,
 } from "./types";
 import { useLayoutStore } from "./store";
@@ -71,11 +72,11 @@ export function serializableLayout(layout: LayoutV1): LayoutV1 {
   };
 }
 
-function parseZone(value: unknown): LayoutZone | null {
+function parseZone(value: unknown, zoneId: ZoneId): LayoutZone | null {
   if (!record(value)) return null;
   const { groupIds, axis, ratio, preferredWidth, userCollapsed } = value;
   if (
-    !Array.isArray(groupIds) || groupIds.length > 2 ||
+    !Array.isArray(groupIds) || groupIds.length > (zoneId === "right" && axis === "y" ? 12 : 2) ||
     !groupIds.every((id) => typeof id === "string") ||
     (axis !== "x" && axis !== "y") ||
     typeof ratio !== "number" || !Number.isFinite(ratio) || ratio <= 0 || ratio >= 1 ||
@@ -84,6 +85,10 @@ function parseZone(value: unknown): LayoutZone | null {
   ) return null;
   return {
     groupIds: [...new Set(groupIds)],
+    ...(record(value.groupSizes) ? { groupSizes: Object.fromEntries(
+      Object.entries(value.groupSizes).filter(([id, size]) =>
+        groupIds.includes(id) && typeof size === "number" && Number.isFinite(size) && size > 0),
+    ) as Record<string, number> } : {}),
     axis,
     ratio,
     preferredWidth,
@@ -126,7 +131,7 @@ export function validatePersistedLayout(value: unknown): LayoutV1 | null {
   }
   const zones = {} as LayoutV1["zones"];
   for (const zoneId of ZONE_IDS) {
-    const zone = parseZone(value.zones[zoneId]);
+    const zone = parseZone(value.zones[zoneId], zoneId);
     if (!zone) return null;
     zones[zoneId] = zone;
   }

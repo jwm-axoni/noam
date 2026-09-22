@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { useLayoutStore } from "../../layout/store";
-import { PANEL_ALLOWED_ZONES, type PanelType, type ZoneId } from "../../layout/types";
+import { PANEL_ALLOWED_ZONES, canSplitZone, type PanelType, type ZoneId } from "../../layout/types";
 import { ViewportMenu } from "../ViewportMenu";
 
 const ZONES: readonly ZoneId[] = ["left", "center", "right"];
@@ -80,7 +80,8 @@ export function PanelMoveMenu({ groupId, tabId, panelType }: { groupId: string; 
   };
 
   const splitInto = (zone: ZoneId, edge: "left" | "right" | "top" | "bottom") => {
-    const targetGroupId = layout.zones[zone].groupIds[0];
+    const targetGroupId = layout.zones[zone].groupIds.includes(groupId) && (layout.groups[groupId]?.tabs.length ?? 0) > 1
+      ? groupId : layout.zones[zone].groupIds[0];
     if (!targetGroupId) return;
     const axis = edge === "left" || edge === "right" ? "x" : "y";
     dispatch({
@@ -179,8 +180,10 @@ export function PanelMoveMenu({ groupId, tabId, panelType }: { groupId: string; 
           )}
           <span className="panel-move-heading">Split into</span>
           {allowedZones.flatMap((zone) => {
-            if (layout.zones[zone].groupIds.length !== 1) return [];
-            return (["left", "right", "top", "bottom"] as const).map((edge) => (
+            if (layout.zones[zone].groupIds.length === 0) return [];
+            return (["left", "right", "top", "bottom"] as const)
+              .filter(edge => canSplitZone(zone, layout.zones[zone], edge === "left" || edge === "right" ? "x" : "y"))
+              .map((edge) => (
               <button
                 key={`${zone}:${edge}`}
                 type="button"

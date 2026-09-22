@@ -57,7 +57,7 @@ export const THEME_PRESETS: readonly ThemePresetOption[] = [
     id: "minimal",
     label: "Minimal",
     description: "Quiet white surfaces with a restrained blue accent.",
-    swatches: ["#4f6f91", "#ffffff", "#f3f5f7"],
+    swatches: ["#6a8695", "#ffffff", "#f5f5f5"],
   },
   {
     id: "graphite",

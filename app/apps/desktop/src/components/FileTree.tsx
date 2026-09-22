@@ -137,6 +137,10 @@ function useDimensions(): [React.RefObject<HTMLDivElement | null>, Dimensions] {
     if (!ref.current) return;
     const ro = new ResizeObserver((entries) => {
       const r = entries[0].contentRect;
+      // Inactive dock tabs stay mounted under display:none. Keep the last
+      // visible size so hiding Files cannot give Arborist a negative viewport
+      // after subtracting the toolbar, or disturb its virtual scroll state.
+      if (r.width <= 0 || r.height <= 0) return;
       setDim({ width: r.width, height: r.height });
     });
     ro.observe(ref.current);
@@ -297,7 +301,7 @@ const ICON_TRASH = (
   </TreeSvg>
 );
 
-export function FileTree() {
+export function FileTree({ visible = true }: { visible?: boolean }) {
   const tree = useStore((s) => s.tree);
   const openNote = useStore((s) => s.openNote);
   const syncEnabled = useStore((s) => s.syncEnabled);
@@ -1507,8 +1511,9 @@ export function FileTree() {
    * `RowShared.selectedPath`.
    */
   const revealRequest = useStore((s) => s.revealRequest);
+  const handledReveal = useRef<typeof revealRequest>(null);
   useEffect(() => {
-    if (!revealRequest) return;
+    if (!visible || !revealRequest || handledReveal.current === revealRequest) return;
     const { path, edit } = revealRequest;
     let cancelled = false;
     void (async () => {
@@ -1563,6 +1568,7 @@ export function FileTree() {
             void t.scrollTo(path, "smart")?.then(() => {
               if (cancelled) return;
               // Only a visible row can be edited, so this waits for the scroll.
+              handledReveal.current = revealRequest;
               if (edit) void t.edit(path);
               if (wasOnScreen) return;
               useStore.getState().setRevealedPath(path);
@@ -1577,12 +1583,16 @@ export function FileTree() {
         }
         if (tries < 30) requestAnimationFrame(() => land(tries + 1));
       };
-      land();
+      // Let the visible panel paint and ResizeObserver commit its dimensions
+      // before Arborist computes a scroll offset. Cleanup cancels either frame.
+      requestAnimationFrame(() => {
+        if (!cancelled) requestAnimationFrame(() => land());
+      });
     })();
     return () => {
       cancelled = true;
     };
-  }, [revealRequest]);
+  }, [revealRequest, visible]);
 
   /**
    * Refuse a create/import at the vault root when the root is frozen.
@@ -2313,7 +2323,7 @@ export function FileTree() {
             idAccessor="id"
             openByDefault={false}
             width={dim.width}
-            height={dim.height - 34 - (selectMode ? 36 : 0)}
+            height={Math.max(0, dim.height - 34 - (selectMode ? 36 : 0))}
             indent={16}
             rowHeight={28}
             onToggle={onToggle}

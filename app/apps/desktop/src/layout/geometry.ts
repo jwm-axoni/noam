@@ -2,6 +2,7 @@ import {
   DEFAULT_LEFT_WIDTH,
   DEFAULT_RIGHT_WIDTH,
   type SplitAxis,
+  type LayoutZone,
 } from "./types";
 
 export const ACTIVITY_BAR_WIDTH = 40;
@@ -145,4 +146,33 @@ export function fitZoneSplit(input: {
     input.secondMinimum ?? defaultMinimum,
   );
   return ratio == null ? { split: false, ratio: input.ratio } : { split: true, ratio };
+}
+
+/** Allocate stacked heights, retaining minimum usable panels when the dock must scroll. */
+export function stackGroupSizes(zone: LayoutZone, height: number): number[] {
+  const ids = zone.groupIds;
+  const available = Math.max(ids.length * GROUP_HEIGHT_MIN,
+    finite(height, 0) - Math.max(0, ids.length - 1) * PANE_SEPARATOR_SIZE);
+  const weights = ids.map((id, index) => {
+    const saved = zone.groupSizes?.[id];
+    if (saved != null && Number.isFinite(saved) && saved > 0) return saved;
+    return ids.length === 2 ? (index === 0 ? zone.ratio : 1 - zone.ratio) : 1 / ids.length;
+  });
+  const sizes = Array<number>(ids.length).fill(0);
+  let remaining = available;
+  const pending = new Set(ids.map((_, i) => i));
+  while (pending.size) {
+    const total = [...pending].reduce((sum, i) => sum + weights[i]!, 0);
+    const small = [...pending].filter(i => remaining * weights[i]! / total < GROUP_HEIGHT_MIN);
+    if (!small.length) {
+      for (const i of pending) sizes[i] = remaining * weights[i]! / total;
+      break;
+    }
+    for (const i of small) {
+      sizes[i] = GROUP_HEIGHT_MIN;
+      remaining -= GROUP_HEIGHT_MIN;
+      pending.delete(i);
+    }
+  }
+  return sizes;
 }

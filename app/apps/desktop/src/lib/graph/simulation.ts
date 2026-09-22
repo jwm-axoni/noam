@@ -312,6 +312,14 @@ export function centerWeight(linkCount: number, maxDegree: number): number {
   return 0.12 + Math.pow(importance, 0.45) * 1.9;
 }
 
+/** Equal unlinked nodes otherwise settle at the same radius. A stable spread
+ * of center strengths gives the outer cloud depth without per-frame jitter. */
+function orphanCenterFactor(id: string): number {
+  let hash = 2166136261;
+  for (let i = 0; i < id.length; i++) hash = Math.imul(hash ^ id.charCodeAt(i), 16777619);
+  return 0.25 + ((hash >>> 0) / 0xffffffff) * 2.25;
+}
+
 export function createSimulation(
   settings: GraphSettings,
 ): Simulation<SimNode, SimLink> {
@@ -393,7 +401,8 @@ export function configureForces(
   // the graph off-screen. Clamp to [0,1] so the force never overshoots.
   const gravity = Math.max(0.04, settings.gravity);
   const centerStrength = (d: SimNode) =>
-    Math.max(0, Math.min(1, gravity * (d.weight ?? 0.12)));
+    Math.max(0, Math.min(1, gravity * (d.weight ?? 0.12) *
+      (d.linkCount === 0 ? orphanCenterFactor(d.id) : 1)));
   (sim.force("x") as ForceX<SimNode>).strength(centerStrength);
   (sim.force("y") as ForceY<SimNode>).strength(centerStrength);
 
@@ -407,6 +416,6 @@ export function configureForces(
   // every tick, which is felt as vibration; easing them apart over several ticks
   // reads as weight instead.
   (sim.force("collide") as ForceCollide<SimNode>)
-    .radius((d) => d.radius + 4 + d.radius * 0.35)
+    .radius((d) => d.radius + 6 + d.radius * 0.35)
     .strength(0.7);
 }

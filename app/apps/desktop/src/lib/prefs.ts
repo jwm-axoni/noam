@@ -475,7 +475,37 @@ export const VIEW_MODE_OPTIONS: ReadonlyArray<{
 
 // ---- Editor layout ----------------------------------------------------------
 
+const EDITOR_FONT_SIZE_KEY = "context.editorFontSize";
+export const EDITOR_FONT_SIZE_MIN = 12;
+export const EDITOR_FONT_SIZE_MAX = 22;
+export const EDITOR_FONT_SIZE_DEFAULT = 16;
+
+export function clampEditorFontSize(value: number): number {
+  return Number.isFinite(value)
+    ? Math.min(EDITOR_FONT_SIZE_MAX, Math.max(EDITOR_FONT_SIZE_MIN, Math.round(value)))
+    : EDITOR_FONT_SIZE_DEFAULT;
+}
+
+export function readEditorFontSize(): number {
+  try {
+    const raw = localStorage.getItem(EDITOR_FONT_SIZE_KEY);
+    return raw == null || raw.trim() === "" ? EDITOR_FONT_SIZE_DEFAULT : clampEditorFontSize(Number(raw));
+  } catch {
+    return EDITOR_FONT_SIZE_DEFAULT;
+  }
+}
+
+export function writeEditorFontSize(size: number): void {
+  try {
+    localStorage.setItem(EDITOR_FONT_SIZE_KEY, String(clampEditorFontSize(size)));
+  } catch {
+    // Device storage can be denied; the store retains the live choice.
+  }
+}
+
 const EDITOR_MEASURE_KEY = "context.editorMeasure";
+/** The last non-full width, which the Wide toggle returns to. */
+const EDITOR_NORMAL_MEASURE_KEY = "context.editorMeasureNormal";
 /** The key this replaced: a two-state "Readable line length" switch. Read once,
  *  to migrate a device that still has it, and never written again. */
 const LEGACY_READABLE_LINE_LENGTH_KEY = "context.readableLineLength";
@@ -488,10 +518,9 @@ const LINE_NUMBERS_KEY = "context.lineNumbers";
  */
 export type EditorMeasure = number | "full";
 
-/** 88ch is the readable measure: past roughly ninety characters the eye loses
- *  the start of the next line, which is where every typographic rule of thumb
- *  (and Obsidian's own default) lands. */
-export const EDITOR_MEASURE_DEFAULT = 88;
+/** 72ch (~640px at the document size) matches Obsidian Minimal's 40rem line
+ *  width. The old 88ch default left almost no margin in a laptop-width pane. */
+export const EDITOR_MEASURE_DEFAULT = 72;
 /** Below ~60ch prose starts to hyphenate badly; above ~120ch the measure has
  *  already stopped being readable and "full" is the honest choice. */
 export const EDITOR_MEASURE_MIN = 60;
@@ -536,6 +565,24 @@ export function readEditorMeasure(): EditorMeasure {
     return raw.trim() === "" ? EDITOR_MEASURE_DEFAULT : clampEditorMeasure(Number(raw));
   } catch {
     return EDITOR_MEASURE_DEFAULT;
+  }
+}
+
+/** The width the Wide toggle returns to: the last non-full one, else the default. */
+export function readEditorNormalMeasure(): number {
+  try {
+    const raw = localStorage.getItem(EDITOR_NORMAL_MEASURE_KEY);
+    return raw === null || raw.trim() === "" ? EDITOR_MEASURE_DEFAULT : clampEditorMeasure(Number(raw));
+  } catch {
+    return EDITOR_MEASURE_DEFAULT;
+  }
+}
+
+export function writeEditorNormalMeasure(measure: number): void {
+  try {
+    localStorage.setItem(EDITOR_NORMAL_MEASURE_KEY, String(measure));
+  } catch {
+    /* localStorage unavailable — the choice stays in-memory only */
   }
 }
 

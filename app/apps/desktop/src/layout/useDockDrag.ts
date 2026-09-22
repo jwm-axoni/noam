@@ -9,7 +9,7 @@ import {
   type DockDropTarget,
 } from "./dragSession";
 import { useLayoutStore } from "./store";
-import type { ZoneId } from "./types";
+import { canSplitZone, type ZoneId } from "./types";
 
 const DRAG_THRESHOLD = 6;
 
@@ -52,8 +52,8 @@ function targetAt(clientX: number, clientY: number, source: DockDragSource): Doc
 
   if (edge) {
     if (sourceTab?.kind === "note") return null;
-    // A zone is deliberately bounded to one split level in Phase 2.
-    if (layout.zones[zone].groupIds.length >= 2) return null;
+    const axis = edge === "left" || edge === "right" ? "x" : "y";
+    if (!canSplitZone(zone, layout.zones[zone], axis)) return null;
     return {
       kind: "split",
       zone,
@@ -61,7 +61,9 @@ function targetAt(clientX: number, clientY: number, source: DockDragSource): Doc
       axis: edge === "left" || edge === "right" ? "x" : "y",
       after: edge === "right" || edge === "bottom",
       edge,
-      availableSize: edge === "left" || edge === "right" ? rect.width : rect.height,
+      availableSize: axis === "y" && zone === "right"
+        ? (host.closest<HTMLElement>("[data-zone]")?.clientHeight ?? rect.height)
+        : axis === "x" ? rect.width : rect.height,
     };
   }
 

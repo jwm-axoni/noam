@@ -27,33 +27,11 @@
   flex: 1;
   min-height: 0;
   overflow: hidden;
-  /* Theme-aware backdrop. The graph sits IN the app theme: a soft radial lift
-     off the app background in light mode, the deep-space void in dark mode
-     (stops from --graph-void-* tokens). The 2D canvas clears to transparent so
-     this shows through; the WebGL path paints the same stops itself via
-     WebGLGraphRenderer.setBackdropColors (it re-reads the tokens live, so the
-     GPU canvas follows the theme without a reload). */
-  background: radial-gradient(
-    ellipse 130% 130% at 50% 44%,
-    var(--graph-void-core) 0%,
-    var(--graph-void-mid) 52%,
-    var(--graph-void-rim) 100%
-  );
-}
-
-/* Vignette: sink the rim so the eye falls to the luminous core. The tint is
-   theme-aware (near-black in dark, a whisper of cool shade in light). */
-.graph-canvas-wrap::after {
-  content: "";
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  z-index: 1;
-  background: radial-gradient(
-    ellipse 100% 100% at 50% 46%,
-    transparent 45%,
-    var(--graph-vignette) 100%
-  );
+  /* Flat theme surface, the same one the header bar and the editor sheet sit
+     on, so the graph reads as part of the app in every palette. The 2D canvas
+     clears to transparent so this shows through; the WebGL path paints the same
+     color itself (GraphView readBackdropColors re-reads it on theme change). */
+  background: var(--bg-surface);
 }
 
 .graph-canvas {

@@ -87,14 +87,44 @@ describe("editor theme geometry", () => {
   it("paints full-width line decorations inside the prose column", () => {
     // A border/background on a now-full-width line box would reach the window.
     expect(editorThemeSpec[".cm-blockquote::before"].left).toBe("var(--editor-pad-x)");
-    expect(editorThemeSpec[".cm-codeblock"].backgroundClip).toBe("content-box");
-    expect(editorThemeSpec[".cm-codeblock"].borderLeft).toBeUndefined();
+    // The code well is a pseudo-element at the prose edges, pulled back over
+    // the line's transparent inset border (which is what moves the code text).
+    expect(editorThemeSpec[".cm-codeblock"].backgroundColor).toBeUndefined();
+    expect(editorThemeSpec[".cm-codeblock"].borderInline).toBe("1em solid transparent");
+    expect(editorThemeSpec[".cm-codeblock::after"].left).toBe("calc(var(--editor-pad-x) - 1em)");
+    expect(editorThemeSpec[".cm-codeblock::after"].right).toBe("calc(var(--editor-pad-x) - 1em)");
     expect(editorThemeSpec[".cm-hr::after"].left).toBe("var(--editor-pad-x)");
     expect(editorThemeSpec[".cm-block-inset"].marginInline).toBe("var(--editor-pad-x)");
   });
 
   it("dims the • bullet to the faint marker tier, not the accent", () => {
     expect(editorThemeSpec[".cm-bullet"].color).toBe("var(--text-faint)");
+  });
+
+  it("sets no horizontal padding on the code-block line class", () => {
+    // Same drawSelection rule as frontmatter below: the inset is a border.
+    for (const key of Object.keys(editorThemeSpec[".cm-codeblock"])) {
+      expect(key).not.toMatch(/padding(Inline|Left|Right)?$/);
+    }
+  });
+
+  it("sets every code-block line in the mono face, whatever parsed it", () => {
+    const cb = editorThemeSpec[".cm-codeblock"];
+    expect(cb.fontFamily).toBe("var(--font-mono)");
+    expect(cb.fontSize).toBe("var(--type-code-relative)");
+    // …and the inline-code chip cannot shrink or pad it a second time.
+    const inner = editorThemeSpec['.cm-codeblock span:not([class*="cm-"])'];
+    expect(inner.fontSize).toBe("inherit");
+    expect(inner.padding).toBe("0");
+  });
+
+  it("rounds the code well's first and last lines", () => {
+    expect(editorThemeSpec[".cm-codeblock-open::after"].borderTopLeftRadius).toBe(
+      "var(--radius-md)",
+    );
+    expect(editorThemeSpec[".cm-codeblock-close::after"].borderBottomRightRadius).toBe(
+      "var(--radius-md)",
+    );
   });
 
   it("sets no horizontal padding on the frontmatter line class", () => {

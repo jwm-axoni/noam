@@ -47,10 +47,14 @@ import { createWithUniqueSlug, slugifyName } from "./lib/orgSlug";
 import {
   type ActivityStatus,
   type EditorMeasure,
+  readEditorFontSize,
+  writeEditorFontSize,
+  clampEditorFontSize,
   readActivityStatus,
   readMentionSound,
   readDefaultViewMode,
   readEditorMeasure,
+  readEditorNormalMeasure,
   readLineNumbers,
   readPropertiesMode,
   remapPropertiesCollapsed,
@@ -59,6 +63,7 @@ import {
   writeMentionSound,
   writeDefaultViewMode,
   writeEditorMeasure,
+  writeEditorNormalMeasure,
   writeLineNumbers,
   writePropertiesMode,
   writeTreeSort,
@@ -410,6 +415,10 @@ interface AppStore {
   /** How wide the editor's prose column runs: a measure in `ch`, or "full" for
    *  the whole pane. Device-local (Settings → Appearance). */
   editorMeasure: EditorMeasure;
+  editorFontSize: number;
+  setEditorFontSize: (size: number) => void;
+  /** Last normal width, retained even when device storage is unavailable. */
+  editorNormalMeasure: number;
   /** Show the editor's line-number gutter. Off by default. */
   lineNumbers: boolean;
   /** How the sidebar arranges everything the user hasn't arranged by hand.
@@ -549,6 +558,8 @@ interface AppStore {
   /** Set a session-only override for the note currently on screen. */
   setViewMode: (mode: ViewMode) => void;
   setEditorMeasure: (measure: EditorMeasure) => void;
+  /** Wide on: full width. Wide off: back to the last width the user chose. */
+  toggleEditorWide: () => void;
   setLineNumbers: (on: boolean) => void;
   /** Open the mic and start broadcasting to the vault (button pressed). */
   startBroadcast: () => Promise<void>;
@@ -1302,8 +1313,9 @@ async function finishNoteCreate(
   await get().openNoteByPath(path);
   // The new note's name is typed into its INLINE TITLE, not the sidebar's
   // rename box: a note created empty shows its filename at the top of itself,
-  // and that is where the cursor belongs. `openNoteByPath` already revealed the
-  // row; it just does not go into edit mode any more.
+  // and that is where the cursor belongs. Creating a note explicitly reveals
+  // its new row; opening an existing note leaves the tree alone.
+  get().requestReveal(path);
   if (opts?.edit) get().setPendingTitleFocus(path);
   return path;
 }
@@ -1431,6 +1443,8 @@ export const useStore = create<AppStore>((set, get) => ({
   defaultViewMode: readDefaultViewMode(),
   viewMode: readDefaultViewMode(),
   editorMeasure: readEditorMeasure(),
+  editorNormalMeasure: readEditorNormalMeasure(),
+  editorFontSize: readEditorFontSize(),
   lineNumbers: readLineNumbers(),
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
@@ -1817,11 +1831,7 @@ export const useStore = create<AppStore>((set, get) => ({
       // Tab membership is committed only after the epoch-guarded open succeeds.
       // Failed and superseded opens leave the previous active surface intact.
       commitSuccessfulNoteOpen(path);
-      // Whichever note becomes active gets shown in the sidebar. Unconditional
-      // on purpose: it is idempotent (`openParents` on open parents and
-      // `scrollTo(…, "auto")` on a visible row both do nothing), and the
-      // alternative is threading a flag through all of this action's callers.
-      get().requestReveal(path);
+      // Navigation leaves the Files tree where the user put it. Reveal is explicit.
       // Tell teammates which note we're now viewing (drives their sidebar dots).
       // The announced id must be the SERVER doc_id — see `viewingDocId`, which
       // exists to hold that reasoning and a regression test for it.
@@ -2613,9 +2623,25 @@ export const useStore = create<AppStore>((set, get) => ({
     }));
   },
 
+  setEditorFontSize: (size) => {
+    const editorFontSize = clampEditorFontSize(size);
+    writeEditorFontSize(editorFontSize);
+    set({ editorFontSize });
+  },
+
   setEditorMeasure: (measure) => {
+    const current = get();
+    const normal = measure !== "full" ? measure
+      : current.editorMeasure !== "full" ? current.editorMeasure
+      : current.editorNormalMeasure;
     writeEditorMeasure(measure);
-    set({ editorMeasure: measure });
+    writeEditorNormalMeasure(normal);
+    set({ editorMeasure: measure, editorNormalMeasure: normal });
+  },
+
+  toggleEditorWide: () => {
+    const current = get();
+    current.setEditorMeasure(current.editorMeasure === "full" ? current.editorNormalMeasure : "full");
   },
 
   setLineNumbers: (on) => {

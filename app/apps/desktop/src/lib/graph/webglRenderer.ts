@@ -521,9 +521,9 @@ export class WebGLGraphRenderer {
     };
 
     // ---- 2. Edges ----
-    // Resting links: thin, delicate threads, matched to the Obsidian reference
-    // look — light gray and subtle in light mode, clearly visible without ever
-    // going heavy. The feathered quads soften the rim (which replaces MSAA on a
+    // Resting links: thin, low-contrast threads, matched to the Obsidian
+    // reference look — structure you notice only when you look for it; the
+    // hover rays below are what make a note's own links stand out. The feathered quads soften the rim (which replaces MSAA on a
     // 1px line), so the resting alpha can sit at a real value: hairlines at a
     // whisper of opacity used to accumulate into a flat wash over dense
     // regions, so they had to be dialled down until they nearly disappeared.
@@ -532,11 +532,11 @@ export class WebGLGraphRenderer {
     drawSegments(
       this.lineVao,
       this.lineCount,
-      1.5 * dpr,
+      1.25 * dpr,
       edgeR,
       edgeG,
       edgeB,
-      (this.lightMode ? 0.5 : 0.4) * this.edgeAlphaScale,
+      (this.lightMode ? 0.3 : 0.22) * this.edgeAlphaScale,
     );
 
     // Hover rays go UNDER the nodes, not over them. Drawn last, they crossed the
