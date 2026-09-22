@@ -121,6 +121,18 @@ describe("code fence flair and fence reveal", () => {
     view.destroy();
   });
 
+  it.each(['html title="example"', 'HTM title="example"'])("renders attributed %s fences and reveals their source when editing", (info) => {
+    const doc = `intro\n\`\`\`${info}\n<h1>Hi</h1>\n\`\`\`\noutro`;
+    const view = mount(doc);
+    expect(view.contentDOM.querySelector("h1")?.textContent).toBe("Hi");
+    expect(view.contentDOM.querySelector(".cm-fence-copy")).toBeNull();
+    view.dispatch({ effects: setFocused.of(true), selection: { anchor: doc.indexOf("<h1>") } });
+    expect(lines(view)).toContain(`\`\`\`${info}`);
+    expect(lines(view)).toContain("<h1>Hi</h1>");
+    expect(view.state.doc.toString()).toBe(doc);
+    view.destroy();
+  });
+
   it("gives an empty fence a label but nothing to copy", () => {
     const view = mount("```js\n```");
     expect(view.contentDOM.querySelector(".cm-fence-copy")).toBeNull();

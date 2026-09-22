@@ -506,8 +506,6 @@ export function writeEditorFontSize(size: number): void {
 const EDITOR_MEASURE_KEY = "context.editorMeasure";
 /** The last non-full width, which the Wide toggle returns to. */
 const EDITOR_NORMAL_MEASURE_KEY = "context.editorMeasureNormal";
-/** Set once the old 88ch default has been moved to the current one. */
-const EDITOR_MEASURE_DEFAULT_MIGRATED_KEY = "context.editorMeasureDefault72";
 /** The key this replaced: a two-state "Readable line length" switch. Read once,
  *  to migrate a device that still has it, and never written again. */
 const LEGACY_READABLE_LINE_LENGTH_KEY = "context.readableLineLength";
@@ -523,8 +521,6 @@ export type EditorMeasure = number | "full";
 /** 72ch (~640px at the document size) matches Obsidian Minimal's 40rem line
  *  width. The old 88ch default left almost no margin in a laptop-width pane. */
 export const EDITOR_MEASURE_DEFAULT = 72;
-/** The default this replaced, moved once by `migrateEditorMeasureDefault`. */
-const EDITOR_MEASURE_OLD_DEFAULT = 88;
 /** Below ~60ch prose starts to hyphenate badly; above ~120ch the measure has
  *  already stopped being readable and "full" is the honest choice. */
 export const EDITOR_MEASURE_MIN = 60;
@@ -569,22 +565,6 @@ export function readEditorMeasure(): EditorMeasure {
     return raw.trim() === "" ? EDITOR_MEASURE_DEFAULT : clampEditorMeasure(Number(raw));
   } catch {
     return EDITOR_MEASURE_DEFAULT;
-  }
-}
-
-/**
- * Move a device still on the old 88ch default to the current one. Runs once: a
- * width of 88 chosen after the migration is left alone.
- */
-export function migrateEditorMeasureDefault(): void {
-  try {
-    if (localStorage.getItem(EDITOR_MEASURE_DEFAULT_MIGRATED_KEY) !== null) return;
-    localStorage.setItem(EDITOR_MEASURE_DEFAULT_MIGRATED_KEY, "1");
-    if (localStorage.getItem(EDITOR_MEASURE_KEY) === String(EDITOR_MEASURE_OLD_DEFAULT)) {
-      localStorage.setItem(EDITOR_MEASURE_KEY, String(EDITOR_MEASURE_DEFAULT));
-    }
-  } catch {
-    /* localStorage unavailable — nothing stored to migrate */
   }
 }
 

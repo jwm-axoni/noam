@@ -361,7 +361,7 @@ function buildBlockDecorations(
       // is inside it.
       if (node.name === "FencedCode") {
         const info = node.node.getChild("CodeInfo");
-        const lang = info ? doc.sliceString(info.from, info.to).trim().toLowerCase() : "";
+        const lang = info ? (doc.sliceString(info.from, info.to).trim().split(/\s/)[0] ?? "").toLowerCase() : "";
         if ((lang === "html" || lang === "htm") && !isActive(node.from, node.to)) {
           const codeNode = node.node.getChild("CodeText");
           const html = codeNode ? doc.sliceString(codeNode.from, codeNode.to) : "";
@@ -485,7 +485,7 @@ function buildDecorations(view: EditorView, resolveAsset: ResolveAsset): Decorat
         if (node.name === "FencedCode") {
           const info = node.node.getChild("CodeInfo");
           const lang = info
-            ? doc.sliceString(info.from, info.to).trim().toLowerCase()
+            ? (doc.sliceString(info.from, info.to).trim().split(/\s/)[0] ?? "").toLowerCase()
             : "";
           const active = isActive(node.from, node.to);
           if ((lang === "html" || lang === "htm") && !active) {

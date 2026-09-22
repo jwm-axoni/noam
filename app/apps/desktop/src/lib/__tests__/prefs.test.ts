@@ -17,7 +17,6 @@ import {
   readAccentTheme,
   readHeadingColorMode,
   readDefaultViewMode,
-  migrateEditorMeasureDefault,
   readEditorMeasure,
   readEditorNormalMeasure,
   readPropertiesCollapsed,
@@ -275,14 +274,12 @@ describe("readEditorMeasure — migration from the old switch", () => {
   });
 });
 
-describe("migrateEditorMeasureDefault", () => {
-  it("moves a device still on the old 88ch default to the new one, once", () => {
+describe("existing editor widths", () => {
+  it("preserves an explicitly saved 88ch width on upgrade", () => {
     const store = stubStorage({ [NEW_KEY]: "88" });
-    migrateEditorMeasureDefault();
-    expect(readEditorMeasure()).toBe(EDITOR_MEASURE_DEFAULT);
-    // A later deliberate 88 survives: the migration has already run.
+    expect(readEditorMeasure()).toBe(88);
+    // Reading and writing preferences must retain the same choice.
     writeEditorMeasure(88);
-    migrateEditorMeasureDefault();
     expect(readEditorMeasure()).toBe(88);
     expect(store.get(NEW_KEY)).toBe("88");
   });
@@ -290,7 +287,6 @@ describe("migrateEditorMeasureDefault", () => {
   it("leaves any other stored width alone", () => {
     for (const raw of ["full", "100", "60"]) {
       stubStorage({ [NEW_KEY]: raw });
-      migrateEditorMeasureDefault();
       expect(String(readEditorMeasure())).toBe(raw);
     }
   });
