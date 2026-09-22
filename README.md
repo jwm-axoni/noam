@@ -116,7 +116,18 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 - **Rendering is sandboxed.** Live preview and inline HTML strip scripts, styles, iframes, and event handlers, so a note cannot run code.
 - **Signed and notarized.** macOS builds are signed with a Developer ID certificate and notarized by Apple, so a downloaded release opens normally instead of triggering the unidentified-developer warning an unsigned app shows.
 
+## Install
+
+### macOS (recommended)
+
+Download the latest `.dmg` from [Releases](https://github.com/jwm-axoni/noam/releases), open it, and drag **Noam** to **Applications**. Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
+
+- **Apple Silicon only.** Intel Macs are not supported yet.
+- Auto-update is not enabled yet — check the Releases page for new versions.
+
 ## Build from source
+
+For contributors. Everything below builds the app and local server from the repo.
 
 ### Requirements
 
