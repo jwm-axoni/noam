@@ -128,7 +128,7 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 ### Install
 
 ```bash
-git clone <repository-url>
+git clone https://github.com/jwm-axoni/noam.git
 cd noam/app
 corepack enable
 pnpm install
