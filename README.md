@@ -120,7 +120,7 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 
 ### macOS (recommended)
 
-Download the latest `.dmg` from [Releases](https://github.com/jwm-axoni/noam/releases), open it, and drag **Noam** to **Applications**. Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
+**[Download Noam 0.1.59 for macOS (.dmg)](https://github.com/jwm-axoni/noam/releases/download/v0.1.59/Noam_0.1.59_aarch64.dmg)** — open it and drag **Noam** to **Applications**. (Or grab any version from [Releases](https://github.com/jwm-axoni/noam/releases).) Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
 
 - **Apple Silicon only.** Intel Macs are not supported yet.
 - Auto-update is not enabled yet — check the Releases page for new versions.
