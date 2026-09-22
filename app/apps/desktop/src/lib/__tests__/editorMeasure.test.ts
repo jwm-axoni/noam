@@ -106,6 +106,18 @@ describe("preview geometry", () => {
     expect(wide.columnPx).toBeLessThan(full.columnPx);
   });
 
+  it("caps any column at 88% of a wide pane, like Minimal's max width", () => {
+    // 2000px pane: the gutters alone would allow 1872px, the cap allows 1760.
+    const full = computePreviewColumn({
+      paneWidth: 2000,
+      gutterPx,
+      measurePx: "full",
+      previewWidth: 500,
+    });
+    expect(full.columnPx).toBeCloseTo(440);
+    expect(full.insetPx).toBeCloseTo(30);
+  });
+
   it("always fills the miniature exactly", () => {
     for (const measurePx of [400, 800, 2000, "full" as const]) {
       const { columnPx, insetPx } = computePreviewColumn({
@@ -156,12 +168,12 @@ describe("editor column stylesheet behavior", () => {
     column.append(line);
     document.body.append(column);
 
-    expect(computedToken("--editor-measure")).toBe("88ch");
+    expect(computedToken("--editor-measure")).toBe("72ch");
     expect(computedToken("--editor-gutter")).toBe("64px");
     expect(computedToken("--editor-pad-x")).toBe("");
     expect(computedToken("--editor-measure", column)).toBe("72ch");
     expect(computedToken("--editor-pad-x", column).replace(/\s+/g, " ")).toBe(
-      "max(var(--editor-gutter),calc((100% - var(--editor-measure))/2))",
+      "max(var(--editor-gutter),calc((100% - min(var(--editor-measure),88%))/2))",
     );
     expect(computedToken("--editor-pad-x", line)).toBe(computedToken("--editor-pad-x", column));
     column.remove();

@@ -135,16 +135,14 @@
   /* The editor's prose column. One pair of tokens so the CM6 theme
      (`lib/editor/theme.ts`) and the loading skeleton (`components/editor.css`)
      can never drift — the skeleton must land exactly where the real text does.
-     88ch is the readable measure — past roughly ninety characters the eye
-     loses the start of the next line, which is where every typographic rule of
-     thumb (and Obsidian's own default) lands. `--editor-gutter` is the minimum
+     72ch (~640px) is the readable measure, Obsidian Minimal's 40rem line width. `--editor-gutter` is the minimum
      breathing room at each edge on narrow windows (see the `max(...)` the
      consumers wrap these in). This is only the DEFAULT: Settings → Appearance →
      "Content width" overrides `--editor-measure` inline on `.editor-column`
      (60–120ch, or 100% for full width — `lib/editorMeasure.ts`), and every
      consumer then follows for free — which only works because `--editor-pad-x`
      is composed on `.editor-column` and not here. See the note on it below. */
-  --editor-measure: 88ch;
+  --editor-measure: 72ch;
   --editor-gutter: 64px;
 
   /* The inline note title — the note's filename, rendered as an editable
@@ -266,9 +264,12 @@
    Anything mounted outside one would resolve `var(--editor-pad-x)` to nothing
    and lose its inset, so keep it here. */
 .editor-column {
+  /* The column never takes more than 88% of the pane (Obsidian Minimal's
+     `maxWidth`), so full width still leaves a margin on each side. Keep in
+     step with EDITOR_MAX_FRACTION in lib/editorMeasure.ts. */
   --editor-pad-x: max(
     var(--editor-gutter),
-    calc((100% - var(--editor-measure)) / 2)
+    calc((100% - min(var(--editor-measure), 88%)) / 2)
   );
 }
 

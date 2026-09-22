@@ -14,13 +14,16 @@ import {
   readAccentTheme,
   readHeadingColorMode,
   readDefaultViewMode,
+  migrateEditorMeasureDefault,
   readEditorMeasure,
+  readEditorNormalMeasure,
   readPropertiesCollapsed,
   remapPropertiesCollapsed,
   setAccentTheme,
   setHeadingColorMode,
   writeDefaultViewMode,
   writeEditorMeasure,
+  writeEditorNormalMeasure,
   writePropertiesCollapsed,
 } from "../prefs";
 
@@ -266,6 +269,40 @@ describe("readEditorMeasure — migration from the old switch", () => {
     expect(readEditorMeasure()).toBe(72);
     stubStorage({ [LEGACY_KEY]: "on", [NEW_KEY]: "full" });
     expect(readEditorMeasure()).toBe("full");
+  });
+});
+
+describe("migrateEditorMeasureDefault", () => {
+  it("moves a device still on the old 88ch default to the new one, once", () => {
+    const store = stubStorage({ [NEW_KEY]: "88" });
+    migrateEditorMeasureDefault();
+    expect(readEditorMeasure()).toBe(EDITOR_MEASURE_DEFAULT);
+    // A later deliberate 88 survives: the migration has already run.
+    writeEditorMeasure(88);
+    migrateEditorMeasureDefault();
+    expect(readEditorMeasure()).toBe(88);
+    expect(store.get(NEW_KEY)).toBe("88");
+  });
+
+  it("leaves any other stored width alone", () => {
+    for (const raw of ["full", "100", "60"]) {
+      stubStorage({ [NEW_KEY]: raw });
+      migrateEditorMeasureDefault();
+      expect(String(readEditorMeasure())).toBe(raw);
+    }
+  });
+});
+
+describe("the normal width the Wide toggle returns to", () => {
+  it("defaults to the readable measure", () => {
+    stubStorage();
+    expect(readEditorNormalMeasure()).toBe(EDITOR_MEASURE_DEFAULT);
+  });
+
+  it("remembers the last non-full width", () => {
+    stubStorage();
+    writeEditorNormalMeasure(100);
+    expect(readEditorNormalMeasure()).toBe(100);
   });
 });
 

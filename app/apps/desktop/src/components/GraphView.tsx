@@ -22,7 +22,12 @@ import {
 } from "../lib/graph/simulation";
 import { assignColors, type LegendEntry } from "../lib/graph/graphColor";
 import { createEntrance, type Entrance } from "../lib/graph/entrance";
-import { selectLabels, type LabelNode } from "../lib/graph/labels";
+import {
+  graphLabel,
+  labelZoomAlpha,
+  selectLabels,
+  type LabelNode,
+} from "../lib/graph/labels";
 import {
   loadSettings,
   saveSettings,
@@ -102,11 +107,12 @@ const WEBGL_ENABLED = true;
 const WORKER_THRESHOLD = 8000;
 
 
-// ---- Persistent labels ----------------------------------------------------
-// Names are readable at rest, not only on hover. Which names survive is decided
-// in screen space by lib/graph/labels.ts: priority (open note > hovered >
-// search match > degree > id) with collision removal, so a dense field thins
-// itself instead of becoming a wall of text, and zooming in reveals more.
+// ---- Labels ----------------------------------------------------------------
+// Like Obsidian, names fade in with zoom (labelZoomAlpha): the fit view of a
+// real vault is text-free, and the hovered node and search matches are the only
+// names that ignore the fade. Which names survive once visible is decided in
+// screen space by lib/graph/labels.ts: priority (open note > hovered > search
+// match > degree > id) with collision removal, so a dense field thins itself.
 const LABEL_FONT_PX = 11; // on-screen size, identical on both render paths
 const LABEL_LINE_PX = 13; // line box used for the collision rects
 const LABEL_OFFSET_PX = 3; // gap between a node's rim and its label
@@ -222,9 +228,10 @@ function parseHexColor(raw: string): [number, number, number] | null {
 }
 
 /**
- * Read the --graph-void-* backdrop stops (resolved per theme) for the WebGL
- * backdrop shader. Falls back to the dark void when the tokens are missing or
- * unparseable, so the GPU canvas can never end up transparent/broken.
+ * Read the backdrop color for the WebGL shader: the theme's --bg-surface, the
+ * same flat color the CSS backdrop paints. All three shader stops get it, so the
+ * gradient collapses to a flat fill. Falls back to a dark surface when the token
+ * is missing or unparseable, so the GPU canvas can never end up transparent.
  */
 function readBackdropColors(el: Element): {
   core: [number, number, number];
@@ -237,11 +244,8 @@ function readBackdropColors(el: Element): {
     fallback: [number, number, number],
   ): [number, number, number] =>
     parseHexColor(cs.getPropertyValue(name)) ?? fallback;
-  return {
-    core: stop("--graph-void-core", [0.059, 0.067, 0.106]),
-    mid: stop("--graph-void-mid", [0.031, 0.035, 0.063]),
-    rim: stop("--graph-void-rim", [0.012, 0.016, 0.035]),
-  };
+  const surface = stop("--bg-surface", [0.106, 0.118, 0.129]);
+  return { core: surface, mid: surface, rim: surface };
 }
 
 /**
@@ -456,6 +460,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     labelPool: [] as LabelNode[],
     labelKey: "",
     labelAt: 0,
+    /** Zoom fade for unpinned labels, 0..1 (see labelZoomAlpha). */
+    labelAlpha: 0,
+    /** Search matches at the last selection; they skip the zoom fade. */
+    labelSearchIds: null as Set<string> | null,
     colors: {
       edge: "rgba(120,120,140,0.25)",
       edgeHighlight: FALLBACK_ACCENT,
@@ -837,8 +845,8 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     }
     webglOkRef.current = webgl !== null;
 
-    // Push the theme into the GPU renderer: backdrop stops come from the
-    // --graph-void-* tokens (same stops the CSS backdrop uses), and the edge
+    // Push the theme into the GPU renderer: the backdrop is --bg-surface (the
+    // same color the CSS backdrop uses), and the edge
     // tint follows the light/dark mode. Called here at startup and again from
     // the theme observer below, so flipping the theme repaints live.
     function applyThemeToWebgl() {
@@ -995,6 +1003,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
     // on both paths, so one measurement per distinct title lasts for the life
     // of the view).
     const labelWidths = new Map<string, number>();
+    const labelTexts = new Map<string, string>();
+    function labelText(title: string): string {
+      let text = labelTexts.get(title);
+      if (text === undefined) {
+        text = graphLabel(title);
+        labelTexts.set(title, text);
+      }
+      return text;
+    }
     function measureLabel(node: LabelNode): number {
       let w = labelWidths.get(node.title);
       if (w === undefined) {
@@ -1039,21 +1056,26 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         entry.y = n.y;
         entry.degree = n.linkCount;
         entry.radius = n.radius * radiusScale;
-        entry.title = n.title;
+        entry.title = labelText(n.title);
         if (n.path === openNotePathRef.current) openId = n.id;
         if (matchIds && n.title.toLowerCase().includes(search)) matchIds.add(n.id);
       }
 
       const density = clamp(s.labelScale, 0, 1);
+      const transform = { k: cam.k, x: cam.x, y: cam.y, width, height };
+      // Independent of the saved labelScale on purpose: installs that tuned the
+      // density up still get a text-free fit view without resetting anything.
+      S.labelAlpha = labelZoomAlpha(pool, transform);
+      S.labelSearchIds = matchIds;
       const ids = selectLabels(pool, {
-        transform: { k: cam.k, x: cam.x, y: cam.y, width, height },
+        transform,
         measure: measureLabel,
         lineHeight: LABEL_LINE_PX,
         gap: LABEL_GAP_MAX - (LABEL_GAP_MAX - LABEL_GAP_MIN) * density,
         openId,
         hoveredId: S.hoveredId,
         searchMatchIds: matchIds,
-        maxLabels: s.labelScale <= 0 ? 0 : LABEL_BUDGET,
+        maxLabels: s.labelScale <= 0 || S.labelAlpha <= 0 ? 0 : LABEL_BUDGET,
       });
       S.labelIds = ids;
       S.labelDraw.length = 0;
@@ -1137,7 +1159,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       ctx!.strokeStyle = colors.edge;
       // Close to the GPU path's resting edge alpha so the WebGL-unavailable
       // fallback doesn't look like a different, dimmer product.
-      ctx!.globalAlpha = (hovered ? 0.06 : 0.28) * edgeAlpha;
+      ctx!.globalAlpha = (hovered ? 0.06 : 0.16) * edgeAlpha;
       ctx!.lineWidth = edgeWidth;
       ctx!.beginPath();
       for (const e of S.visEdges) {
@@ -1202,12 +1224,15 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
           ctx!.stroke();
         }
 
-        // Labels: on at rest for whatever fits (selectLabels decided that above,
-        // in screen space), plus the hovered node and the open note always.
+        // Labels: whatever selectLabels chose (in screen space) plus the hovered
+        // node. Only the hovered node and search matches skip the zoom fade;
+        // the open note fades like the rest so the fit view stays text-free.
         // During the entrance they arrive with the edges, after the nodes.
-        const wantLabel = isHovered || isOpen || S.labelIds.has(node.id);
-        if (wantLabel) {
-          let alpha = edgeAlpha;
+        const wantLabel = isHovered || S.labelIds.has(node.id);
+        const pinned = isHovered || (S.labelSearchIds?.has(node.id) ?? false);
+        const text = wantLabel ? labelText(node.title) : "";
+        if (text !== "") {
+          let alpha = edgeAlpha * (pinned ? 1 : S.labelAlpha);
           if (dimBySearch && !isHovered) alpha *= 0.2;
           else if (dimByHover) alpha *= 0.25;
           if (alpha > 0.01) {
@@ -1216,7 +1241,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
             ctx!.font = `${LABEL_FONT_PX / k}px ${S.fontFamily}`;
             ctx!.textAlign = "center";
             ctx!.textBaseline = "top";
-            ctx!.fillText(node.title, at.x, at.y + r + LABEL_OFFSET_PX / k);
+            ctx!.fillText(text, at.x, at.y + r + LABEL_OFFSET_PX / k);
           }
         }
       }
@@ -1242,7 +1267,6 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       labelCtx.font = `${LABEL_FONT_PX}px ${S.fontFamily}`;
       labelCtx.textAlign = "center";
       labelCtx.textBaseline = "top";
-      labelCtx.globalAlpha = alpha;
       // A soft counter-shadow in the backdrop's own direction is what keeps a
       // name legible where it crosses a bright node or a knot of links, in
       // either theme, without boxing every label in a plate.
@@ -1251,6 +1275,10 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
       labelCtx.shadowBlur = 3;
       for (const n of S.labelDraw) {
         const active = n.path === openNotePathRef.current || n.id === S.hoveredId;
+        const pinned = n.id === S.hoveredId || (S.labelSearchIds?.has(n.id) ?? false);
+        const fade = pinned ? 1 : S.labelAlpha;
+        if (fade <= 0.01) continue;
+        labelCtx.globalAlpha = alpha * fade;
         let sx = width / 2 + cam.x + n.x * cam.k;
         let sy = height / 2 + cam.y + n.y * cam.k;
         if (factor !== 1) {
@@ -1259,7 +1287,7 @@ export const GraphView = forwardRef<GraphViewHandle, GraphViewProps>(function Gr
         }
         labelCtx.fillStyle = active ? S.colors.labelActive : S.colors.label;
         labelCtx.fillText(
-          n.title,
+          labelText(n.title),
           sx,
           sy + n.radius * radiusScale * cam.k + LABEL_OFFSET_PX,
         );

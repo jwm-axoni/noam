@@ -86,6 +86,37 @@ import { readPropertiesCollapsed } from "../lib/prefs";
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("Wide editor toggle", () => {
+  it("restores an existing custom width on the first toggle after upgrading", () => {
+    const values = new Map([["context.editorMeasure", "100"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ editorMeasure: 100 });
+
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe("full");
+    // Choosing full width again must not erase the remembered normal width.
+    useStore.getState().setEditorMeasure("full");
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe(100);
+    expect(values.get("context.editorMeasureNormal")).toBe("100");
+  });
+
+  it("preserves the chosen width in memory when storage is unavailable", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => { throw new Error("Storage denied"); },
+      setItem: () => { throw new Error("Storage denied"); },
+    });
+    useStore.getState().setEditorMeasure(104);
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe("full");
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe(104);
+  });
+});
+
 describe("Properties preferences on confirmed moves", () => {
   it.each(["inline", "tree", "sync"])("remaps unopened preferences through the %s move path", async (route) => {
     const values = new Map([["context.propertiesCollapsed", JSON.stringify({

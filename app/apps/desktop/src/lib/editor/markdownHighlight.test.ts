@@ -30,6 +30,23 @@ describe("markdownHighlight", () => {
     expect(ruleFor(t.quote)?.color).toBe("var(--text-secondary)");
   });
 
+  it("never colours t.content — it is markdown's Paragraph tag too", () => {
+    // YAML values are t.content; they inherit --text-primary from the line.
+    // A rule here would override a quote's muted text.
+    expect(markdownHighlightSpec.some((s) => tagsOf(s).includes(t.content))).toBe(false);
+  });
+
+  it("gives code keys a tint and code punctuation the tertiary tier", () => {
+    // YAML keys are definition(propertyName); JSON keys are propertyName.
+    const key = ruleFor(t.definition(t.propertyName))?.color;
+    expect(key).toContain("var(--link)");
+    expect(ruleFor(t.propertyName)?.color).toBe(key);
+    for (const tag of [t.separator, t.bracket, t.punctuation]) {
+      expect(ruleFor(tag)?.color).toBe("var(--text-tertiary)");
+    }
+    expect(ruleFor(t.null)?.color).toBe("var(--warning)");
+  });
+
   it("keeps body-weight text on the primary tier", () => {
     expect(ruleFor(t.strong)?.color).toBe("var(--text-primary)");
   });

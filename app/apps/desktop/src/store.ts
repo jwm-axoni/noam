@@ -50,7 +50,9 @@ import {
   readActivityStatus,
   readMentionSound,
   readDefaultViewMode,
+  migrateEditorMeasureDefault,
   readEditorMeasure,
+  readEditorNormalMeasure,
   readLineNumbers,
   readPropertiesMode,
   remapPropertiesCollapsed,
@@ -59,6 +61,7 @@ import {
   writeMentionSound,
   writeDefaultViewMode,
   writeEditorMeasure,
+  writeEditorNormalMeasure,
   writeLineNumbers,
   writePropertiesMode,
   writeTreeSort,
@@ -410,6 +413,8 @@ interface AppStore {
   /** How wide the editor's prose column runs: a measure in `ch`, or "full" for
    *  the whole pane. Device-local (Settings → Appearance). */
   editorMeasure: EditorMeasure;
+  /** Last normal width, retained even when device storage is unavailable. */
+  editorNormalMeasure: number;
   /** Show the editor's line-number gutter. Off by default. */
   lineNumbers: boolean;
   /** How the sidebar arranges everything the user hasn't arranged by hand.
@@ -549,6 +554,8 @@ interface AppStore {
   /** Set a session-only override for the note currently on screen. */
   setViewMode: (mode: ViewMode) => void;
   setEditorMeasure: (measure: EditorMeasure) => void;
+  /** Wide on: full width. Wide off: back to the last width the user chose. */
+  toggleEditorWide: () => void;
   setLineNumbers: (on: boolean) => void;
   /** Open the mic and start broadcasting to the vault (button pressed). */
   startBroadcast: () => Promise<void>;
@@ -1430,7 +1437,8 @@ export const useStore = create<AppStore>((set, get) => ({
   propertiesMode: readPropertiesMode(),
   defaultViewMode: readDefaultViewMode(),
   viewMode: readDefaultViewMode(),
-  editorMeasure: readEditorMeasure(),
+  editorMeasure: (migrateEditorMeasureDefault(), readEditorMeasure()),
+  editorNormalMeasure: readEditorNormalMeasure(),
   lineNumbers: readLineNumbers(),
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
@@ -2614,8 +2622,18 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   setEditorMeasure: (measure) => {
+    const current = get();
+    const normal = measure !== "full" ? measure
+      : current.editorMeasure !== "full" ? current.editorMeasure
+      : current.editorNormalMeasure;
     writeEditorMeasure(measure);
-    set({ editorMeasure: measure });
+    writeEditorNormalMeasure(normal);
+    set({ editorMeasure: measure, editorNormalMeasure: normal });
+  },
+
+  toggleEditorWide: () => {
+    const current = get();
+    current.setEditorMeasure(current.editorMeasure === "full" ? current.editorNormalMeasure : "full");
   },
 
   setLineNumbers: (on) => {

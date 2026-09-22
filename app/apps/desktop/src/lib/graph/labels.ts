@@ -1,7 +1,8 @@
 // Which node names get a persistent label, decided in SCREEN space.
 //
-// Names are readable at rest, not only on hover — but a vault with thousands of
-// notes cannot show thousands of words, so the set is thinned by what actually
+// Names fade in with zoom (labelZoomAlpha, bottom of this file), so the fit view
+// is text-free. Once visible, a vault with thousands of notes still cannot show
+// thousands of words, so the set is thinned by what actually
 // COLLIDES on screen at the current zoom, never by note order. Zooming in
 // spreads the nodes apart in screen pixels, so more labels survive the same
 // test: that is the whole "more labels as you zoom in" behaviour, for free.
@@ -219,4 +220,64 @@ export function selectLabels(
   }
 
   return chosen;
+}
+
+// Pictographs plus the invisible glue that builds them: variation selectors,
+// zero-width joiner, keycap combiner, skin-tone modifiers, flag halves.
+const EMOJI_RE =
+  /[\p{Extended_Pictographic}\p{Regional_Indicator}\p{Emoji_Modifier}\u{FE0E}\u{FE0F}\u{200D}\u{20E3}]/gu;
+
+/** A title as the graph draws it: emoji dropped, whitespace tidied. "📥 Inbox" → "Inbox". */
+export function graphLabel(title: string): string {
+  return title.replace(EMOJI_RE, "").replace(/\s+/g, " ").trim();
+}
+
+// Zoom gate for UNPINNED labels (Obsidian's text fade). Two ways to earn names:
+//   - zoom in past the fit-to-view scale: none at ≤ ZOOM_LO× fit, full at ZOOM_HI×;
+//   - or have few enough nodes on screen that names cannot crowd (a small local
+//     graph is legible at its fit, a 470-note vault is not).
+// Stateless on purpose: the fit scale is recomputed from the node bounds the
+// same way the auto-fit derives it, so a restored camera needs no remembered fit.
+export const LABEL_FADE_ZOOM_LO = 1.8;
+export const LABEL_FADE_ZOOM_HI = 2.8;
+export const LABEL_FADE_SPARSE_FULL = 40;
+export const LABEL_FADE_SPARSE_NONE = 90;
+/** Must match the auto-fit's viewport padding in GraphView. */
+const FIT_PADDING = 80;
+const FIT_MIN_BOUNDS = 40;
+
+function smoothstep(lo: number, hi: number, v: number): number {
+  const t = Math.max(0, Math.min(1, (v - lo) / (hi - lo)));
+  return t * t * (3 - 2 * t);
+}
+
+/** Opacity 0..1 for unpinned labels at the current camera. */
+export function labelZoomAlpha(
+  nodes: readonly { x: number; y: number }[],
+  transform: LabelTransform,
+): number {
+  const { k, width, height } = transform;
+  if (nodes.length === 0 || k <= 0 || width <= 0 || height <= 0) return 0;
+  let minX = Infinity;
+  let minY = Infinity;
+  let maxX = -Infinity;
+  let maxY = -Infinity;
+  let inView = 0;
+  for (const n of nodes) {
+    if (n.x < minX) minX = n.x;
+    if (n.y < minY) minY = n.y;
+    if (n.x > maxX) maxX = n.x;
+    if (n.y > maxY) maxY = n.y;
+    const sx = width / 2 + transform.x + n.x * k;
+    const sy = height / 2 + transform.y + n.y * k;
+    if (sx >= 0 && sx <= width && sy >= 0 && sy <= height) inView += 1;
+  }
+  const fitK = Math.min(
+    Math.max(1, width - FIT_PADDING) / Math.max(FIT_MIN_BOUNDS, maxX - minX),
+    Math.max(1, height - FIT_PADDING) / Math.max(FIT_MIN_BOUNDS, maxY - minY),
+  );
+  const byZoom = smoothstep(LABEL_FADE_ZOOM_LO, LABEL_FADE_ZOOM_HI, k / fitK);
+  const bySparsity =
+    1 - smoothstep(LABEL_FADE_SPARSE_FULL, LABEL_FADE_SPARSE_NONE, inView);
+  return Math.max(byZoom, bySparsity);
 }

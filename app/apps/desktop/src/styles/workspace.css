@@ -599,14 +599,14 @@ body[data-pane-resizing] .workspace-shell {
   border: 0;
   border-radius: var(--radius-sm);
   background: none;
-  color: var(--text-tertiary);
+  color: var(--text-secondary);
   cursor: pointer;
 }
 .tab-new:hover {
   background: var(--bg-hover);
   color: var(--text-primary);
 }
-.tab-new svg { width: 13px; height: 13px; }
+.tab-new svg { width: 13px; height: 13px; fill: none; stroke: currentColor; stroke-width: 1.8; stroke-linecap: round; }
 .tab-label {
   min-width: 0;
   background: none;
@@ -632,18 +632,26 @@ body[data-pane-resizing] .workspace-shell {
   border: 0;
   border-radius: var(--sp-1);
   background: none;
-  color: var(--text-tertiary);
+  /* Visible on every tab, not only on hover. --text-secondary, not
+     --text-tertiary: tertiary falls under 3:1 against the tab bar in every
+     light palette, secondary clears 4:1 in all of them, light and dark. */
+  color: var(--text-secondary);
   cursor: pointer;
-  opacity: 0;
 }
-.tab:hover .tab-close,
-.tab.active .tab-close,
-.tab-close:focus-visible { opacity: 1; }
-.tab-close:hover {
+.tab-close:hover,
+.tab-close:focus-visible {
   background: var(--bg-active);
   color: var(--text-primary);
 }
-.tab-close svg { width: 11px; height: 11px; }
+/* The path is a bare line: without a stroke it draws nothing at all. */
+.tab-close svg {
+  width: 11px;
+  height: 11px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+}
 .workspace-tab-icon {
   position: relative;
   z-index: 1;

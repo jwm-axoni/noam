@@ -13,6 +13,10 @@ import {
   type EditorMeasure,
 } from "./prefs";
 
+/** The widest share of the pane the column may take, however wide the measure:
+ *  Obsidian Minimal's `maxWidth: 88%`. Must match `--editor-pad-x` in tokens.css. */
+export const EDITOR_MAX_FRACTION = 0.88;
+
 /** The slider starts at the narrowest real measure. */
 export const EDITOR_MEASURE_SLIDER_MIN = EDITOR_MEASURE_MIN;
 /**
@@ -92,7 +96,8 @@ export function computePreviewColumn(input: PreviewColumnInput): PreviewColumn {
   // A preview opened with no editor mounted has no pane to scale against; draw
   // it at 1:1 rather than dividing by zero.
   const pane = input.paneWidth > 0 ? input.paneWidth : previewWidth;
-  const widest = Math.max(0, pane - 2 * Math.max(0, gutterPx));
+  // Mirrors `--editor-pad-x`: the gutters, and the 88% cap on the column.
+  const widest = Math.max(0, Math.min(pane - 2 * Math.max(0, gutterPx), pane * EDITOR_MAX_FRACTION));
   const real = measurePx === "full" ? widest : Math.max(0, Math.min(measurePx, widest));
   const scale = pane > 0 ? previewWidth / pane : 1;
   const columnPx = Math.max(0, Math.min(previewWidth, real * scale));

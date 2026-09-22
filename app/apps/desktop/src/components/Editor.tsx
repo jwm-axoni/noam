@@ -968,7 +968,7 @@ export function Editor() {
                 aria-label={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
                 aria-pressed={editorMeasure === "full"}
                 title={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
-                onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+                onClick={() => useStore.getState().toggleEditorWide()}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3" /></svg>
               </button>
@@ -979,7 +979,7 @@ export function Editor() {
                 <div className="editor-actions-menu">
                   <button
                     type="button"
-                    onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+                    onClick={() => useStore.getState().toggleEditorWide()}
                   >
                     {editorMeasure === "full" ? "Normal note width" : "Full note width"}
                   </button>
