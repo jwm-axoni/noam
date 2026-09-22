@@ -1,13 +1,13 @@
-// A copy button on every fenced code block.
+// The flair on every fenced code block: a language label and a copy button.
 //
 // One inline widget, `side: 1` at the END of the opening fence line, so it rides
 // the fence rather than the code: no block decoration, no height the layout has
-// to account for, and the fence line keeps its own text (the language word stays
-// visible and faint — you should always be able to see and edit what a fence
-// claims to be).
+// to account for. livePreview.ts hides the fence TEXT while the block is not
+// being edited, so the label is how you still see what a fence claims to be;
+// put the caret in the block and the raw ```lang comes back beside it.
 //
 // `html` fences are skipped: live preview replaces those with a rendered
-// preview, so a copy button would be attached to a line that is not on screen.
+// preview, so the flair would be attached to a line that is not on screen.
 //
 // Positioning is `position: absolute` against the line box (theme.ts gives
 // `.cm-line` `position: relative`), pinned to the right edge of the prose
@@ -33,13 +33,28 @@ const COPIED_MS = 1200;
 const RENDERED = new Set(["html", "htm"]);
 
 class FenceFlairWidget extends WidgetType {
-  constructor(readonly code: string) {
+  constructor(
+    readonly code: string,
+    readonly lang: string,
+  ) {
     super();
   }
   eq(other: FenceFlairWidget) {
-    return other.code === this.code;
+    return other.code === this.code && other.lang === this.lang;
   }
   toDOM() {
+    const flair = document.createElement("span");
+    flair.className = "cm-fence-flair";
+    if (this.lang) {
+      const label = document.createElement("span");
+      label.className = "cm-fence-lang";
+      label.textContent = this.lang;
+      flair.appendChild(label);
+    }
+    if (this.code.trim()) flair.appendChild(this.copyButton());
+    return flair;
+  }
+  private copyButton() {
     const button = document.createElement("button");
     button.className = "cm-fence-copy";
     button.type = "button";
@@ -81,14 +96,17 @@ function buildFlair(view: EditorView): DecorationSet {
       enter: (node) => {
         if (node.name !== "FencedCode") return;
         const info = node.node.getChild("CodeInfo");
-        const lang = info ? doc.sliceString(info.from, info.to).trim().toLowerCase() : "";
-        if (RENDERED.has(lang)) return false;
+        // The first word only: `ts title="x.ts"` is a TypeScript fence.
+        const lang = info ? (doc.sliceString(info.from, info.to).trim().split(/\s/)[0] ?? "") : "";
+        if (RENDERED.has(lang.toLowerCase())) return false;
         const body = node.node.getChild("CodeText");
         const code = body ? doc.sliceString(body.from, body.to) : "";
-        if (!code.trim()) return false;
+        if (!code.trim() && !lang) return false;
         const openLine = doc.lineAt(node.from);
         decos.push(
-          Decoration.widget({ widget: new FenceFlairWidget(code), side: 1 }).range(openLine.to),
+          Decoration.widget({ widget: new FenceFlairWidget(code, lang), side: 1 }).range(
+            openLine.to,
+          ),
         );
         return false;
       },

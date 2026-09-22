@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { selectLabels, type LabelNode, type LabelTransform } from "./labels";
+import {
+  graphLabel,
+  labelZoomAlpha,
+  selectLabels,
+  type LabelNode,
+  type LabelTransform,
+} from "./labels";
 
 // 7px per character keeps the arithmetic in these tests readable: a 6-char
 // title is 42px wide, so with the default 4px gap it claims 46px of screen.
@@ -182,5 +188,60 @@ describe("selectLabels", () => {
       selectLabels(row, { transform: { ...view, width: 0 }, measure }).size,
     ).toBe(0);
     expect(selectLabels([], { transform: view, measure }).size).toBe(0);
+  });
+});
+
+describe("graphLabel", () => {
+  it("drops emoji and the joiners/selectors around them", () => {
+    expect(graphLabel("📥 Inbox")).toBe("Inbox");
+    expect(graphLabel("🎯 Today's Focus")).toBe("Today's Focus");
+    expect(graphLabel("☀️ Morning")).toBe("Morning"); // U+2600 + U+FE0F
+    expect(graphLabel("👩‍💻 Dev log")).toBe("Dev log"); // ZWJ sequence
+    expect(graphLabel("👍🏽 Kudos")).toBe("Kudos"); // skin-tone modifier
+    expect(graphLabel("🇺🇸 Trip")).toBe("Trip"); // regional-indicator flag
+    expect(graphLabel("Plan 🚀 2026 ")).toBe("Plan 2026");
+  });
+
+  it("leaves plain and non-Latin titles alone", () => {
+    expect(graphLabel("Quarterly Review")).toBe("Quarterly Review");
+    expect(graphLabel("日本語のノート")).toBe("日本語のノート");
+    expect(graphLabel("C# 101")).toBe("C# 101");
+  });
+
+  it("returns empty for an emoji-only title, which selectLabels skips", () => {
+    expect(graphLabel("🔥")).toBe("");
+  });
+});
+
+describe("labelZoomAlpha", () => {
+  // A 470-node field roughly 2000 world units across, like a mid-size vault.
+  const field = Array.from({ length: 470 }, (_, i) => ({
+    x: ((i * 37) % 2000) - 1000,
+    y: ((i * 53) % 2000) - 1000,
+  }));
+  const size = { width: 1000, height: 800 };
+  const fitK = Math.min((1000 - 80) / 1998, (800 - 80) / 1998);
+
+  it("shows nothing at the fit-to-view zoom of a mid-size vault", () => {
+    expect(labelZoomAlpha(field, { k: fitK, x: 0, y: 0, ...size })).toBe(0);
+    expect(labelZoomAlpha(field, { k: fitK * 1.5, x: 0, y: 0, ...size })).toBe(0);
+  });
+
+  it("fades in with zoom and is full by ~3x", () => {
+    const at = (m: number) => labelZoomAlpha(field, { k: fitK * m, x: 0, y: 0, ...size });
+    expect(at(2.3)).toBeGreaterThan(0);
+    expect(at(2.3)).toBeLessThan(1);
+    expect(at(3)).toBe(1);
+    expect(at(2.0)).toBeLessThan(at(2.5));
+  });
+
+  it("labels a small graph at its fit", () => {
+    const few = field.slice(0, 12);
+    expect(labelZoomAlpha(few, { k: fitK, x: 0, y: 0, ...size })).toBe(1);
+  });
+
+  it("is 0 for an empty graph or a zero-size viewport", () => {
+    expect(labelZoomAlpha([], { k: 1, x: 0, y: 0, ...size })).toBe(0);
+    expect(labelZoomAlpha(field, { k: 1, x: 0, y: 0, width: 0, height: 0 })).toBe(0);
   });
 });

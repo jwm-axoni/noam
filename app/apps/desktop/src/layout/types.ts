@@ -43,6 +43,8 @@ export interface LayoutZone {
   groupIds: string[];
   axis: SplitAxis;
   ratio: number;
+  /** Relative heights keyed by group, for a vertically stacked right dock. */
+  groupSizes?: Record<string, number>;
   /** The user's choice. Viewport fitting never writes its temporary result here. */
   preferredWidth: number;
   userCollapsed: boolean;
@@ -159,4 +161,10 @@ export function createDefaultLayout(legacyLeftWidth = DEFAULT_LEFT_WIDTH): Layou
     },
     focusedGroupId: CENTER_NOTE_GROUP_ID,
   };
+}
+
+/** Right-side vertical stacks can hold every available tool; other zones retain one split. */
+export function canSplitZone(zoneId: ZoneId, zone: LayoutZone, axis: SplitAxis): boolean {
+  return zone.groupIds.length < 2 ||
+    (zoneId === "right" && axis === "y" && zone.axis === "y" && zone.groupIds.length < 12);
 }

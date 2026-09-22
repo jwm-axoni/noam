@@ -56,8 +56,8 @@ const icon = (children: ReactNode) => (
 
 const filesLoader: PanelRegistration["load"] = () =>
   import("../components/FileTree").then(({ FileTree }) => ({
-    default: function FilesPanel() {
-      return <FileTree />;
+    default: function FilesPanel({ visible }: PanelBodyProps) {
+      return <FileTree visible={visible} />;
     },
   }));
 

@@ -740,6 +740,7 @@ export default function App() {
   });
   const historyPanelPresent = useLayoutStore((state) => findPanelTab(state.layout, "history") != null);
   const editorMeasure = useStore((s) => s.editorMeasure);
+  const editorFontSize = useStore((s) => s.editorFontSize);
   // An open image/PDF preview isn't a synced note — hide the save/sync chrome.
   const isPreview = openNote != null && previewKind(openNote.path) != null;
   // Covers the LAST VAULT'S OPEN and nothing else. It used to cover the whole
@@ -1331,7 +1332,7 @@ export default function App() {
                     // skeleton's own font-size — `--editor-measure` is a `ch`
                     // length, so it resolves against whatever font the element
                     // using it has; see `components/editor.css`.)
-                    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+                    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
                       <div className="editor-host-wrap" />
                       <StatusBar stats={null} />
                       <EditorSkeleton />

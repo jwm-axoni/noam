@@ -1,4 +1,4 @@
-import { Children, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
+import { Children, Fragment, useEffect, useMemo, useRef, useState, useSyncExternalStore, type ReactNode } from "react";
 import {
   CENTER_NOTE_MIN,
   GRAPH_GROUP_MIN,
@@ -6,6 +6,7 @@ import {
   PANE_SEPARATOR_SIZE,
   TOOL_GROUP_MIN,
   fitZoneSplit,
+  stackGroupSizes,
 } from "../../layout/geometry";
 import { useLayoutStore } from "../../layout/store";
 import { CENTER_NOTE_GROUP_ID } from "../../layout/types";
@@ -26,7 +27,7 @@ export function DockZone({
   const drag = useSyncExternalStore(subscribeDockDrag, getDockDragSnapshot, getDockDragSnapshot);
   const zone = layout.zones[zoneId];
   const [size, setSize] = useState({ width: 0, height: 0 });
-  const items = Children.toArray(children).slice(0, 2);
+  const items = Children.toArray(children);
   useEffect(() => {
     const host = hostRef.current;
     if (!host || typeof ResizeObserver === "undefined") return;
@@ -65,6 +66,42 @@ export function DockZone({
   const preview = (value: number) => {
     hostRef.current?.style.setProperty("--workspace-zone-first-size", `${value}px`);
   };
+  if (zoneId === "right" && zone.axis === "y" && items.length > 1) {
+    const heights = stackGroupSizes(zone, size.height);
+    const style = Object.fromEntries(heights.map((height, i) => [`--workspace-stack-${i}`, `${height}px`])) as React.CSSProperties;
+    const previewPair = (index: number, value: number) => {
+      hostRef.current?.style.setProperty(`--workspace-stack-${index}`, `${value}px`);
+      hostRef.current?.style.setProperty(`--workspace-stack-${index + 1}`, `${heights[index]! + heights[index + 1]! - value}px`);
+    };
+    return (
+      <section ref={hostRef} className={`workspace-dock workspace-dock-right has-stack ${className}`.trim()}
+        data-zone="right" style={style}>
+        {items.map((item, index) => {
+          const groupId = zone.groupIds[index]!;
+          const pair = heights[index]! + (heights[index + 1] ?? 0);
+          const focus = () => useLayoutStore.getState().dispatch({ type: "focus-group", groupId });
+          return <Fragment key={groupId}>
+            <div className="workspace-dock-group" data-dock-group-id={groupId}
+              style={{ flex: `0 0 var(--workspace-stack-${index})` }}
+              onPointerDownCapture={focus} onFocusCapture={focus}>
+              {item}
+              <DockMarker drag={drag} zoneId="right" groupId={groupId} />
+            </div>
+            {index < items.length - 1 && <PaneSeparator
+              orientation="horizontal" value={heights[index]!} min={GROUP_HEIGHT_MIN}
+              max={pair - GROUP_HEIGHT_MIN} defaultValue={pair / 2}
+              label={`Resize right dock groups ${index + 1} and ${index + 2}`}
+              className="workspace-zone-separator"
+              onPreview={value => previewPair(index, value)}
+              onCancel={() => previewPair(index, heights[index]!)}
+              onCommit={value => useLayoutStore.getState().dispatch({
+                type: "resize-stack-pair", zone: "right", index, size: value, availableSize: size.height,
+              })} />}
+          </Fragment>;
+        })}
+      </section>
+    );
+  }
   return (
     <section
       ref={hostRef}

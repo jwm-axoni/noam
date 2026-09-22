@@ -268,3 +268,23 @@ describe("ambient flow", () => {
     );
   });
 });
+
+describe("unlinked-note layout", () => {
+  it("spreads orphans across a broad radial band instead of one thin ring", () => {
+    const { sim, nodes } = makeSim(36);
+    const orphans: SimNode[] = Array.from({ length: 120 }, (_, i) => ({
+      id: `unlinked-${i}`, title: `Unlinked ${i}`, path: `Unlinked ${i}.md`, type: null,
+      linkCount: 0, weight: centerWeight(0, 36), radius: nodeRadius(0),
+      x: Math.cos(i * 2.399963) * 350, y: Math.sin(i * 2.399963) * 350,
+      vx: 0, vy: 0, fx: null, fy: null,
+    }));
+    sim.nodes([...nodes, ...orphans]);
+    configureForces(sim, DEFAULT_SETTINGS);
+    sim.alpha(1).tick(1800);
+    const radii = orphans.map(n => Math.hypot(n.x, n.y)).sort((a, b) => a - b);
+    const spread = (radii[108]! - radii[12]!) / radii[60]!;
+    expect(spread).toBeGreaterThan(0.4);
+    expect(orphans.every(n => Number.isFinite(n.x) && Number.isFinite(n.y))).toBe(true);
+    sim.stop();
+  });
+});

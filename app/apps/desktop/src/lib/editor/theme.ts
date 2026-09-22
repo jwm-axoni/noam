@@ -414,14 +414,60 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
     width: "3px",
     backgroundColor: "var(--accent-soft-hover)",
   },
-  // A filled well, clipped to the text column. The side hairlines and corner
-  // radii are dropped deliberately: a border on a full-width line box lands at
-  // the window edge, and `background-clip` cannot carry borders with it. (The
-  // `.cm-codeblock-open/-close` classes blocks.ts still emits now style
-  // nothing.)
+  // A fenced (or indented) code block: mono type on EVERY line, whatever
+  // parsed it. The font has to live on the line class: a recognised language
+  // (```yaml, ```ts) is a nested parse, and @lezer/highlight drops the outer
+  // CodeText's `t.monospace` class for it, so the body used to fall back to
+  // the prose font.
+  //
+  // The inner inset is a TRANSPARENT BORDER, not padding: drawSelection reads
+  // the first `.cm-line`'s paddingLeft for every full-line selection rect, and
+  // a code line at the top of the viewport would otherwise shift the whole
+  // document's selection geometry by it. A border moves the text and is
+  // invisible to that measurement, so a whole-line selection still spans the
+  // well edge to edge.
   ".cm-codeblock": {
+    fontFamily: "var(--font-mono)",
+    fontSize: "var(--type-code-relative)",
+    lineHeight: "1.5",
+    borderInline: "1em solid transparent",
+  },
+  // The well itself, drawn at the prose column's edges (the line box is full
+  // width) and pulled back over the inset border. A pseudo-element rather than
+  // a clipped line background, because a content-box clip loses the corner
+  // radii: its inner radius is the radius minus the --editor-pad-x padding,
+  // i.e. zero. `::after`, since a code block inside a quote also carries
+  // `.cm-blockquote`, whose bar is the `::before`. `z-index: -1` keeps it under
+  // the text, like the quote bar.
+  ".cm-codeblock::after": {
+    content: '""',
+    position: "absolute",
+    zIndex: "-1",
+    top: "0",
+    bottom: "0",
+    left: "calc(var(--editor-pad-x) - 1em)",
+    right: "calc(var(--editor-pad-x) - 1em)",
     backgroundColor: "var(--bg-subtle)",
-    backgroundClip: "content-box",
+  },
+  ".cm-codeblock-open::after": {
+    borderTopLeftRadius: "var(--radius-md)",
+    borderTopRightRadius: "var(--radius-md)",
+  },
+  ".cm-codeblock-close::after": {
+    borderBottomLeftRadius: "var(--radius-md)",
+    borderBottomRightRadius: "var(--radius-md)",
+  },
+  // An unrecognised fence's body is `t.monospace`, which also styles INLINE
+  // code as a chip. Inside the well that chip would shrink the text a second
+  // time and pad every line; the well is the chip. Plain highlight spans only
+  // (their generated classes carry no `cm-` prefix), so search matches and
+  // remote-cursor labels keep their own styling.
+  '.cm-codeblock span:not([class*="cm-"])': {
+    fontFamily: "inherit",
+    fontSize: "inherit",
+    padding: "0",
+    borderRadius: "0",
+    background: "transparent",
   },
   ".cm-hr": { position: "relative" },
   // The hairline, inset to the prose column (an `inset` box-shadow would follow
@@ -438,13 +484,29 @@ export const editorThemeSpec: Record<string, Record<string, string>> = {
 
   // ---- Code fences (see lib/editor/codeFence.ts) --------------------------
   //
-  // Pinned to the right edge of the prose column, on the opening fence line.
-  // Invisible until you go near the block, so a note full of code does not read
-  // as a page full of buttons.
-  ".cm-fence-copy": {
+  // Pinned to the right edge of the prose column, on the opening fence line
+  // (inside the well's inset border, so it sits 1em in from the well's edge).
+  // The language label is always there, faint; the copy button is invisible
+  // until you go near the block, so a note full of code does not read as a
+  // page full of buttons.
+  ".cm-fence-flair": {
     position: "absolute",
     right: "var(--editor-pad-x)",
     top: "0",
+    display: "flex",
+    alignItems: "center",
+    gap: "var(--sp-2)",
+    userSelect: "none",
+    WebkitUserSelect: "none",
+  },
+  ".cm-fence-lang": {
+    fontFamily: "var(--font-body)",
+    fontSize: "var(--type-chrome-size)",
+    letterSpacing: "0.04em",
+    textTransform: "uppercase",
+    color: "var(--text-faint)",
+  },
+  ".cm-fence-copy": {
     border: "0",
     borderRadius: "var(--radius-sm)",
     background: "var(--bg-surface)",
@@ -804,11 +866,23 @@ export const markdownHighlightSpec = [
     // one another.
     { tag: t.keyword, color: "var(--accent)" },
     { tag: [t.string, t.special(t.string)], color: "var(--success)" },
-    { tag: [t.number, t.bool, t.atom], color: "var(--warning)" },
+    { tag: [t.number, t.bool, t.atom, t.null], color: "var(--warning)" },
     { tag: [t.typeName, t.className, t.namespace], color: "var(--text-primary)" },
     { tag: t.variableName, color: "var(--text-primary)" },
     { tag: t.function(t.variableName), color: "var(--link)" },
-    { tag: [t.operator, t.punctuation], color: "var(--text-secondary)" },
+    { tag: t.operator, color: "var(--text-secondary)" },
+    // Keys (YAML/JSON/TOML property names, HTML/XML attributes) in a soft
+    // link-tinted ink: distinguishable from their values without shouting.
+    // Values need no rule — YAML's `Literal` is `t.content`, which inherits
+    // --text-primary from the line. Colouring t.content would be a bug: it is
+    // also markdown's Paragraph tag, so a quote's text would lose its muted
+    // tier (and `contentSeparator` derives from it).
+    {
+      tag: [t.propertyName, t.definition(t.propertyName), t.attributeName],
+      color: "color-mix(in srgb, var(--link) 70%, var(--text-primary))",
+    },
+    // `:`, `,`, `-`, brackets and braces recede to the tertiary tier.
+    { tag: [t.punctuation, t.separator, t.bracket], color: "var(--text-tertiary)" },
 
     // Markdown token characters (#, *, `, >, -, etc.) on the FAINT tier — one
     // step quieter than the secondary text, so prose reads as prose and the

@@ -10,11 +10,13 @@
 //   >                → blockquote marker hidden (the bar comes from blocks.ts)
 //   - * +            → replaced with a • bullet
 //   [text](url)      → shows just `text`, underlined + clickable
+//   ```lang … ```    → fence text hidden; the empty lines pad the code well
 // Put the caret ON a construct and its raw markers reappear, so editing is
 // direct. "On" is measured two different ways, and the difference is the whole
 // feel of the editor (see ./reveal.ts):
-//   LINE scope   — structure markers (#, >, the task dash) and the block
-//                  widgets. Editing a heading is editing the whole line.
+//   LINE scope   — structure markers (#, >, the task dash, code fences) and
+//                  the block widgets. Editing a heading is editing the whole
+//                  line; a code fence reveals while any line of its block is.
 //   TOKEN scope  — inline markers (**, *, ~~, ==, %%, `, [](), ![]()). Only
 //                  the span the selection touches unfolds, so `# Head **bold**`
 //                  with the caret at the end of the line shows its `#` and
@@ -359,7 +361,7 @@ function buildBlockDecorations(
       // is inside it.
       if (node.name === "FencedCode") {
         const info = node.node.getChild("CodeInfo");
-        const lang = info ? doc.sliceString(info.from, info.to).trim().toLowerCase() : "";
+        const lang = info ? (doc.sliceString(info.from, info.to).trim().split(/\s/)[0] ?? "").toLowerCase() : "";
         if ((lang === "html" || lang === "htm") && !isActive(node.from, node.to)) {
           const codeNode = node.node.getChild("CodeText");
           const html = codeNode ? doc.sliceString(codeNode.from, codeNode.to) : "";
@@ -475,15 +477,30 @@ function buildDecorations(view: EditorView, resolveAsset: ResolveAsset): Decorat
         }
 
         // A non-active ```html fence is replaced by the StateField; skip its
-        // children. Non-HTML fences (and the active HTML fence) keep their raw
-        // source.
+        // children. Any other fence keeps its code on screen, but its fence
+        // TEXT folds away while no selection touches the block: the two lines
+        // stay as the well's top and bottom padding and codeFence.ts labels
+        // the language. LINE scope over the whole block, so the caret landing
+        // on any line of it brings both fences back for editing.
         if (node.name === "FencedCode") {
           const info = node.node.getChild("CodeInfo");
           const lang = info
-            ? doc.sliceString(info.from, info.to).trim().toLowerCase()
+            ? (doc.sliceString(info.from, info.to).trim().split(/\s/)[0] ?? "").toLowerCase()
             : "";
-          if ((lang === "html" || lang === "htm") && !isActive(node.from, node.to)) {
+          const active = isActive(node.from, node.to);
+          if ((lang === "html" || lang === "htm") && !active) {
             return false;
+          }
+          if (!active) {
+            const marks = node.node.getChildren("CodeMark");
+            // From the first backtick, never the line start: a fence inside a
+            // quote or list has a QuoteMark/indent before it that is not ours.
+            if (marks[0]) hide(marks[0].from, doc.lineAt(marks[0].from).to);
+            // An unclosed fence has one mark; its last line is code.
+            if (marks.length > 1) {
+              const close = marks[marks.length - 1];
+              hide(close.from, close.to);
+            }
           }
           return;
         }
@@ -545,7 +562,7 @@ function buildDecorations(view: EditorView, resolveAsset: ResolveAsset): Decorat
             if (!isActiveToken(node)) hide(node.from, node.to);
             break;
           case "CodeMark":
-            // Only inline-code backticks; leave fenced-code fences visible.
+            // Only inline-code backticks; the FencedCode branch owns fences.
             if (node.node.parent?.name === "InlineCode" && !isActiveToken(node)) {
               hide(node.from, node.to);
             }

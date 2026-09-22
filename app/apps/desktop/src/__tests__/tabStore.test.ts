@@ -86,6 +86,37 @@ import { readPropertiesCollapsed } from "../lib/prefs";
 
 afterEach(() => vi.unstubAllGlobals());
 
+describe("Wide editor toggle", () => {
+  it("restores an existing custom width on the first toggle after upgrading", () => {
+    const values = new Map([["context.editorMeasure", "100"]]);
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ editorMeasure: 100 });
+
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe("full");
+    // Choosing full width again must not erase the remembered normal width.
+    useStore.getState().setEditorMeasure("full");
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe(100);
+    expect(values.get("context.editorMeasureNormal")).toBe("100");
+  });
+
+  it("preserves the chosen width in memory when storage is unavailable", () => {
+    vi.stubGlobal("localStorage", {
+      getItem: () => { throw new Error("Storage denied"); },
+      setItem: () => { throw new Error("Storage denied"); },
+    });
+    useStore.getState().setEditorMeasure(104);
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe("full");
+    useStore.getState().toggleEditorWide();
+    expect(useStore.getState().editorMeasure).toBe(104);
+  });
+});
+
 describe("Properties preferences on confirmed moves", () => {
   it.each(["inline", "tree", "sync"])("remaps unopened preferences through the %s move path", async (route) => {
     const values = new Map([["context.propertiesCollapsed", JSON.stringify({
@@ -151,6 +182,18 @@ beforeEach(() => {
     session: null,
     vault: null,
     tree: null,
+  });
+});
+
+describe("file tree stays put on note navigation", () => {
+  it("opens notes without issuing a file-tree reveal", async () => {
+    await open("a.md");
+    expect(useStore.getState().openNote?.path).toBe("a.md");
+    expect(useStore.getState().revealRequest).toBeNull();
+    useStore.getState().requestReveal("a.md");
+    const explicit = useStore.getState().revealRequest;
+    await open("b.md");
+    expect(useStore.getState().revealRequest).toBe(explicit);
   });
 });
 
@@ -400,11 +443,11 @@ describe("createNoteIn / createNoteAt", () => {
 
 describe("requestReveal", () => {
   it("bumps a token so the SAME path re-fires — a reveal is an event", async () => {
-    await open("a.md");
+    useStore.getState().requestReveal("a.md");
     const first = useStore.getState().revealRequest!;
     expect(first.path).toBe("a.md");
 
-    await open("a.md");
+    useStore.getState().requestReveal("a.md");
     const second = useStore.getState().revealRequest!;
     expect(second.path).toBe("a.md");
     expect(second.token).toBeGreaterThan(first.token);
@@ -412,8 +455,8 @@ describe("requestReveal", () => {
     expect(second).not.toBe(first);
   });
 
-  it("is fired by every note open, whatever the caller", async () => {
-    await open("Deep/Folder/note.md");
+  it("supports an explicit reveal of a nested note", () => {
+    useStore.getState().requestReveal("Deep/Folder/note.md");
     expect(useStore.getState().revealRequest).toMatchObject({
       path: "Deep/Folder/note.md",
       edit: false,

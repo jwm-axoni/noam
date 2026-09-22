@@ -18,6 +18,8 @@ const mocks = vi.hoisted(() => ({
     propertiesMode: "visible" as const,
     defaultViewMode: "live" as const,
     editorMeasure: 88,
+    editorFontSize: 16,
+    setEditorFontSize: vi.fn(),
     lineNumbers: false,
     setPropertiesMode: vi.fn(),
     setDefaultViewMode: vi.fn(),
@@ -160,6 +162,15 @@ describe("SettingsDialog navigation", () => {
       theme?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
     });
     expect(localStorage.getItem("cbk-theme")).toBe("dark");
+    const fontSize = document.querySelector<HTMLInputElement>('input[aria-label="Note font size"]');
+    expect(fontSize?.min).toBe("12");
+    expect(fontSize?.max).toBe("22");
+    await act(async () => {
+      Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, "value")?.set?.call(fontSize, "20");
+      fontSize?.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+    expect(mocks.store.setEditorFontSize).toHaveBeenCalledWith(20);
+
 
     const editor = Array.from(
       document.querySelectorAll<HTMLButtonElement>(".settings-nav-item"),
