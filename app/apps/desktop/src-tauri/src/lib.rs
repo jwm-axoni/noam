@@ -223,10 +223,13 @@ mod startup_tests {
     use crate::commands::ManagedUpdatePolicy;
 
     #[test]
-    fn source_config_starts_without_distribution_updater_settings() {
+    fn source_config_ships_with_updater_settings() {
+        // Distribution is enabled: the committed tauri.conf.json carries the
+        // updater pubkey + endpoint, so has_updater_settings() detects it and
+        // the plugin registers unless a managed policy disables it.
         let config: tauri::Config =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(!has_updater_settings(&config));
+        assert!(has_updater_settings(&config));
     }
 
     #[test]

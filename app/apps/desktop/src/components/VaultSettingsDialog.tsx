@@ -2465,6 +2465,10 @@ function UpdatesTab() {
     enabled: true,
     locked: false,
   });
+  // Until preferences resolve we don't know the managed policy, so update
+  // actions stay disabled — a locked+disabled policy leaves the plugin
+  // unregistered, and a click before we know that hits a missing plugin.
+  const [policyLoaded, setPolicyLoaded] = useState(false);
 
   useEffect(() => {
     void currentVersion().then(setVersion);
@@ -2474,7 +2478,8 @@ function UpdatesTab() {
         setAutoCheck(p.autoCheckEnabled);
         setManaged(p.managed);
       })
-      .catch(() => {});
+      .catch(() => {})
+      .finally(() => setPolicyLoaded(true));
   }, []);
 
   // Optimistic flip; revert if Rust refuses (a managed policy locks it).
@@ -2492,7 +2497,8 @@ function UpdatesTab() {
   const autoCheckShown = managed.locked ? managed.enabled : autoCheck;
   // A locked+disabled policy means the updater plugin was never registered, so
   // a manual check/install would hit a missing plugin — suppress those actions.
-  const updaterSuppressed = managed.locked && !managed.enabled;
+  // Also suppress until the policy has loaded, since we can't yet tell.
+  const updaterSuppressed = !policyLoaded || (managed.locked && !managed.enabled);
 
   const busy = update.phase === "checking" ||
     update.phase === "downloading" ||
