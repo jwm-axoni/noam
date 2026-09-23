@@ -7,6 +7,7 @@ import { appendUpdate, loadDocState } from "../yjs/persistence.js";
 import { scheduleIndex } from "../index/indexer.js";
 import { formatDocName, parseDocName } from "./doc-name.js";
 import { redisExtensions } from "./redis-extension.js";
+import { resolvePresenceIdentity } from "../registry/participants.js";
 
 /**
  * Hocuspocus sync server (spec 03 §3, 04 §4).
@@ -61,6 +62,15 @@ export interface SyncContext {
    * `context`, so `onChange` can read one field regardless of who wrote.
    */
   userId: string | null;
+  /**
+   * The registry row this connection's edits are attributed to (ADR 0003
+   * item 3): resolved by `onAuthenticate` from the token's user — the user's
+   * live human participant in the doc's organization — and stored here, so
+   * `onChange` stamps it from the CONNECTION, never from Yjs awareness or any
+   * update metadata the client sends. Null when the user has no live row.
+   * `disconnectParticipant` matches on it to close an agent's sockets.
+   */
+  participantId: string | null;
 }
 
 /**
@@ -78,13 +88,14 @@ export type DocChangedHook = (
  * Notified after each persisted doc change WITH the editor's identity, so the
  * versioning layer can stamp "last edited by" and arm its idle capture.
  *
- * `userId` is null when the writer is unattributable (a pre-attribution token,
- * or a server-side write with no actor). Best-effort, like {@link DocChangedHook}.
+ * `userId` / `participantId` are null when the writer is unattributable (a
+ * pre-attribution token, a user with no live participant row, or a server-side
+ * write with no actor). Best-effort, like {@link DocChangedHook}.
  */
 export type DocEditedHook = (
   vaultId: string,
   docId: string,
-  userId: string | null,
+  actor: { userId: string | null; participantId: string | null },
 ) => void;
 
 /**
@@ -232,11 +243,25 @@ export function createSyncServer(
         data.connectionConfig.readOnly = true;
       }
 
+      // Attribution identity, server-resolved once per connect. Best-effort:
+      // presence and attribution are cosmetic, sync is not, so a registry
+      // lookup failure degrades to "unattributed" rather than refusing the doc.
+      let participantId: string | null = null;
+      if (claims.userId) {
+        try {
+          participantId =
+            (await resolvePresenceIdentity(claims.userId, parsed.vaultId))?.participantId ?? null;
+        } catch (err) {
+          console.error(`[onAuthenticate] participant lookup failed for ${data.documentName}:`, err);
+        }
+      }
+
       const context: SyncContext = {
         docId: parsed.docId,
         vaultId: parsed.vaultId,
         readOnly,
         userId: claims.userId ?? null,
+        participantId,
       };
       return context;
     },
@@ -305,12 +330,20 @@ export function createSyncServer(
       // Attribution. Hocuspocus resolves `data.context` for us: the CONNECTION's
       // context for a client edit, and a `LocalTransactionOrigin`'s `context` for
       // a server-side write (the doc writer's live path) — both of which carry
-      // `userId`. Anything else (a plain string origin, a Redis-replicated
-      // update) lands as `{}`, i.e. anonymous.
+      // `userId` and `participantId`. Anything else (a plain string origin, a
+      // Redis-replicated update) lands as `{}`, i.e. anonymous.
+      //
+      // Identity comes ONLY from that server-owned context (ADR 0003 decision
+      // 3). Never read it from Yjs awareness or from anything inside the update:
+      // both are written by the client, so a peer could claim to be anyone —
+      // including an agent — and the timeline would believe it.
       if (onDocEdited) {
         try {
-          const editorId = (data.context as Partial<SyncContext> | undefined)?.userId ?? null;
-          onDocEdited(parsed.vaultId, parsed.docId, editorId);
+          const ctx = data.context as Partial<SyncContext> | undefined;
+          onDocEdited(parsed.vaultId, parsed.docId, {
+            userId: ctx?.userId ?? null,
+            participantId: ctx?.participantId ?? null,
+          });
         } catch (err) {
           console.error("onDocEdited hook failed:", err);
         }
@@ -329,6 +362,30 @@ export function disconnectDoc(
   docId: string,
 ): void {
   server.hocuspocus.closeConnections(formatDocName(vaultId, docId));
+}
+
+/**
+ * Close every doc socket whose connection context carries `participantId`
+ * (ADR 0003 item 5). Fired on agent-token revocation: an agent holds no doc
+ * socket today (MCP is stateless HTTP), so this is the guarantee for the day
+ * one does — and it costs one walk of the in-memory document map. Returns
+ * how many connections were closed.
+ */
+export function disconnectParticipant(
+  server: Server<SyncContext>,
+  participantId: string,
+): number {
+  let closed = 0;
+  for (const doc of server.hocuspocus.documents.values()) {
+    for (const conn of doc.connections.keys()) {
+      const ctx = conn.context as Partial<SyncContext> | undefined;
+      if (ctx?.participantId === participantId) {
+        conn.close();
+        closed++;
+      }
+    }
+  }
+  return closed;
 }
 
 /**

@@ -160,19 +160,20 @@ The audit's 13 runtime items gate Phase 3. Status against this build:
 
 | Item | Status |
 |---|---|
-| Agent token cannot read outside its scope | Not applicable yet: no agent token kind exists (ADR 0003). Phase 0 adds inert agent rows only. |
+| Agent token cannot read outside its scope | **Passing** (ADR 0003 built 2026-09-23): `tests/mcp-agent-scopes.test.ts` — no-scope token lists vaults only; folder/file/vault scopes; `min(minter, scope)` both ways. |
 | No agent-reachable tool mutates grants, tokens, shares, registry rows, settings | **Passing, source-asserted**: `tests/mcp-tool-inventory.test.ts` pins the 15 tools and greps every file under `src/mcp/` for SQL against those tables. |
-| Revoke mid-session stops writes, retracts chip | Not applicable yet (no agent sockets). Human member removal already closes the readable set live (`onAclChanged`). |
+| Revoke mid-session stops writes, retracts chip | **Passing** for the server side: `tests/mcp-revocation.test.ts` — next call 401, a revoke landing mid-batch stops the rest of the batch, `disconnectParticipant` + `gone` frame fired, audited. Window quantified in `docs/AGENT-TOKENS.md`. The two-agent live negative control waits for Phase 3 (no agent runtime yet). |
 | Prompt-injection fixture stays in scope | Not applicable yet. |
-| Authorship stamping: claimed identity overwritten at the server | **Passing for presence**: `tests/presence-identity.test.ts`. Open for Yjs awareness/update metadata (ADR 0003). |
+| Authorship stamping: claimed identity overwritten at the server | **Passing**: presence (`tests/presence-identity.test.ts`) and edits (`tests/mcp-attribution.test.ts`: a body claiming `author`/`participantId`/`name` is stamped with the token's participant; Hocuspocus `onChange` stamps from the connection context, never awareness). |
 | Unmediated-write detection | Not built; mechanism specified in ADR 0002. |
 | Loopback socket auth | Not built; decision in ADR 0002 (stdio primary). |
-| Audit log append-only, hash-chained | Not built; ADR 0002 and 0003. |
-| Read instrumentation | Not built; ADR 0003. |
+| Audit log append-only, hash-chained | Server side built (ADR 0003): `mcp_audit`, one row per tools/call, 180-day retention, unreachable from any tool (`tests/mcp-tool-inventory.test.ts`). Hash chaining and the local forward are ADR 0002. |
+| Read instrumentation | **Passing**: `tests/mcp-audit.test.ts` — `read_note` and `search_notes` rows with `bytes_out`. |
 | Diff renderer executes no XSS payload | **Passing** for the review components: `components/review/*.test.ts` renders a payload and asserts no element is created. CSP for the webview is not part of this phase. |
 | Accept-path authorization, no self-accept | Client-side guard in the review reducer (self-accept refused). Server-side re-check waits for ADR 0001. |
-| Token hygiene: show-once, stale inventory, rotation | Show-once already true. Rest in ADR 0003. |
-| DoS bound on agent bulk writes | Not built; ADR 0003 item 6. |
+| Token hygiene: show-once, stale inventory, rotation | **Passing**: `tests/mcp-token-lifecycle.test.ts` — 90-day expiry, renew, rotate (one transaction), `stale` after 30 days, user-token sunset + migrate. |
+| DoS bound on agent bulk writes | Bulk READS bounded: `tests/mcp-rate-limit.test.ts` (120 calls/min, 50 MB/h per token, structured `rate_limited`). Writes stay bounded by the 10 MB note cap only. |
 
-Nothing in this phase widens the MCP token hole: no new token kind, no new
-tool, no route that lets an agent row authenticate.
+ADR 0003 (built 2026-09-23, branch `feat/adr3-agent-tokens`) adds the `agent`
+token kind bound to these agent rows: see `docs/AGENT-TOKENS.md`. No new tool
+was added; the tool inventory is still 15.

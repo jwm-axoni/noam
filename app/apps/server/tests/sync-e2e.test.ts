@@ -72,7 +72,7 @@ describe("end-to-end Yjs sync through the server (spec 03 §3, 04 §4)", () => {
     server = createSyncServer(
       PORT,
       (vaultId, docId) => changes.push({ vaultId, docId }),
-      (vaultId, docId, userId) => edits.push({ vaultId, docId, userId }),
+      (vaultId, docId, actor) => edits.push({ vaultId, docId, userId: actor.userId }),
       async (docId) => {
         if (failIndexing) throw new Error("index unavailable");
         await scheduleIndex(docId);

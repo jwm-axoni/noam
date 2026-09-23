@@ -63,8 +63,8 @@ describe("per-note versions", () => {
       // as the timer would 10 minutes later.
       idleMs: 60_000,
     });
-    capture.touch(vault, docId, user.userId);
-    capture.touch(vault, docId, user.userId);
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
     await capture.flush(docId);
     capture.stop();
 
@@ -89,14 +89,14 @@ describe("per-note versions", () => {
     rec.docWriter.store.set(docId, "same text");
 
     const capture = createVersionCapture({ docWriter: rec.docWriter, idleMs: 60_000 });
-    capture.touch(vault, docId, user.userId);
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
     await capture.flush(docId);
-    capture.touch(vault, docId, user.userId);
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
     await capture.flush(docId);
     expect(await countVersions(docId)).toBe(1);
 
     rec.docWriter.store.set(docId, "changed");
-    capture.touch(vault, docId, user.userId);
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
     await capture.flush(docId);
     capture.stop();
     expect(await countVersions(docId)).toBe(2);
@@ -109,7 +109,7 @@ describe("per-note versions", () => {
     rec.docWriter.store.set(docId, "anonymous work");
 
     const capture = createVersionCapture({ docWriter: rec.docWriter, idleMs: 60_000 });
-    capture.touch(vault, docId, null);
+    capture.touch(vault, docId, { userId: null, participantId: null });
     await capture.flush(docId);
     capture.stop();
 
@@ -149,7 +149,7 @@ describe("per-note versions", () => {
       onRegistryChanged: rec.deps.onRegistryChanged,
       idleMs: 60_000,
     });
-    capture.touch(vault, docId, user.userId);
+    capture.touch(vault, docId, { userId: user.userId, participantId: null });
     // The stamp is fire-and-forget inside touch(); let it land.
     await new Promise((r) => setTimeout(r, 100));
     capture.stop();

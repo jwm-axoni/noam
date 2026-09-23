@@ -259,8 +259,16 @@ Numbered separately from the build phases above. Spec: `docs/specs/07-participan
   behind the `noam.flags.suggestionsV0` device flag with a demo source.
 - [ ] Proposal staging primitive (sandbox Y.Doc per proposal) and server-side accept authorization.
 
-#### Phase 3: Agent participants ⬜ _(gated on ADR 0002 + ADR 0003 and the audit checklist)_
-- [ ] Agent-scoped token kind, read instrumentation, audit table, local stdio MCP server, setup wizard.
+#### Phase 3: Agent participants ⬜ _(gated on ADR 0002 and the audit checklist)_
+- [x] **ADR 0003 — agent-scoped tokens** (migration 028, 2026-09-23; guide: `docs/AGENT-TOKENS.md`): `agent`
+  token kind bound to a participant row, default-deny scopes with `min(minter grant, scope)` and the three
+  presets as row templates, server-stamped attribution (`notes.last_edited_participant`,
+  `note_versions.author_participant`; Hocuspocus stamps from the connection context), `mcp_audit` (every
+  tools/call, reads included, 180-day retention, unreachable from any tool), live revocation (per-request
+  re-check + mid-batch re-check, `disconnectParticipant`, `gone` frame), a per-token read budget
+  (120 calls/min, 50 MB/h, structured `rate_limited`), 90-day expiry + renew + rotate + `stale`, and the
+  user-token sunset with a migrate action. Vault Settings → MCP mints, migrates, rotates and renews.
+- [ ] Local stdio MCP server and setup wizard (ADR 0002); the two-agent live negative control.
 
 ### Phase 4: Polish / upgrades _(deferred)_ ⬜
 - [ ] Structural rich-text CRDT (y-prosemirror / `Y.XmlFragment`) for full WYSIWYG.

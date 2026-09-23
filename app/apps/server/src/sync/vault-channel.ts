@@ -155,6 +155,32 @@ export class VaultChannel {
     await this.pubsub.publish(vaultTopic(vaultId), encodePubsubUpdate(docId, update));
   }
 
+  /**
+   * Announce that a participant is gone from a collection (ADR 0003 item 5):
+   * an agent whose token was just revoked. The frame is the same `gone`
+   * presence frame a closing connection publishes, so every subscriber's
+   * roster removes the chip at once instead of waiting out the decay window.
+   * `userId` is the agent presence key (`agent:<participantId>`) — agents have
+   * no user row, and rosters key by that field.
+   */
+  async publishParticipantGone(
+    vaultId: string,
+    participant: { participantId: string; name: string; color: string },
+  ): Promise<void> {
+    await this.pubsub.publish(
+      vaultTopic(vaultId),
+      encodePubsubPresence({
+        userId: `agent:${participant.participantId}`,
+        participantId: participant.participantId,
+        docId: null,
+        name: participant.name,
+        color: participant.color,
+        status: "",
+        gone: true,
+      }),
+    );
+  }
+
   /** Signal that shares changed in a vault; subscribers re-evaluate their ACL set. */
   async publishAclChanged(vaultId: string): Promise<void> {
     await this.pubsub.publish(vaultTopic(vaultId), encodePubsubAclChanged());

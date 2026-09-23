@@ -3,6 +3,7 @@ import { pool } from "../../db/pool.js";
 import { canEditDoc } from "../../permissions/http-gates.js";
 import { orgRole, vaultOrg } from "../../permissions/lookup.js";
 import { effectivePermission } from "../../permissions/resolver.js";
+import { resolvePresenceIdentity } from "../../registry/participants.js";
 import { vaultAccess } from "../../permissions/vault-docs.js";
 import type { DocWriter } from "../../mcp/doc-writer.js";
 import { recordVersion, sha256Hex, stampLastEdited } from "../../versions/capture.js";
@@ -45,6 +46,8 @@ interface VersionRow {
   cause: "idle" | "pre-revert";
   author_id: string | null;
   author_name: string | null;
+  author_participant: string | null;
+  author_participant_name: string | null;
   sha256: string;
   size: number;
 }
@@ -56,6 +59,8 @@ function versionSummary(r: VersionRow) {
     cause: r.cause,
     authorId: r.author_id,
     authorName: r.author_name,
+    authorParticipant: r.author_participant,
+    authorParticipantName: r.author_participant_name,
     sha256: r.sha256,
     size: r.size,
   };
@@ -86,9 +91,12 @@ export function createVersionRoutes(deps: VersionRouteDeps): Hono {
 
     const { rows } = await pool.query<VersionRow>(
       `SELECT v.id, v.doc_id, v.created_at, v.cause, v.author_id,
-              u.name AS author_name, v.sha256, octet_length(v.content) AS size
+              u.name AS author_name, v.author_participant,
+              p.display_name AS author_participant_name,
+              v.sha256, octet_length(v.content) AS size
          FROM note_versions v
          LEFT JOIN "user" u ON u.id = v.author_id
+         LEFT JOIN participants p ON p.id = v.author_participant
         WHERE v.doc_id = $1
         ORDER BY v.id DESC`,
       [docId],
@@ -109,9 +117,12 @@ export function createVersionRoutes(deps: VersionRouteDeps): Hono {
     if (!Number.isFinite(versionId)) return c.json({ error: "Unknown version" }, 404);
     const { rows } = await pool.query<VersionRow & { content: string }>(
       `SELECT v.id, v.doc_id, v.created_at, v.cause, v.author_id,
-              u.name AS author_name, v.sha256, octet_length(v.content) AS size, v.content
+              u.name AS author_name, v.author_participant,
+              p.display_name AS author_participant_name,
+              v.sha256, octet_length(v.content) AS size, v.content
          FROM note_versions v
          LEFT JOIN "user" u ON u.id = v.author_id
+         LEFT JOIN participants p ON p.id = v.author_participant
         WHERE v.id = $1`,
       [versionId],
     );
@@ -145,12 +156,16 @@ export function createVersionRoutes(deps: VersionRouteDeps): Hono {
     // undoable. `recordVersion` dedupes against the newest stored version, so
     // this is a no-op (null) when nothing has changed since the last capture.
     const current = await deps.docWriter.readContent(vaultId, docId);
+    // The reverting user's own participant row: the revert is THEIR edit.
+    const participantId =
+      (await resolvePresenceIdentity(session.userId, vaultId))?.participantId ?? null;
     const preRevertVersionId = await recordVersion({
       vaultId,
       docId,
       content: current,
       cause: "pre-revert",
       authorId: session.userId,
+      authorParticipant: participantId,
     });
 
     // Forward-only: set the target text as a normal transaction so live editors
@@ -158,9 +173,10 @@ export function createVersionRoutes(deps: VersionRouteDeps): Hono {
     if (sha256Hex(current) !== sha256Hex(version.content)) {
       await deps.docWriter.setContent(vaultId, docId, version.content, {
         userId: session.userId,
+        participantId,
       });
     }
-    await stampLastEdited(docId, session.userId);
+    await stampLastEdited(docId, { userId: session.userId, participantId });
     deps.onRegistryChanged(vaultId, null);
     return c.json({ ok: true, preRevertVersionId });
   });

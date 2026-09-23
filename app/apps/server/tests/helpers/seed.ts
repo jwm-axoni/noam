@@ -226,3 +226,18 @@ export async function seedItemPrivate(
 export async function freezeVaultRoot(vaultId: string, frozen = true): Promise<void> {
   await pool.query("UPDATE vaults SET root_frozen = $2 WHERE id = $1", [vaultId, frozen]);
 }
+
+/** A live AGENT participant row (ADR 0003): the principal an agent token binds to. */
+export async function seedAgentParticipant(
+  organizationId: string,
+  displayName: string,
+  createdBy: string,
+): Promise<string> {
+  const id = randomUUID();
+  await pool.query(
+    `INSERT INTO participants (id, organization_id, kind, user_id, display_name, color, harness, created_by)
+     VALUES ($1, $2, 'agent', NULL, $3, '#2981fb', 'custom', $4)`,
+    [id, organizationId, displayName, createdBy],
+  );
+  return id;
+}

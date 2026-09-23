@@ -109,6 +109,10 @@ clean-publication process is covered in [[RELEASE]]. Release automation and
 auto-update remain disabled until the neutral repository and fresh updater key
 are ready.
 
+Connecting an AI client over MCP — agent tokens, scopes and presets, the audit
+log, read budgets, revocation timing, and migrating an old "acts as you" token
+— is covered in [[AGENT-TOKENS]].
+
 ---
 
 ## Workflows, templates and packages
