@@ -1,8 +1,6 @@
 // App self-update, backed by the Tauri updater plugin.
 //
-// Distribution-time update settings are intentionally disabled in the checked-in
-// Tauri configuration. A future release process may supply a signed endpoint and
-// public verification key; when it does, this module owns the client lifecycle.
+// Released builds use the signed endpoint configured in tauri.conf.json.
 //
 // This module is a tiny external store so both the launch-time banner and the
 // Settings → Updates tab observe one shared check/install lifecycle instead of

@@ -1,6 +1,6 @@
 [package]
 name = "desktop"
-version = "0.1.59"
+version = "0.1.60"
 description = "Noam — local-first markdown app"
 authors = ["Noam"]
 edition = "2021"

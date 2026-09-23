@@ -1,128 +1,29 @@
-# Releasing Noam
+# Releasing Noam for macOS
 
-Noam has no active release workflow and no published binary release. The
-desktop updater is disabled until the neutral repository, release URL, and new
-updater signing key are ready.
+Noam 0.1.59 is the last download without update support. Version 0.1.60 and later check a signed GitHub release manifest at launch and every 15 minutes. When a newer version exists, the app shows **Install & Restart**; it does not restart during editing without a click. People on 0.1.59 must download 0.1.60 once from the Releases page.
 
-The first macOS release will be distributed directly as a Developer ID-signed
-and notarized download. Mac App Store distribution is a separate project
-because it requires App Sandbox and persistent access through security-scoped
-bookmarks.
+## Release gate
 
-## Rules
+Keep the version equal in `app/apps/desktop/package.json`, `src-tauri/tauri.conf.json`, `src-tauri/Cargo.toml`, and the `desktop` entry in `src-tauri/Cargo.lock`. Release from a clean `main` after the publication check, desktop tests and build, and Rust tests pass. Never commit Apple credentials, signing identities, the updater private key, or its password.
 
-- Never commit Apple credentials, legal names, Apple Account email addresses,
-  Team IDs, certificate names, provisioning profiles, or private keys.
-- Keep signing material in the macOS keychain or protected release secrets.
-- Do not publish from a working directory that contains the old repository's
-  Git history.
-- Do not enable auto-update until a fresh updater key and final HTTPS endpoint
-  are configured and tested.
-- A successful build is not release proof. Verify the signature, notarization
-  ticket, clean installation, launch, vault selection, microphone prompt, and
-  update behavior separately.
+The updater public key and HTTPS endpoint are in `src-tauri/tauri.conf.json`. The encrypted private key stays outside Git at `~/.config/noam/release/updater-v1.key`; its password and a backup copy of the key are stored in the macOS Keychain under the `noam-release` account. Losing that key would prevent future updates for installations that trust it.
 
-## Version
+## Build and verify
 
-Before a release, keep these values equal:
-
-- `app/apps/desktop/package.json`
-- `app/apps/desktop/src-tauri/tauri.conf.json`
-- `app/apps/desktop/src-tauri/Cargo.toml`
-- the `desktop` package entry in `Cargo.lock`
-
-Noam starts at `0.1.0` in the clean repository.
-
-## Local release gate
-
-From the repository root:
+Put `APPLE_TEAM_ID`, `APPLE_SIGNING_IDENTITY`, and `NOTARY_PROFILE` in the local, ignored `app/apps/desktop/.env.release`. Keep the notarytool profile in Keychain. Make a plain-text release notes file outside Git and run from `app/apps/desktop`:
 
 ```bash
-corepack enable
-pnpm --dir app install --frozen-lockfile
-pnpm --dir app check:publication
-pnpm --dir app test
-cargo test --manifest-path app/apps/desktop/src-tauri/Cargo.toml
+RELEASE_NOTES_FILE=/path/to/notes.txt bash scripts/release-macos.sh
 ```
 
-The complete publication check must also pass inside the clean export after its
-single root commit is created:
+The script builds the DMG and updater archive, verifies code signing, notarizes and staples the app and DMG, then signs the stapled app archive. It writes `latest.json` containing the archive URL and signature. Publish these five files together under the matching `vX.Y.Z` tag:
 
-```bash
-node scripts/check-publication.mjs --scope all
-```
+- `Noam_X.Y.Z_aarch64.dmg`
+- `Noam_aarch64.dmg` (the same signed download under a stable name for the website)
+- `Noam.app.tar.gz`
+- `Noam.app.tar.gz.sig`
+- `latest.json`
 
-## Apple setup
+Before announcing a release, verify the uploaded DMG's checksum and Gatekeeper result, install it on a clean account, and open a synthetic vault. Confirm the `latest.json` asset and archive URL respond over HTTPS. For a subsequent release, update from an older updater-enabled version and verify the signature, install, restart, and preserved vault. The first updater-enabled version cannot be tested against the 0.1.59 release, because that version never checks for updates.
 
-The Apple Developer membership is an individual account. Apple may display the
-account holder's legal name as the seller or developer name; that is expected.
-Keep that identity in Apple Developer and App Store Connect rather than copying
-it into source files, package metadata, sample data, or public documentation.
-
-Create a Developer ID Application certificate in the Apple Developer account
-and install it in the signing keychain. Use either App Store Connect API
-credentials or an app-specific password for notarization. Supply credentials
-through the environment or keychain at build time. Do not write their values
-into documentation or configuration files.
-
-The committed configuration uses ad-hoc signing for development. Override it
-for a release build with `APPLE_SIGNING_IDENTITY`.
-
-For a later Mac App Store submission, treat these as separate release gates:
-
-- enable App Sandbox and replace persistent raw folder access with
-  security-scoped bookmarks;
-- provide final support and privacy-policy URLs in App Store Connect;
-- complete the app privacy answers from the shipped behavior, including sync,
-  account, billing, and microphone data paths;
-- keep the existing microphone purpose string accurate;
-- give App Review a synthetic test vault and clear steps for offline and sync
-  flows without exposing personal data.
-
-## Build the macOS installer
-
-From `app/` on a Mac with the signing identity available:
-
-```bash
-pnpm --filter desktop tauri build --bundles dmg
-```
-
-Tauri signs the application, submits it to Apple's notary service when valid
-notarization credentials are present, and staples the returned ticket. Treat a
-build without all three results as an internal test build.
-
-## Verify the artifact
-
-Run these commands against the built application or disk image before upload:
-
-```bash
-codesign --verify --deep --strict --verbose=2 <path-to-app>
-spctl --assess --type execute --verbose=2 <path-to-app>
-xcrun stapler validate <path-to-app-or-dmg>
-```
-
-Then download the uploaded artifact on a separate macOS account or machine and
-verify:
-
-1. Gatekeeper opens it without a bypass.
-2. The app launches and displays version `0.1.0`.
-3. The native folder picker opens a synthetic vault outside the repository.
-4. The app retains access after restart.
-5. Push-to-talk shows the expected microphone permission text and releases the
-   microphone when the button is released.
-6. No build path, account name, email address, or signing secret appears in the
-   bundle, logs, crash metadata, or About window.
-
-## Auto-update
-
-Auto-update is intentionally off. Before enabling it:
-
-1. Generate a new Tauri updater key outside the repository.
-2. Back up the private key in a protected secret store.
-3. Commit only the public key.
-4. Configure the final neutral HTTPS release endpoint.
-5. Publish a signed test update and verify installation from an older build.
-6. Add release automation only after the local process has passed end to end.
-
-Any future workflow should start as manual-only and must run the complete
-publication gate before it creates a release.
+The README and website use GitHub's latest-release asset URL, so a new release becomes the current download without editing a version-specific URL. Publishing remains manual; pushing to `main` alone does not create a downloadable build.
