@@ -55,7 +55,7 @@ xcrun stapler validate "$app"
 spctl --assess --type execute "$app"
 tar -czf "$archive" -C "$(dirname "$app")" "$(basename "$app")"
 unset TAURI_SIGNING_PRIVATE_KEY
-TAURI_SIGNING_PRIVATE_KEY_PATH="$updater_key" pnpm tauri signer sign "$archive"
+pnpm tauri signer sign --private-key-path "$updater_key" "$archive"
 
 mkdir -p "$(dirname "$dmg")" "$release_tmp/image"
 ditto "$app" "$release_tmp/image/Noam.app"
