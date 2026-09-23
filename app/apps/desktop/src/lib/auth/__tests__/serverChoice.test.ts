@@ -122,6 +122,26 @@ describe("decideAuthStep", () => {
     ).toBe("form");
   });
 
+  it("asks again when the answered choice left no usable server behind", () => {
+    // 0.1.59's "managed" option persisted the choice but not the URL when the
+    // URL already equalled that build's default; a release build now has an
+    // empty default, so such a device upgrades into "form" with nowhere to post.
+    expect(
+      decideAuthStep({ choice: "managed", serverUrl: "", defaultServerUrl: "" }),
+    ).toBe("choose-server");
+    expect(
+      decideAuthStep({ choice: "custom", serverUrl: "   ", defaultServerUrl: "" }),
+    ).toBe("choose-server");
+    // A dev build still resolves to its local default, so it is never asked.
+    expect(
+      decideAuthStep({
+        choice: "managed",
+        serverUrl: "http://localhost:3010",
+        defaultServerUrl: "http://localhost:3010",
+      }),
+    ).toBe("form");
+  });
+
   it("does not ask a device that already points at its own server", () => {
     // It answered through the old <details>; asking again would be needless.
     expect(
