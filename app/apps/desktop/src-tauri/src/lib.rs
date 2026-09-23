@@ -22,7 +22,7 @@ mod watcher;
 use state::AppState;
 use tauri::Manager;
 
-/// Source builds intentionally omit distribution-time updater settings.
+/// Register the updater only when a signed release endpoint is configured.
 fn has_updater_settings(config: &tauri::Config) -> bool {
     config
         .plugins
@@ -227,6 +227,16 @@ mod startup_tests {
         let config: tauri::Config =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
         assert!(has_updater_settings(&config));
+    }
+
+    #[test]
+    fn release_config_contains_valid_updater_settings() {
+        let config: tauri::Config =
+            serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert!(has_updater_settings(&config));
+        let updater: tauri_plugin_updater::Config =
+            serde_json::from_value(config.plugins.0["updater"].clone()).unwrap();
+        assert_eq!(updater.endpoints.len(), 1);
     }
 
     #[test]

@@ -200,3 +200,44 @@ Two controls sit on top of that:
   update wall, and the Updates tab disables the manual controls. The file
   deliberately does not live in the user's own config directory, because the
   user owns that directory and could remove it.
+
+## Local script release
+
+Noam 0.1.59 is the last download without update support. Version 0.1.60 and
+later check the signed `latest.json` manifest at launch and while open and show
+**Install & Restart** when a newer version exists; the app never restarts during
+editing without a click. People on 0.1.59 must download the new app once from
+the Releases page.
+
+0.1.60 was published with `app/apps/desktop/scripts/release-macos.sh`, which
+builds, signs, notarizes and staples the DMG and updater archive from a local
+machine instead of the `Release` workflow. It reads the updater private key
+from `NOAM_UPDATER_KEY_PATH` (default `~/.config/noam/release/updater-v1.key`)
+and its password from the macOS Keychain (`noam-release` account,
+`noam-updater-v1-passphrase` service); that key must be the one whose public
+half is committed as `plugins.updater.pubkey`, or every installed copy rejects
+the release. Put `APPLE_TEAM_ID`, `APPLE_SIGNING_IDENTITY`, and
+`NOTARY_PROFILE` in the local, ignored `app/apps/desktop/.env.release`, write
+a plain-text release notes file outside Git and run from `app/apps/desktop`:
+
+```bash
+RELEASE_NOTES_FILE=/path/to/notes.txt bash scripts/release-macos.sh
+```
+
+The script writes `latest.json` (`scripts/create-update-manifest.mjs`) with
+the archive URL and signature. Publish these five files together under the
+matching `vX.Y.Z` tag:
+
+- `Noam_X.Y.Z_aarch64.dmg`
+- `Noam_aarch64.dmg` (the same signed download under a stable name for the
+  README and website, so a new release becomes the current download without
+  editing a version-specific URL)
+- `Noam.app.tar.gz`
+- `Noam.app.tar.gz.sig`
+- `latest.json`
+
+Before announcing, verify the uploaded DMG's checksum and Gatekeeper result,
+install it on a clean account, open a synthetic vault, and confirm the
+`latest.json` asset and archive URL respond over HTTPS. The first
+updater-enabled version cannot be tested against 0.1.59, which never checks
+for updates.
