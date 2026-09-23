@@ -79,8 +79,10 @@ export function createParticipantRoutes(deps: ParticipantDeps): Hono {
     const orgId = c.req.param("orgId");
     if (!(await orgRole(orgId, session.userId))) return c.json({ error: "not_a_member" }, 403);
 
-    // Self-heal a member with no live row (the trigger makes this a no-op on
-    // every normal path).
+    // Self-heal a member with no row at all (the trigger makes this a no-op on
+    // every normal path). A member whose row was DEACTIVATED stays that way:
+    // `ensureHumanParticipant` never inserts beside an existing human row, so a
+    // roster read cannot undo a one-way deactivation, and `self` is null.
     const self =
       (await findLiveHuman(orgId, session.userId)) ??
       (await ensureHumanParticipant(orgId, session.userId));

@@ -548,6 +548,28 @@ describe("participant registry", () => {
       expect(rows[0].last_edited_by).toBe(mem.userId);
     });
 
+    it("a roster read never resurrects a deactivated human (one-way until Phase 3)", async () => {
+      const { owner, org, mem, memRow } = await setup("pa7");
+      expect((await patch(owner, org.id, memRow.id, { deactivated: true })).status).toBe(200);
+
+      // The deactivated member is still a member, so the GET passes the
+      // membership check and reaches the self-heal — which must not insert a
+      // second, live row beside the deactivated one.
+      const body = await list(mem, org.id);
+      expect(body.self).toBeNull();
+      expect(body.participants.map((p) => p.id)).not.toContain(memRow.id);
+      expect(await liveHuman(org.id, mem.userId)).toHaveLength(0);
+      const rows = (await rowsFor(org.id)).filter((r) => r.user_id === mem.userId);
+      expect(rows).toHaveLength(1);
+      expect(rows[0].deactivated_at).not.toBeNull();
+
+      // Same through the helper itself, and it stays a no-op on repeat.
+      expect(await ensureHumanParticipant(org.id, mem.userId)).toBeNull();
+      expect((await rowsFor(org.id)).filter((r) => r.user_id === mem.userId)).toHaveLength(1);
+      // The owner's own live row is untouched by any of this.
+      expect((await list(owner, org.id)).self).not.toBeNull();
+    });
+
     it("refuses re-activation, color changes and human renames", async () => {
       const { owner, org, agent, memRow } = await setup("pa3");
       const cases: Array<[unknown, string]> = [

@@ -106,10 +106,16 @@ export async function findParticipant(
 }
 
 /**
- * Make sure the user has a live human row in the org and return it. The member
- * trigger normally did this already, in which case the insert is a no-op
- * (ON CONFLICT on the live-human unique index). Callers must have checked
- * membership: this does not.
+ * Self-heal for a member with NO human row at all (data that predates the
+ * trigger): insert one and return it. The member trigger normally did this
+ * already, in which case the insert is a no-op (ON CONFLICT on the live-human
+ * unique index). Callers must have checked membership: this does not.
+ *
+ * A member whose row exists but is DEACTIVATED gets nothing back — the unique
+ * index only covers live rows, so a plain insert would quietly mint a second,
+ * live row and undo an admin's one-way deactivation (one-way until Phase 3).
+ * Only the member trigger makes a new live row after a deactivation, and only
+ * on a real rejoin (member DELETE + INSERT), never on a roster read.
  */
 export async function ensureHumanParticipant(
   organizationId: string,
@@ -119,7 +125,12 @@ export async function ensureHumanParticipant(
   await db.query(
     `INSERT INTO participants (id, organization_id, kind, user_id, display_name, color)
      SELECT $1, $2, 'human', u.id, participant_human_name(u.name, u.email), participant_color(u.id)
-       FROM "user" u WHERE u.id = $3
+       FROM "user" u
+      WHERE u.id = $3
+        AND NOT EXISTS (
+          SELECT 1 FROM participants p
+           WHERE p.organization_id = $2 AND p.user_id = $3 AND p.kind = 'human'
+        )
      ON CONFLICT DO NOTHING`,
     [randomUUID(), organizationId, userId],
   );
