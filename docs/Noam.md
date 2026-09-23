@@ -103,10 +103,9 @@ Self-hosting and production deployment (Docker, Railway, env vars, the single-po
 topology) are covered in [[DEPLOY]]. Noam is free and self-hosted only; there is no managed
 backend. The desktop app points at whichever server you deploy via the server URL in Settings.
 
-The current local Developer ID signing, notarization, artifact verification, and
-clean-publication process is covered in [[RELEASE]]. Release automation and
-auto-update remain disabled until the neutral repository and fresh updater key
-are ready.
+The release workflow (manual dispatch → protected `release` environment → draft
+GitHub Release), Developer ID signing, notarization, artifact verification, the
+auto-update controls and the clean-publication process are covered in [[RELEASE]].
 
 ---
 
