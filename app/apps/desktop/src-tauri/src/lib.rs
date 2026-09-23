@@ -90,10 +90,7 @@ pub fn run() {
             // without its config panics before the first window can open. A
             // managed policy that locks updates off suppresses it too.
             #[cfg(desktop)]
-            if should_register_updater(
-                app.config(),
-                &commands::managed_update_policy(app.handle()),
-            ) {
+            if should_register_updater(app.config(), &commands::managed_update_policy()) {
                 app.handle()
                     .plugin(tauri_plugin_updater::Builder::new().build())?;
             }

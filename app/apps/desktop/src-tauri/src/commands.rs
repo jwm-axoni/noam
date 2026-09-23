@@ -233,8 +233,13 @@ fn write_config(app: &AppHandle, state: &State<AppState>, cfg: &AppConfig) -> Ap
 // An enterprise override the user cannot bypass. The app only ever READS these
 // — it never writes them. Two sources, checked in order:
 //   1. env `NOAM_UPDATER_POLICY` — `disabled` ⇒ off + locked; unset ⇒ no policy.
-//   2. a read-only `managed-policy.json` in the app config dir, shaped
-//      `{ "autoUpdate": { "enabled": false, "locked": true } }`.
+//   2. a `managed-policy.json` in a SYSTEM-owned location (`managed_policy_path`),
+//      shaped `{ "autoUpdate": { "enabled": false, "locked": true } }`.
+// The file deliberately does NOT live in the user's own config dir next to
+// `config.json`: the user owns that directory, so even a read-only file there
+// can be unlinked or replaced, and the next launch would fall back to "no
+// policy". A system-owned path needs admin rights to change, which is the
+// trust boundary IT actually has.
 // No policy ⇒ `{ enabled: true, locked: false }` (auto-check governed by the
 // per-user toggle). `locked && !enabled` is the strongest state: it also
 // suppresses the updater plugin entirely (see `lib.rs`).
@@ -269,21 +274,55 @@ struct ManagedAutoUpdate {
     locked: bool,
 }
 
-/// Resolve the effective managed update policy (env first, then the read-only
-/// config-dir file, else no policy).
-pub fn managed_update_policy(app: &AppHandle) -> ManagedUpdatePolicy {
+/// Where IT deploys `managed-policy.json`: a system-owned path a standard user
+/// cannot write, unlink or replace. Per platform:
+///   macOS    `/Library/Application Support/com.noam.app/managed-policy.json`
+///   Linux    `/etc/noam/managed-policy.json`
+///   Windows  `%ProgramData%\Noam\managed-policy.json`
+/// `None` on a platform without a conventional system config location.
+fn managed_policy_path() -> Option<PathBuf> {
+    #[cfg(target_os = "macos")]
+    {
+        Some(PathBuf::from(
+            "/Library/Application Support/com.noam.app/managed-policy.json",
+        ))
+    }
+    #[cfg(target_os = "linux")]
+    {
+        Some(PathBuf::from("/etc/noam/managed-policy.json"))
+    }
+    #[cfg(target_os = "windows")]
+    {
+        std::env::var_os("ProgramData")
+            .map(|d| PathBuf::from(d).join("Noam").join("managed-policy.json"))
+    }
+    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
+    {
+        None
+    }
+}
+
+/// Parse a `managed-policy.json` body. `None` when it is not valid JSON or has
+/// no `autoUpdate` section — either way "no policy", never a silent lock.
+fn parse_managed_policy(s: &str) -> Option<ManagedUpdatePolicy> {
+    serde_json::from_str::<ManagedPolicyFile>(s)
+        .ok()
+        .and_then(|f| f.auto_update)
+        .map(|au| ManagedUpdatePolicy { enabled: au.enabled, locked: au.locked })
+}
+
+/// Resolve the effective managed update policy (env first, then the system-owned
+/// policy file, else no policy).
+pub fn managed_update_policy() -> ManagedUpdatePolicy {
     if let Ok(v) = std::env::var("NOAM_UPDATER_POLICY") {
         if v == "disabled" {
             return ManagedUpdatePolicy { enabled: false, locked: true };
         }
     }
-    if let Ok(dir) = app.path().app_config_dir() {
-        if let Ok(s) = std::fs::read_to_string(dir.join("managed-policy.json")) {
-            if let Some(au) = serde_json::from_str::<ManagedPolicyFile>(&s)
-                .ok()
-                .and_then(|f| f.auto_update)
-            {
-                return ManagedUpdatePolicy { enabled: au.enabled, locked: au.locked };
+    if let Some(path) = managed_policy_path() {
+        if let Ok(s) = std::fs::read_to_string(&path) {
+            if let Some(policy) = parse_managed_policy(&s) {
+                return policy;
             }
         }
     }
@@ -706,7 +745,7 @@ pub async fn get_update_preferences(
     app: AppHandle,
     state: State<'_, AppState>,
 ) -> AppResult<UpdatePreferences> {
-    let managed = managed_update_policy(&app);
+    let managed = managed_update_policy();
     let auto_check_enabled = read_config(&app, &state).auto_check_updates;
     Ok(UpdatePreferences { auto_check_enabled, managed })
 }
@@ -719,7 +758,7 @@ pub async fn set_auto_check_updates(
     state: State<'_, AppState>,
     enabled: bool,
 ) -> AppResult<()> {
-    if managed_update_policy(&app).locked {
+    if managed_update_policy().locked {
         return Err(AppError::new(
             "auto-update is managed by your organization and can't be changed here",
         ));
@@ -2724,5 +2763,40 @@ mod tests {
         let json = serde_json::to_string(&cfg).unwrap();
         assert!(json.contains("vaults_root"));
         assert!(!json.contains("workspace_root"));
+    }
+
+    #[test]
+    fn managed_policy_parses_a_locked_disable() {
+        let p = parse_managed_policy(r#"{ "autoUpdate": { "enabled": false, "locked": true } }"#)
+            .unwrap();
+        assert!(!p.enabled);
+        assert!(p.locked);
+        assert!(p.disables());
+    }
+
+    #[test]
+    fn managed_policy_fields_default_to_the_no_policy_values() {
+        // An `autoUpdate` section with nothing in it must not lock anything.
+        let p = parse_managed_policy(r#"{ "autoUpdate": {} }"#).unwrap();
+        assert!(p.enabled);
+        assert!(!p.locked);
+        assert!(!p.disables());
+    }
+
+    #[test]
+    fn managed_policy_ignores_garbage_and_unrelated_files() {
+        assert!(parse_managed_policy("not json").is_none());
+        assert!(parse_managed_policy(r#"{ "somethingElse": true }"#).is_none());
+    }
+
+    #[test]
+    fn managed_policy_lives_outside_the_user_home() {
+        // The whole point of the file: a standard user must not own its parent.
+        if let Some(path) = managed_policy_path() {
+            assert!(path.is_absolute());
+            if let Some(home) = std::env::var_os("HOME") {
+                assert!(!path.starts_with(home), "policy path {path:?} is user-owned");
+            }
+        }
     }
 }
