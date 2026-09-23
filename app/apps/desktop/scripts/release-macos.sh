@@ -26,8 +26,11 @@ TAURI_SIGNING_PRIVATE_KEY_PASSWORD="$(security find-generic-password -a noam-rel
 [ -n "$TAURI_SIGNING_PRIVATE_KEY_PASSWORD" ] || { echo "Missing updater key password" >&2; exit 1; }
 
 version="$(node -p 'require("./package.json").version')"
-[ "$version" = "$(node -p 'require("./src-tauri/tauri.conf.json").version')" ] || {
-  echo "Desktop and Tauri versions differ" >&2; exit 1;
+tauri_version="$(node -p 'require("./src-tauri/tauri.conf.json").version')"
+cargo_version="$(awk '/^\[package\]$/{in_package=1; next} in_package && /^version = / {gsub(/"/, "", $3); print $3; exit}' src-tauri/Cargo.toml)"
+lock_version="$(awk '/^\[\[package\]\]$/{in_desktop=0} /^name = "desktop"$/{in_desktop=1} in_desktop && /^version = / {gsub(/"/, "", $3); print $3; exit}' src-tauri/Cargo.lock)"
+[ -n "$version" ] && [ "$version" = "$tauri_version" ] && [ "$version" = "$cargo_version" ] && [ "$version" = "$lock_version" ] || {
+  echo "Desktop, Tauri, Cargo.toml, and Cargo.lock versions must match" >&2; exit 1;
 }
 
 pnpm tauri build --bundles app
