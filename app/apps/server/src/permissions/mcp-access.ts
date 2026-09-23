@@ -2,7 +2,7 @@ import type pg from "pg";
 import { pool as defaultPool } from "../db/pool.js";
 import type { McpAuth } from "../mcp/tokens.js";
 import { effectivePermission, type Permission } from "./resolver.js";
-import { listReadableDocsInVault } from "./vault-docs.js";
+import { listReadableDocsInVault, listVisibleFolders } from "./vault-docs.js";
 import {
   listScopedDocsInVault,
   listScopedFoldersInVault,
@@ -77,15 +77,21 @@ export async function mcpFolderScope(
 }
 
 /**
- * Which folders of one collection the caller may LIST. `"all"` for non-agent
- * callers and for a vault-scoped agent; otherwise the scoped subtrees only.
+ * Which folders of one collection the caller may LIST: the user's visible
+ * folders (`listVisibleFolders`, the same private-by-default set the desktop
+ * tree gets), intersected with the token's scoped subtrees for an agent. The
+ * scope alone would let a vault- or folder-scoped token enumerate names and
+ * hierarchy its minter cannot see.
  */
 export async function mcpVisibleFolders(
   auth: McpAuth,
   vaultId: string,
   db: Queryable = defaultPool,
-): Promise<Set<string> | "all"> {
+): Promise<Set<string>> {
+  const base = new Set((await listVisibleFolders(auth.userId, vaultId, db)).map((f) => f.id));
   const tokenId = agentTokenId(auth);
-  if (!tokenId) return "all";
-  return listScopedFoldersInVault(tokenId, vaultId, db);
+  if (!tokenId) return base;
+  const scoped = await listScopedFoldersInVault(tokenId, vaultId, db);
+  if (scoped === "all") return base;
+  return new Set([...base].filter((id) => scoped.has(id)));
 }

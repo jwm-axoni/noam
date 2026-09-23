@@ -4,7 +4,7 @@ import { config } from "../../config.js";
 import { orgRole } from "../../permissions/lookup.js";
 import { getSession } from "../session.js";
 import type { DocWriter } from "../../mcp/doc-writer.js";
-import { handleMcpMessage, type JsonRpcRequest } from "../../mcp/protocol.js";
+import { auditRefusedCall, handleMcpMessage, type JsonRpcRequest } from "../../mcp/protocol.js";
 import type { McpContext } from "../../mcp/service.js";
 import { resolveOAuthMcpAuth } from "../../mcp/oauth.js";
 import {
@@ -12,6 +12,7 @@ import {
   bumpMcpTokenUsage,
   createAgentToken,
   findMcpToken,
+  hasLiveTokenForParticipant,
   isMcpTokenLive,
   listMcpTokens,
   migrateUserToken,
@@ -68,8 +69,8 @@ const WWW_AUTHENTICATE = `Bearer resource_metadata="${config.betterAuthUrl}/.wel
  *   POST   /api/mcp/tokens {kind:agent}  → mint an agent token (owner/admin; plaintext once).
  *                                         `kind: user` → 410: user tokens are sunset.
  *   DELETE /api/mcp/tokens/:id          → revoke (live: kicks sockets, retracts the chip)
- *   POST   /api/mcp/tokens/:id/renew    → push an agent token's expiry out, scopes untouched
- *   POST   /api/mcp/tokens/:id/rotate   → replace an agent token (same participant + scopes)
+ *   POST   /api/mcp/tokens/:id/renew    → push an agent token's expiry out, scopes untouched (owner/admin)
+ *   POST   /api/mcp/tokens/:id/rotate   → replace an agent token (same participant + scopes; owner/admin)
  *   POST   /api/mcp/tokens/:id/migrate  → turn a user token into an agent token (owner/admin)
  *
  * The token endpoints are session-authenticated (the desktop Settings page);
@@ -158,24 +159,38 @@ type Managed =
   | { ok: false; error: string; status: 401 | 403 | 404 };
 
 /**
- * Who may revoke / renew / rotate a token: its own user (a user token they
- * hold, or an agent token they minted), or an owner/admin of the token's vault
- * for an AGENT token — those are team credentials. A manager can NOT act on
- * someone else's user token: that one acts as its holder, not as the team.
+ * Who may act on a token.
+ *
+ * `revoke`: its own user (a user token they hold, or an agent token they
+ * minted), or a CURRENT owner/admin of the token's vault for an AGENT token —
+ * those are team credentials. A manager can NOT revoke someone else's user
+ * token: that one acts as its holder, not as the team.
+ *
+ * `manage` (renew / rotate): a current owner/admin of the vault, full stop —
+ * the same gate as minting. Extending a credential's life or minting its
+ * replacement plaintext is a manager act (ADR 0003 decision 1), so neither the
+ * capping user of a migrated token (a plain member) nor a minter who has since
+ * been demoted gets the "own token" shortcut: the role is re-read on every call.
  */
 async function loadManaged(
   session: { userId: string } | null,
   tokenId: string,
+  intent: "revoke" | "manage",
 ): Promise<Managed> {
   if (!session) return { ok: false, error: "Authentication required", status: 401 };
   const row = await findMcpToken(tokenId);
   if (!row) return { ok: false, error: "Token not found", status: 404 };
   const organizationId = row.organizationId;
-  if (row.userId === session.userId) return { ok: true, row, organizationId };
-  const role = await orgRole(organizationId, session.userId);
-  if (row.kind === "agent" && role && MANAGER_ROLES.has(role)) {
+  if (intent === "revoke" && row.userId === session.userId) {
     return { ok: true, row, organizationId };
   }
+  const role = await orgRole(organizationId, session.userId);
+  const manager = role !== null && MANAGER_ROLES.has(role);
+  if (intent === "manage") {
+    if (!manager) return { ok: false, error: "owner_or_admin_required", status: 403 };
+    return { ok: true, row, organizationId };
+  }
+  if (row.kind === "agent" && manager) return { ok: true, row, organizationId };
   return { ok: false, error: "forbidden", status: 403 };
 }
 
@@ -237,6 +252,9 @@ export function createMcpRoutes(deps: McpDeps): Hono {
         // call after the first bounds the write-stop window to ONE in-flight
         // tool call (ADR 0003 item 5). Token-auth only: OAuth has no row.
         if (toolCalls > 0 && auth.tokenId && !(await isMcpTokenLive(auth.tokenId))) {
+          // Still one audit row per attempted call (ADR 0003 item 4): the
+          // refusal is the record of what the revoked credential tried next.
+          await auditRefusedCall(ctx, m as JsonRpcRequest, "revoked");
           responses.push({
             jsonrpc: "2.0" as const,
             id: (m as JsonRpcRequest).id ?? null,
@@ -335,7 +353,7 @@ export function createMcpRoutes(deps: McpDeps): Hono {
   });
 
   app.delete("/mcp/tokens/:id", async (c) => {
-    const found = await loadManaged(await getSession(c), c.req.param("id"));
+    const found = await loadManaged(await getSession(c), c.req.param("id"), "revoke");
     if (!found.ok) return c.json({ error: found.error }, found.status);
     const { row, organizationId } = found;
     if (!(await revokeMcpToken(row.id))) return c.json({ error: "Token not found" }, 404);
@@ -344,7 +362,14 @@ export function createMcpRoutes(deps: McpDeps): Hono {
     // request fails `verifyMcpToken`; these close any doc socket bound to the
     // participant and retract its presence chip without waiting for decay.
     // A user token acts as its human, whose sockets and chip are their own.
-    if (row.kind === "agent" && row.participantId) {
+    // The sockets and the chip belong to the PARTICIPANT, not the token: a
+    // participant that still holds another live token keeps both, and only
+    // the last live token's revoke fires the participant-level hooks.
+    if (
+      row.kind === "agent" &&
+      row.participantId &&
+      !(await hasLiveTokenForParticipant(row.participantId))
+    ) {
       deps.disconnectParticipant?.(row.participantId);
       deps.onParticipantGone?.(organizationId, row.participantId);
     }
@@ -365,7 +390,7 @@ export function createMcpRoutes(deps: McpDeps): Hono {
   });
 
   app.post("/mcp/tokens/:id/renew", async (c) => {
-    const found = await loadManaged(await getSession(c), c.req.param("id"));
+    const found = await loadManaged(await getSession(c), c.req.param("id"), "manage");
     if (!found.ok) return c.json({ error: found.error }, found.status);
     if (found.row.kind !== "agent") return c.json({ error: "not_an_agent_token" }, 400);
     const body = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
@@ -377,7 +402,7 @@ export function createMcpRoutes(deps: McpDeps): Hono {
   });
 
   app.post("/mcp/tokens/:id/rotate", async (c) => {
-    const found = await loadManaged(await getSession(c), c.req.param("id"));
+    const found = await loadManaged(await getSession(c), c.req.param("id"), "manage");
     if (!found.ok) return c.json({ error: found.error }, found.status);
     if (found.row.kind !== "agent") return c.json({ error: "not_an_agent_token" }, 400);
     try {

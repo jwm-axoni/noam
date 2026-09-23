@@ -352,4 +352,58 @@ describe("MCP token lifecycle", () => {
       expect((await rpc(minted.token)).status).toBe(200);
     });
   });
+
+  describe("renew / rotate are manager acts (PR #16 round 2, findings 1 + 6)", () => {
+    it("a member whose user token was migrated cannot renew or rotate the agent token, but may still revoke it", async () => {
+      const { org, owner, member, agent } = await setup("mg1");
+      const { row: old } = await createMcpToken({ userId: member.userId, organizationId: org }, "m");
+      const migrated = await tokensApi(owner, `/${old.id}/migrate`, {
+        method: "POST",
+        body: { participantId: agent, preset: "reader" },
+      });
+      expect(migrated.status).toBe(201);
+      const next = (await migrated.json()) as any;
+      // The member is the token's capping user — and only that.
+      expect(next.userId).toBe(member.userId);
+
+      const renew = await tokensApi(member, `/${next.id}/renew`, { method: "POST", body: {} });
+      expect(renew.status).toBe(403);
+      expect(await renew.json()).toEqual({ error: "owner_or_admin_required" });
+
+      const rotate = await tokensApi(member, `/${next.id}/rotate`, { method: "POST" });
+      expect(rotate.status).toBe(403);
+      expect(await rotate.json()).toEqual({ error: "owner_or_admin_required" });
+      // No replacement plaintext was minted: the row is untouched.
+      const { rows } = await pool.query("SELECT id FROM mcp_tokens WHERE organization_id = $1", [org]);
+      expect(rows.map((r) => r.id)).toEqual([next.id]);
+
+      // An owner can; the member's own-token shortcut still covers REVOKE.
+      expect((await tokensApi(owner, `/${next.id}/renew`, { method: "POST", body: {} })).status).toBe(200);
+      expect((await tokensApi(member, `/${next.id}`, { method: "DELETE" })).status).toBe(200);
+    });
+
+    it("a minter demoted to member loses renew and rotate on the tokens they minted", async () => {
+      const { org, owner, admin, agent } = await setup("mg2");
+      const minted = (await (await mint(admin, { participantId: agent, preset: "reader" })).json()) as any;
+      expect((await tokensApi(admin, `/${minted.id}/renew`, { method: "POST", body: {} })).status).toBe(200);
+
+      await pool.query(
+        `UPDATE member SET role = 'member' WHERE "organizationId" = $1 AND "userId" = $2`,
+        [org, admin.userId],
+      );
+
+      const renew = await tokensApi(admin, `/${minted.id}/renew`, { method: "POST", body: {} });
+      expect(renew.status).toBe(403);
+      expect(await renew.json()).toEqual({ error: "owner_or_admin_required" });
+      const rotate = await tokensApi(admin, `/${minted.id}/rotate`, { method: "POST" });
+      expect(rotate.status).toBe(403);
+      expect(await rotate.json()).toEqual({ error: "owner_or_admin_required" });
+
+      // The role is read at call time: a current manager still can.
+      const res = await tokensApi(owner, `/${minted.id}/rotate`, { method: "POST" });
+      expect(res.status).toBe(201);
+      expect(((await res.json()) as any).userId).toBe(admin.userId);
+    });
+  });
+
 });

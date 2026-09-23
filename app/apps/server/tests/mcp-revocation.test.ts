@@ -210,6 +210,79 @@ describe("MCP token revocation", () => {
     expect(rec.participantGone).toEqual([]);
     expect((await mcp(token, toolCall("list_vaults", {}))).status).toBe(401);
   });
+  it("every call refused after a mid-batch revoke still leaves one `revoked` audit row", async () => {
+    // PR #16 round 2, finding 3: the refusal branch skipped the dispatcher, and
+    // with it the one-row-per-call trail for what the dead credential tried next.
+    const o = await setup("b2");
+    const noteA = await seedNote(o.vault, null, "a.md", o.owner.userId);
+    const noteB = await seedNote(o.vault, null, "b.md", o.owner.userId);
+    inner.store.set(noteA, "A before");
+    inner.store.set(noteB, "B before");
+    const { token, row } = await agentToken(o, o.owner.userId);
+    onWrite = async () => {
+      await pool.query("DELETE FROM mcp_tokens WHERE id = $1", [row.id]);
+    };
+    const res = await mcp(token, [
+      toolCall("update_note", { docId: noteA, content: "A after" }),
+      toolCall("update_note", { docId: noteB, content: "B after" }),
+      toolCall("search_notes", { vaultId: o.vault, query: "after" }),
+    ]);
+    expect(res.status).toBe(200);
+
+    const { rows } = await pool.query<{ tool: string; doc_id: string | null; outcome: string }>(
+      `SELECT tool, doc_id, outcome FROM mcp_audit
+        WHERE token_id = $1 AND tool <> 'token.revoke' ORDER BY id`,
+      [row.id],
+    );
+    expect(rows).toEqual([
+      { tool: "update_note", doc_id: noteA, outcome: "ok" },
+      { tool: "update_note", doc_id: noteB, outcome: "revoked" },
+      { tool: "search_notes", doc_id: null, outcome: "revoked" },
+    ]);
+    const { rows: who } = await pool.query(
+      "SELECT DISTINCT participant_id, user_id, organization_id FROM mcp_audit WHERE token_id = $1",
+      [row.id],
+    );
+    expect(who).toEqual([{ participant_id: o.agent, user_id: o.owner.userId, organization_id: o.org }]);
+  });
+
+  it("revoking one of two tokens bound to the same participant keeps its sockets and chip until the last goes", async () => {
+    // PR #16 round 2, finding 7: the sockets and the presence chip are the
+    // participant's, so a live sibling token must keep both.
+    const o = await setup("s1");
+    const first = await agentToken(o, o.owner.userId);
+    const second = await agentToken(o, o.admin.userId);
+
+    expect((await revoke(o.owner, first.row.id)).status).toBe(200);
+    expect(rec.disconnectedParticipants).toEqual([]);
+    expect(rec.participantGone).toEqual([]);
+    // The row itself is gone and the revoke is audited regardless.
+    expect((await mcp(first.token, toolCall("list_vaults", {}))).status).toBe(401);
+    expect((await mcp(second.token, toolCall("list_vaults", {}))).status).toBe(200);
+    const { rows } = await pool.query(
+      "SELECT outcome FROM mcp_audit WHERE token_id = $1 AND tool = 'token.revoke'",
+      [first.row.id],
+    );
+    expect(rows).toEqual([{ outcome: "revoked" }]);
+
+    expect((await revoke(o.owner, second.row.id)).status).toBe(200);
+    expect(rec.disconnectedParticipants).toEqual([o.agent]);
+    expect(rec.participantGone).toEqual([{ organizationId: o.org, participantId: o.agent }]);
+  });
+
+  it("an expired sibling token does not keep a revoked participant's sockets open", async () => {
+    const o = await setup("s2");
+    const live = await agentToken(o, o.owner.userId);
+    const expired = await agentToken(o, o.owner.userId);
+    await pool.query("UPDATE mcp_tokens SET expires_at = now() - interval '1 day' WHERE id = $1", [
+      expired.row.id,
+    ]);
+
+    expect((await revoke(o.owner, live.row.id)).status).toBe(200);
+    expect(rec.disconnectedParticipants).toEqual([o.agent]);
+    expect(rec.participantGone).toEqual([{ organizationId: o.org, participantId: o.agent }]);
+  });
+
 });
 
 // ── Chip retraction at the channel level ─────────────────────────────────────
@@ -281,4 +354,5 @@ describe("participant gone on the vault channel", () => {
       await pubsub.close();
     }
   });
+
 });

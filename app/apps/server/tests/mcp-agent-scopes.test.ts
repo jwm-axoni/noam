@@ -25,7 +25,7 @@ const rec = recordingAppDeps();
 // A no-op audit sink: this suite is about scopes, not the audit log (workstream D).
 const app = createApp({
   ...rec.deps,
-  mcpAudit: { record: async () => {}, check: async () => null },
+  mcpAudit: { record: async () => {}, check: async () => null, serialize: (_auth, fn) => fn() },
 });
 const mem = rec.docWriter;
 
@@ -364,4 +364,40 @@ describe("MCP agent-token scopes (ADR 0003 item 2)", () => {
     ).toBe(true);
     expect((await call(token, "delete_folder", { folderId: v.other })).isError).toBe(true);
   });
+
+  it("list_folders never reveals a folder the minter cannot see (private-by-default vault)", async () => {
+    // PR #16 round 2, finding 4: the token scope was the only filter, so a
+    // vault-scoped agent enumerated every folder's name, path and parent —
+    // including ones its minter had no grant on.
+    const owner = await seedUser("owner@agent-folders.com");
+    const admin = await seedUser("admin@agent-folders.com");
+    const member = await seedUser("member@agent-folders.com");
+    const org = await seedOrg("Acme", "agent-folders");
+    await seedMember(org, owner, "owner");
+    await seedMember(org, admin, "admin");
+    await seedMember(org, member, "member");
+    // Never shared: no vault-wide grant, so everyone sees only what they authored.
+    const vault = await seedVault(org);
+    const ownersFolder = await seedFolder(vault, null, "Owner Only", "Owner Only", owner);
+    await seedFolder(vault, ownersFolder, "Deeper", "Owner Only/Deeper", owner);
+    const adminsFolder = await seedFolder(vault, null, "Admin Stuff", "Admin Stuff", admin);
+
+    // Vault-scoped editor token minted by the admin: only the admin's folder.
+    const vaultScoped = await agentToken(org, admin, expandPreset("editor", org));
+    const asAgent = await call(vaultScoped, "list_folders", { vaultId: vault });
+    expect(asAgent.isError).toBe(false);
+    expect(asAgent.data.results.map((f: any) => f.folderId)).toEqual([adminsFolder]);
+
+    // A folder scope on the owner's folder does not lift the minter's cap either.
+    const folderScoped = await agentToken(org, admin, [
+      { resourceType: "folder", resourceId: ownersFolder, permission: "view" },
+    ]);
+    expect((await call(folderScoped, "list_folders", { vaultId: vault })).data.results).toEqual([]);
+
+    // The same rule for a user token: a member with no grant sees nothing.
+    const asMember = await call(await userToken(member, org), "list_folders", { vaultId: vault });
+    expect(asMember.isError).toBe(false);
+    expect(asMember.data.results).toEqual([]);
+  });
+
 });

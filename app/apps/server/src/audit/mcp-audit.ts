@@ -50,6 +50,14 @@ export interface McpReadBudget {
    * OAuth path (no token row).
    */
   check(auth: McpAuth): Promise<RateLimitedInfo | null>;
+  /**
+   * Run `fn` with this caller's budget key held: check → tool → record happen
+   * in sequence for one key, never interleaved with another call on the same
+   * key. Without it N parallel reads all see the same pre-call count and all
+   * pass, and a 120/min budget becomes 120 × (concurrency). Keyed exactly like
+   * `check`; per process, like the doc writer's per-doc lock.
+   */
+  serialize<T>(auth: McpAuth, fn: () => Promise<T>): Promise<T>;
 }
 
 export type McpAudit = McpAuditSink & McpReadBudget;
@@ -96,7 +104,30 @@ export function createMcpAudit(opts: McpAuditOptions = {}): McpAudit {
     await pruneMcpAudit(db, retentionDays);
   }
 
+  // One promise chain per budget key. Self-cleaning: an entry is removed once
+  // its chain settles, so an idle key costs nothing.
+  const chains = new Map<string, Promise<unknown>>();
+  function budgetKey(auth: McpAuth): string {
+    return auth.tokenId ? `token:${auth.tokenId}` : `user:${auth.userId}`;
+  }
+
   return {
+    async serialize(auth, fn) {
+      const key = budgetKey(auth);
+      const prev = chains.get(key) ?? Promise.resolve();
+      const run = prev.then(fn, fn);
+      const chain = run.then(
+        () => undefined,
+        () => undefined,
+      );
+      chains.set(key, chain);
+      try {
+        return await run;
+      } finally {
+        if (chains.get(key) === chain) chains.delete(key);
+      }
+    },
+
     async record(entry) {
       try {
         await db.query(
