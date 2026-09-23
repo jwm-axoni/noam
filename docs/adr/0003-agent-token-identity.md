@@ -136,3 +136,12 @@ heartbeat window and retracts the chip; a request claiming another participant
 id is stamped with the token's own id and the attempt is logged; the audit
 table rejects writes from any MCP tool; bulk-read rate limit engages before the
 FTS reindex degrades the vault for the human user.
+
+## Enterprise admin configurability (John's decision, 2026-09-23)
+
+For the server-deployed enterprise edition, the admin view should expose these
+policy choices as UI-configurable options: the user-token migrate gate
+(owner/admin-only vs self-service), the user-token sunset date, and similar
+token-policy choices. Normal users never see these controls. Until the admin
+view exists, the implemented defaults stand: migrate requires owner/admin,
+sunset date comes from `MCP_USER_TOKEN_SUNSET` (default 2026-12-31).
