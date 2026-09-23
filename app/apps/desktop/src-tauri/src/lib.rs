@@ -22,7 +22,7 @@ mod watcher;
 use state::AppState;
 use tauri::Manager;
 
-/// Source builds intentionally omit distribution-time updater settings.
+/// Register the updater only when a signed release endpoint is configured.
 fn has_updater_settings(config: &tauri::Config) -> bool {
     config
         .plugins
@@ -75,8 +75,8 @@ pub fn run() {
         // account and access — the link carries ids, never content or a grant.
         .plugin(tauri_plugin_deep_link::init())
         .setup(|app| {
-            // A source build has no updater endpoint/key. Registering the plugin
-            // without its config panics before the first window can open.
+            // Keep local or staging configurations that omit updater settings
+            // runnable; the published configuration includes its key and URL.
             #[cfg(desktop)]
             if has_updater_settings(app.config()) {
                 app.handle()
@@ -205,10 +205,13 @@ mod startup_tests {
     use super::has_updater_settings;
 
     #[test]
-    fn source_config_starts_without_distribution_updater_settings() {
+    fn release_config_contains_valid_updater_settings() {
         let config: tauri::Config =
             serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
-        assert!(!has_updater_settings(&config));
+        assert!(has_updater_settings(&config));
+        let updater: tauri_plugin_updater::Config =
+            serde_json::from_value(config.plugins.0["updater"].clone()).unwrap();
+        assert_eq!(updater.endpoints.len(), 1);
     }
 
     #[test]
