@@ -208,10 +208,11 @@ export async function listFolders(ctx: McpContext, vaultId: string) {
     "SELECT id, parent_id, name, path FROM folders WHERE vault_id = $1 ORDER BY path",
     [vaultId],
   );
-  // An agent token sees only the folders its scopes reach (none without scopes).
+  // The caller's visible folders, and for an agent token only those its
+  // scopes reach as well (none without scopes).
   const visible = await mcpVisibleFolders(ctx.auth, vaultId);
   return rows
-    .filter((r) => visible === "all" || visible.has(r.id))
+    .filter((r) => visible.has(r.id))
     .map((r) => ({
       folderId: r.id,
       parentId: r.parent_id,

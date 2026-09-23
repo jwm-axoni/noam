@@ -170,4 +170,23 @@ describe("MCP read budget", () => {
     expect(reset).toBeLessThanOrEqual(Date.now() + 3_600_000);
     expect((await outcomes(f.tokenId)).at(-1)).toBe("read_note:rate_limited");
   });
+
+  it("parallel reads cannot outrun the budget: 6 concurrent calls → exactly 3 ok, 3 refused", async () => {
+    // PR #16 round 2, findings 2 + 5: check → run → record used to interleave,
+    // so every concurrent read saw the same pre-call count and all passed.
+    const f = await fixture("rl-parallel");
+    const results = await Promise.all(
+      Array.from({ length: 6 }, () => call(f.token, "read_note", { docId: f.docId })),
+    );
+    const ok = results.filter((r) => !r.isError);
+    const refused = results.filter((r) => r.isError);
+    expect(ok).toHaveLength(3);
+    expect(refused).toHaveLength(3);
+    for (const r of refused) expect(r.data?.budget).toBe("calls_per_minute");
+
+    const rows = await outcomes(f.tokenId);
+    expect(rows.filter((r) => r === "read_note:ok")).toHaveLength(3);
+    expect(rows.filter((r) => r === "read_note:rate_limited")).toHaveLength(3);
+  });
+
 });

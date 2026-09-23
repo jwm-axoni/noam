@@ -86,6 +86,9 @@ is
 ```
 
 The refused call is logged as `rate_limited` and does not consume budget.
+Check, tool run and audit record are serialized per token (per user for OAuth)
+within a server process, so parallel reads cannot all pass on the same
+pre-call count.
 This is a brake on bulk reads, not exfiltration prevention — see the sentence
 at the top.
 
@@ -99,6 +102,12 @@ Settings) deletes the `mcp_tokens` row and then, in the same request:
 2. publishes a `gone` presence frame for the participant on every collection of
    the vault (`publishParticipantGone`), and
 3. writes a `revoked` audit row.
+
+Steps 1 and 2 are the *participant's*, not the token's: they fire only when the
+revoked token was the participant's last unexpired one, so a participant that
+still holds a sibling token keeps its sockets and its chip. Step 3 always runs.
+Inside one batched HTTP body, every `tools/call` after the revoke is refused
+with `token revoked` and still gets its own `revoked` audit row.
 
 Measured against the code, not the ADR's "within one heartbeat":
 

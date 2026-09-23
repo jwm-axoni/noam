@@ -508,6 +508,25 @@ export async function isMcpTokenLive(tokenId: string, db: Queryable = defaultPoo
 }
 
 /**
+ * Does this participant still hold at least one unexpired token? Asked after
+ * a revoke, because the doc sockets and the presence chip are the
+ * PARTICIPANT's: revoking one of its tokens while a sibling stays live must
+ * not close the sockets or announce it `gone`.
+ */
+export async function hasLiveTokenForParticipant(
+  participantId: string,
+  db: Queryable = defaultPool,
+): Promise<boolean> {
+  const { rows } = await db.query<{ ok: number }>(
+    `SELECT 1 AS ok FROM mcp_tokens
+      WHERE participant_id = $1 AND (expires_at IS NULL OR expires_at > now())
+      LIMIT 1`,
+    [participantId],
+  );
+  return rows.length > 0;
+}
+
+/**
  * Attribute `count` tool calls to a token (best-effort; never blocks the reply).
  * Called by the MCP route after a request so the desktop's usage figure tracks
  * actual tool invocations rather than every JSON-RPC handshake message.

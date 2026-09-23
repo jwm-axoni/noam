@@ -99,6 +99,25 @@ async function audit(
 }
 
 /**
+ * Audit a `tools/call` the route refused BEFORE dispatch (a token revoked
+ * mid-batch), so the one-row-per-call trail covers attempted activity too.
+ * Best-effort like `audit`; a malformed call is logged under its raw name.
+ */
+export async function auditRefusedCall(
+  ctx: McpContext,
+  msg: JsonRpcRequest,
+  outcome: McpAuditOutcome,
+): Promise<void> {
+  const params = (msg.params ?? {}) as { name?: unknown; arguments?: unknown };
+  const name = typeof params.name === "string" ? params.name : "tools/call";
+  const args =
+    params.arguments && typeof params.arguments === "object"
+      ? (params.arguments as Record<string, unknown>)
+      : {};
+  await audit(ctx, name, args, outcome, 0);
+}
+
+/**
  * Handle one JSON-RPC message. Returns null for notifications (no id / methods
  * under `notifications/`). Never throws — protocol errors come back as JSON-RPC
  * error objects; tool failures come back as `isError` results.
@@ -152,37 +171,45 @@ export async function handleMcpMessage(
         await audit(ctx, name, args, "error", 0);
         return ok(msg.id, toolError(`Unknown tool: ${name}`));
       }
-      try {
-        // The read budget is checked BEFORE the tool runs; a refused call does
-        // no work and is logged `rate_limited` (which the budget never counts).
-        if (BUDGETED_TOOLS.has(name) && ctx.readBudget) {
-          const limited = await ctx.readBudget.check(ctx.auth);
-          if (limited) {
-            await audit(ctx, name, args, "rate_limited", 0);
-            return ok(
-              msg.id,
-              toolError(
-                `Rate limited: the ${limited.budget} read budget (${limited.used}/${limited.limit}) is exhausted; retry after ${limited.resetAt}`,
-                limited,
-              ),
-            );
+      // The read budget is checked BEFORE the tool runs; a refused call does
+      // no work and is logged `rate_limited` (which the budget never counts).
+      // Check → run → record is serialized per budget key, so two parallel
+      // reads cannot both observe the same pre-call count and both pass. The
+      // catch lives INSIDE the serialized section: a `denied`/`error` row
+      // counts against the budget too, so it must land before the lock frees.
+      const budgeted = BUDGETED_TOOLS.has(name) && ctx.readBudget ? ctx.readBudget : null;
+      const run = async (): Promise<JsonRpcResponse> => {
+        try {
+          if (budgeted) {
+            const limited = await budgeted.check(ctx.auth);
+            if (limited) {
+              await audit(ctx, name, args, "rate_limited", 0);
+              return ok(
+                msg.id,
+                toolError(
+                  `Rate limited: the ${limited.budget} read budget (${limited.used}/${limited.limit}) is exhausted; retry after ${limited.resetAt}`,
+                  limited,
+                ),
+              );
+            }
           }
+          const result = toolResult(await tool.handler(ctx, args));
+          const text = (result.content as Array<{ text: string }>)[0].text;
+          await audit(ctx, name, args, "ok", Buffer.byteLength(text, "utf8"));
+          return ok(msg.id, result);
+        } catch (err) {
+          // Expected, user-facing failures (bad args, no access) → isError result.
+          if (err instanceof McpToolError) {
+            await audit(ctx, name, args, outcomeFor(err.code), 0);
+            return ok(msg.id, toolError(err.message, err.data));
+          }
+          // Anything else is a bug on our side — log it, don't leak internals.
+          console.error(`[mcp] tool ${name} failed:`, err);
+          await audit(ctx, name, args, "error", 0);
+          return ok(msg.id, toolError("Internal error running the tool"));
         }
-        const result = toolResult(await tool.handler(ctx, args));
-        const text = (result.content as Array<{ text: string }>)[0].text;
-        await audit(ctx, name, args, "ok", Buffer.byteLength(text, "utf8"));
-        return ok(msg.id, result);
-      } catch (err) {
-        // Expected, user-facing failures (bad args, no access) → isError result.
-        if (err instanceof McpToolError) {
-          await audit(ctx, name, args, outcomeFor(err.code), 0);
-          return ok(msg.id, toolError(err.message, err.data));
-        }
-        // Anything else is a bug on our side — log it, don't leak internals.
-        console.error(`[mcp] tool ${name} failed:`, err);
-        await audit(ctx, name, args, "error", 0);
-        return ok(msg.id, toolError("Internal error running the tool"));
-      }
+      };
+      return await (budgeted ? budgeted.serialize(ctx.auth, run) : run());
     }
 
     default:
