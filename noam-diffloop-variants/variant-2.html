@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noam · Suggestion review · Variant B: Review Session</title>
+<style>
+  :root{
+    --charcoal:#2b2724; --charcoal2:#35302b; --cream:#f8f3ea; --violet:#7f73ff;
+    --line:#4a443b; --muted:#b7ae9e; --faint:#8a8172;
+    --green:#009E73; --blue:#0072B2; --amber:#D55E00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--charcoal); color:var(--cream);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; font-size:15px; line-height:1.55;
+    min-height:100vh; display:flex; flex-direction:column;}
+  .mono{font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace;}
+  button{font:inherit; cursor:pointer;}
+  :focus-visible{outline:2px solid var(--violet); outline-offset:3px; border-radius:8px;}
+  .kbd{font-family:ui-monospace,Menlo,monospace; font-size:13px; border:1px solid var(--line);
+    border-bottom-width:2px; border-radius:6px; padding:3px 10px; background:var(--charcoal2); color:var(--cream);}
+
+  .topbar{display:flex; align-items:center; gap:14px; padding:14px 28px; border-bottom:1px solid var(--line);}
+  .topbar h1{font-size:16px; margin:0; font-weight:700;}
+  .topbar .sub{color:var(--muted); font-size:13.5px;}
+  .progress{flex:1; max-width:420px; height:8px; background:var(--charcoal2); border-radius:4px; overflow:hidden; margin-left:auto;}
+  .progress i{display:block; height:100%; background:var(--violet); width:0%; transition:width .3s ease;}
+  .esc{color:var(--muted); font-size:13px;}
+
+  .stage{flex:1; display:flex; flex-direction:column; align-items:center; padding:36px 24px 140px; overflow-y:auto;}
+  .focus{width:100%; max-width:760px;}
+
+  .welcome{border:1px solid var(--line); border-left:4px solid var(--green); background:var(--charcoal2);
+    border-radius:12px; padding:18px 20px; margin-bottom:22px; font-size:14.5px;}
+  .welcome .row{display:flex; gap:10px; margin-top:12px;}
+
+  .card{background:var(--charcoal2); border:1px solid var(--line); border-radius:16px; padding:28px; margin-bottom:18px;}
+  .agent-line{display:flex; align-items:center; gap:12px; margin-bottom:18px;}
+  .avatar{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;font-size:16px;flex:none;}
+  .agent-line .who{font-weight:700; font-size:16px;}
+  .agent-line .scope{color:var(--muted); font-size:13.5px;}
+  .badge{margin-left:auto; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em;
+    border:1px solid var(--violet); color:var(--violet); border-radius:999px; padding:4px 12px;}
+
+  .diff-old,.diff-new{border-radius:10px; padding:16px 18px; font-size:16.5px; line-height:1.6; margin-bottom:12px;}
+  .diff-old{background:#3d2f2a; color:#e8b7a6; border:1px solid #5a3d33;}
+  .diff-new{background:#24382f; color:#bfe8d2; border:1px solid #33584a;}
+  .diff-tag{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); margin-bottom:6px; display:block;}
+  .context{color:var(--muted); font-size:13.5px; margin-bottom:4px;}
+  .context b{color:var(--cream);}
+
+  .conflict{border:1.5px solid var(--amber); border-radius:12px; padding:18px; margin-top:4px;}
+  .conflict h4{margin:0 0 6px; font-size:16px;}
+  .conflict .cols{display:grid; grid-template-columns:1fr 1fr; gap:10px; margin:14px 0;}
+  .conflict .col{background:var(--charcoal); border:1px solid var(--line); border-radius:8px; padding:12px 14px; font-size:14px;}
+  .conflict .col b{display:block; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:6px;}
+
+  .controls{display:flex; gap:12px; margin-top:20px;}
+  .btn{min-height:56px; padding:0 26px; border-radius:12px; border:1px solid var(--line);
+    background:transparent; color:var(--cream); font-weight:700; font-size:16px;
+    display:inline-flex; align-items:center; gap:10px; flex:1; justify-content:center;}
+  .btn.accept{background:var(--green); border-color:var(--green);}
+  .btn.reject{border-color:#6b5f52;}
+  .btn.nav{flex:0 0 auto; padding:0 18px;}
+  .btn.batch{background:var(--violet); border-color:var(--violet); width:100%; margin-top:12px;}
+  .pop{animation:acceptPop .5s ease;}
+  @keyframes acceptPop{0%{box-shadow:0 0 0 0 rgba(0,158,115,.6);}100%{box-shadow:0 0 0 18px rgba(0,158,115,0);}}
+
+  .digest{border-left:4px solid var(--violet); font-size:14.5px;}
+  .digest p{margin:0; color:var(--cream);}
+  .digest .lbl{font-size:12px; text-transform:uppercase; letter-spacing:.07em; color:var(--muted); display:block; margin-bottom:8px;}
+
+  .trust{display:flex; align-items:center; gap:12px; font-size:14px; color:var(--muted);}
+  select{min-height:44px; background:var(--charcoal); color:var(--cream); border:1px solid var(--line);
+    border-radius:8px; padding:0 12px; font:inherit; font-size:14px;}
+
+  .reviewbar{position:fixed; bottom:0; left:0; right:0; background:#211e1b; border-top:1px solid var(--line);
+    display:flex; align-items:center; gap:16px; padding:12px 28px; min-height:68px;}
+  .reviewbar .pos{font-weight:700;}
+  .reviewbar .hints{display:flex; gap:14px; color:var(--muted); font-size:13.5px; align-items:center;}
+  .reviewbar .spacer{flex:1;}
+  .reviewbar .mini{min-height:44px; padding:0 18px; border-radius:9px; border:1px solid var(--line);
+    background:transparent; color:var(--cream); font-weight:600;}
+  .reviewbar .mini.go{background:var(--green); border-color:var(--green);}
+  .reviewbar .mini.no{border-color:#6b5f52;}
+  .done-msg{display:none; color:var(--cream); font-size:15px;}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <h1>Review session</h1>
+  <span class="sub">Q3 Planning · 3 proposals, one decision at a time</span>
+  <div class="progress" aria-label="Progress"><i id="prog"></i></div>
+  <span class="esc"><span class="kbd">esc</span> back to the note</span>
+</div>
+
+<div class="stage">
+  <div class="focus">
+
+    <div class="welcome" id="welcome">
+      <strong>Claude just joined this note.</strong><br>
+      <span style="color:var(--muted)">It can read <b style="color:var(--cream)">/notes</b> and propose edits in <b style="color:var(--cream)">/drafts</b>. Every proposal arrives as a diff, nothing applies without your OK, and every accept is reversible for 30 days.</span>
+      <div class="row">
+        <button class="btn" style="min-height:44px; flex:0 0 auto; font-size:14px;" onclick="document.getElementById('welcome').style.display='none'">Start reviewing</button>
+      </div>
+    </div>
+
+    <div class="card" id="focus-card"></div>
+
+    <div class="card digest" id="digest" style="display:none">
+      <span class="lbl">While you were away</span>
+      <p>Claude drafted the launch checklist and proposed a new intro. Two suggestions are waiting, and one needs your call because you edited the title after Codex proposed a change. Nothing was applied without you.</p>
+    </div>
+
+    <div class="card">
+      <div class="trust">
+        <span class="avatar" style="background:#009E73; width:28px;height:28px;font-size:13px;">C</span>
+        <span><b style="color:var(--cream)">Claude</b> keeps asking per proposal.</span>
+        <select aria-label="Claude trust tier" style="margin-left:auto">
+          <option>Always ask</option><option>Auto-accept in drafts</option><option>Auto-accept in this note</option>
+        </select>
+      </div>
+      <button class="btn batch" id="batch-btn" onclick="batchAccept()">Accept all from Claude in this session</button>
+    </div>
+
+  </div>
+</div>
+
+<footer class="reviewbar">
+  <span class="pos" id="rb-pos">1 of 3</span>
+  <div class="hints"><span><span class="kbd">]</span><span class="kbd">[</span> move</span><span><span class="kbd">A</span> accept</span><span><span class="kbd">R</span> reject</span></div>
+  <span class="spacer"></span>
+  <span class="done-msg" id="rb-done">Nothing to review. You are caught up.</span>
+  <button class="mini" id="b-prev" onclick="step(-1)">← Prev</button>
+  <button class="mini" id="b-next" onclick="step(1)">Next →</button>
+  <button class="mini no" id="b-rej" onclick="decide('reject')">Reject <span class="kbd">R</span></button>
+  <button class="mini go" id="b-acc" onclick="decide('accept')">Accept <span class="kbd">A</span></button>
+</footer>
+
+<script>
+const S = [
+  {id:0, who:'Claude', color:'#009E73', initial:'C', scope:'Can read /notes · can propose in /drafts · registry-signed',
+   kind:'edit', label:'Opening line', ctx:'Paragraph 1 of <b>Q3 Planning</b>',
+   old:'Noam is a notes app with sync.',
+   now:'Launch is six weeks out. The build is stable, the site is live, and the only thing left is telling the story right.'},
+  {id:1, who:'Claude', color:'#009E73', initial:'C', scope:'Can read /notes · can propose in /drafts · registry-signed',
+   kind:'add', label:'New checklist item', ctx:'Under <b>Launch checklist</b>',
+   old:null,
+   now:'Publish the migration guide'},
+  {id:2, who:'Codex', color:'#0072B2', initial:'X', scope:'Can read /notes · can propose in /drafts · registry-signed',
+   kind:'conflict', label:'Title change vs your edit', ctx:'The note title',
+   mine:'Q3 Planning (draft)', theirs:'Q3 Launch Plan'},
+];
+let idx = 0, decided = 0;
+
+function render(){
+  const s = S[idx], c = document.getElementById('focus-card');
+  if(s.kind==='conflict'){
+    c.innerHTML =
+      '<div class="agent-line"><span class="avatar" style="background:'+s.color+'">'+s.initial+'</span>'+
+      '<div><div class="who">'+s.who+'</div><div class="scope">'+s.scope+'</div></div>'+
+      '<span class="badge">Needs your call</span></div>'+
+      '<div class="context">'+s.ctx+' · <b>'+s.label+'</b></div>'+
+      '<div class="conflict"><h4>Codex proposed a title change, then you edited the title</h4>'+
+      '<p style="color:var(--muted);font-size:14px;margin:0">No silent merge. Pick which version wins, or keep both.</p>'+
+      '<div class="cols"><div class="col"><b>Yours, just now</b>'+s.mine+'</div>'+
+      '<div class="col"><b>Codex, 4 min ago</b>'+s.theirs+'</div></div>'+
+      '<div class="controls" style="margin-top:0">'+
+      '<button class="btn" onclick="resolveConflict()">Keep mine <span class="kbd">A</span></button>'+
+      '<button class="btn" onclick="resolveConflict()">Keep theirs</button>'+
+      '<button class="btn" onclick="resolveConflict()">Keep both</button></div></div>';
+  } else {
+    c.innerHTML =
+      '<div class="agent-line"><span class="avatar" style="background:'+s.color+'">'+s.initial+'</span>'+
+      '<div><div class="who">'+s.who+'</div><div class="scope">'+s.scope+'</div></div>'+
+      '<span class="badge">Proposed diff</span></div>'+
+      '<div class="context">'+s.ctx+' · <b>'+s.label+'</b></div>'+
+      (s.old ? '<span class="diff-tag">Before</span><div class="diff-old">'+s.old+'</div>' : '')+
+      '<span class="diff-tag">'+(s.old?'After':'Proposed addition')+'</span><div class="diff-new">'+(s.kind==='add'?'+ ':'')+s.now+'</div>'+
+      '<div class="controls">'+
+      '<button class="btn nav" onclick="step(-1)" aria-label="Previous">←</button>'+
+      '<button class="btn reject" onclick="decide(\'reject\')">Reject <span class="kbd">R</span></button>'+
+      '<button class="btn accept" onclick="decide(\'accept\')">Accept <span class="kbd">A</span></button>'+
+      '<button class="btn nav" onclick="step(1)" aria-label="Next">→</button></div>';
+  }
+  document.getElementById('rb-pos').textContent = decided>=S.length ? '0 of 3' : ((idx+1)+' of 3');
+  document.getElementById('prog').style.width = (decided/S.length*100)+'%';
+  const done = decided>=S.length;
+  document.getElementById('rb-done').style.display = done?'inline':'none';
+  ['b-prev','b-next','b-acc','b-rej'].forEach(id=>document.getElementById(id).style.display = done?'none':'');
+  document.getElementById('batch-btn').style.display = done?'none':'';
+  if(done) document.getElementById('digest').style.display='block';
+}
+function step(d){
+  if(decided>=S.length) return;
+  idx=(idx+d+S.length)%S.length; render();
+}
+function decide(how){
+  if(decided>=S.length) return;
+  decided++;
+  const c=document.getElementById('focus-card');
+  if(how==='accept'){ c.classList.remove('pop'); void c.offsetWidth; c.classList.add('pop'); }
+  if(decided<S.length){ idx=(idx+1)%S.length; }
+  render();
+}
+function resolveConflict(){ decide('accept'); }
+function batchAccept(){
+  decided=S.length; render();
+}
+document.addEventListener('keydown', e=>{
+  if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if(e.key===']') step(1);
+  else if(e.key==='[') step(-1);
+  else if(e.key==='a'||e.key==='A') decide('accept');
+  else if(e.key==='r'||e.key==='R') decide('reject');
+  else if(e.key==='Escape') alert('Demo: Esc would return to the note editor.');
+});
+render();
+</script>
+</body>
+</html>

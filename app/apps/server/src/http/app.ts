@@ -17,6 +17,7 @@ import { vaultTokenRoutes } from "./routes/vault-token.js";
 import { desktopOauthRoutes } from "./routes/desktop-oauth.js";
 import { createShareRoutes, type ShareDeps } from "./routes/shares.js";
 import { createOrgRoutes } from "./routes/orgs.js";
+import { createParticipantRoutes } from "./routes/participants.js";
 import { graphRoutes } from "./routes/graph.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createRepairRoutes } from "./routes/repair.js";
@@ -101,6 +102,7 @@ function allowedOrigins(): string[] {
  *  - /api/notes/:docId/public-link → mint/inspect/revoke a public note link
  *  - /p/:token → public read-only note page (no auth; token is the capability)
  *  - /api/orgs/join-code, /api/orgs/join → vault join codes
+ *  - /api/orgs/:orgId/participants[/:id] → participant registry (roster, agent rows)
  *  - /api/invitations/mine, /api/invitations/:id/{preview,send} → invitation inbox/preview/email
  *  - /api/password-reset/request → emailed reset link (reports the outcome)
  *  - /forgot-password, /reset-password, /email-verified, /invite/:id → account pages
@@ -226,6 +228,7 @@ export function createApp(deps: AppDeps): Hono {
       billingProvider,
     }),
   );
+  app.route("/api", createParticipantRoutes({ onAclChanged: deps.onAclChanged }));
   app.route("/api", createBillingRoutes({ provider: billingProvider }));
   app.route("/api", graphRoutes);
   app.route(

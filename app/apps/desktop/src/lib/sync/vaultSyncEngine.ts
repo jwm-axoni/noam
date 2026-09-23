@@ -13,6 +13,7 @@
 import { ApiClient, ApiError } from "../api";
 import { markOnce } from "../perf";
 import type { ActivityStatus } from "../prefs";
+import type { PresenceFrame } from "../presence/roster";
 import {
   bytesToBase64,
   decodeUpdateFrame,
@@ -27,15 +28,13 @@ import {
   type VoiceHeader,
 } from "./vaultProtocol";
 
-/** A teammate's live viewing state, surfaced to the UI for sidebar presence. */
-export interface VaultPeer {
-  userId: string;
-  /** The note they're currently viewing, or null when not on any note. */
-  docId: string | null;
-  name: string;
-  color: string;
-  status: ActivityStatus;
-}
+// A teammate's presence: the raw frame the engine parses, and the decayed
+// roster entry the UI renders (see `presence/roster.ts`).
+export type { PresenceFrame, VaultPeer } from "../presence/roster";
+
+/** How often a live channel re-sends our presence, so peers' decay timers
+ *  (30 s stale / 90 s removed) never fire on a healthy but idle client. */
+export const PRESENCE_HEARTBEAT_MS = 10_000;
 
 /** What this client broadcasts about itself over the vault channel. */
 export interface LocalPresence {
@@ -111,7 +110,7 @@ export interface VaultSyncEngineOptions {
   /** Fired for each teammate presence update (`presence`): who is now viewing
    *  which note (docId null = they left / closed the note). The sink aggregates
    *  these into the sidebar roster. */
-  onPresence?: (peer: VaultPeer) => void;
+  onPresence?: (peer: PresenceFrame) => void;
   /**
    * One inbound push-to-talk chunk from a teammate. Fired synchronously, ahead
    * of the doc-update queue: audio is only useful while it's current, so it must
@@ -268,7 +267,7 @@ export class VaultSyncEngine {
   private readonly onAclChanged?: () => void;
   private readonly onRegistryChanged?: () => void;
   private readonly onMemberJoined?: (name: string) => void;
-  private readonly onPresence?: (peer: VaultPeer) => void;
+  private readonly onPresence?: (peer: PresenceFrame) => void;
   private readonly onVoice?: (frame: VoiceFrame) => void;
   private readonly onInboundProgress?: (done: number, total: number) => void;
   private readonly onInboundIdle?: () => void;
@@ -307,6 +306,9 @@ export class VaultSyncEngine {
   // and announcing here instead of on `ready` is what puts this user on
   // teammates' sidebars during the backfill rather than after it.
   private helloSent = false;
+  /** Re-sends `localPresence` every PRESENCE_HEARTBEAT_MS; armed on `ready`,
+   *  cleared whenever the socket goes away. */
+  private heartbeat: ReturnType<typeof setInterval> | null = null;
 
   // ---- inbound (download) queue ----
   //
@@ -658,6 +660,7 @@ export class VaultSyncEngine {
         // (Re)announce our presence now the channel is live — covers first
         // connect and every reconnect so teammates never see us go stale.
         this.sendPresence();
+        this.startHeartbeat();
       } else if (control.t === "drop") {
         this.sink.drop(control.docId);
         // …and tell the session WHICH doc left, so the live revocation path
@@ -677,10 +680,12 @@ export class VaultSyncEngine {
         // A teammate's viewing state changed — feed the sidebar roster.
         this.onPresence?.({
           userId: control.userId,
+          ...(control.participantId ? { participantId: control.participantId } : {}),
           docId: control.docId,
           name: control.name,
           color: control.color,
           status: control.status as ActivityStatus,
+          ...(control.gone ? { gone: true } : {}),
         });
       } else if (control.t === "err") {
         // Server refused us mid-session (e.g. bad token) — reconnect fresh.
@@ -851,7 +856,22 @@ export class VaultSyncEngine {
     }, delay);
   }
 
+  private startHeartbeat(): void {
+    this.stopHeartbeat();
+    this.heartbeat = setInterval(() => {
+      if (this.helloSent) this.sendPresence();
+    }, PRESENCE_HEARTBEAT_MS);
+  }
+
+  private stopHeartbeat(): void {
+    if (this.heartbeat) clearInterval(this.heartbeat);
+    this.heartbeat = null;
+  }
+
   private closeSocket(): void {
+    // Every path that loses the socket comes through here (drop, refresh,
+    // backpressure, stop, fatal close), so the heartbeat dies with it.
+    this.stopHeartbeat();
     this.tokenPromise = null;
     if (!this.ws) return;
     const ws = this.ws;

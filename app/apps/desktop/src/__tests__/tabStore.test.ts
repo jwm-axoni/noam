@@ -34,6 +34,7 @@ const sync = vi.hoisted(() => ({
   },
   isSyncable: vi.fn(() => false),
   disable: vi.fn(), // `adoptOpenedVault` → `leaveVaultSync`
+  setParticipantIdentity: vi.fn(), // …which also drops the registry identity
   setViewing: vi.fn(),
   handleRegistryChanged: vi.fn(),
   willSync: vi.fn(() => false),

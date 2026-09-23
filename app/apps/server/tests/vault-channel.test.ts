@@ -93,6 +93,15 @@ const pubsubs: InMemoryPubSub[] = [];
  *  injects its own. */
 const noEmpty = async () => ({ empty: [] as string[], truncated: false });
 
+/** Every user has a live participant row named "Ada". Presence is only
+ *  published for users with a row (migration 027), and the real resolver
+ *  queries Postgres; `presence-identity.test.ts` covers the no-row cases. */
+const registryRow: VaultChannelDeps["resolvePresenceIdentity"] = async (userId) => ({
+  participantId: `p-${userId}`,
+  name: "Ada",
+  color: "#6366f1",
+});
+
 function channelWith(
   readable: () => Set<string>,
   listEmpty: VaultChannelDeps["listEmpty"] = noEmpty,
@@ -109,6 +118,7 @@ function channelWith(
     listReadableDocs: async () => readable(),
     loadDiff: loadDiff as VaultChannelDeps["loadDiff"],
     listEmpty,
+    resolvePresenceIdentity: registryRow,
     backfillConcurrency: 4,
   });
   return { channel, pubsub };
@@ -207,6 +217,7 @@ describe("VaultChannel relay (spec 05 §3.1)", () => {
     expect(seen).toEqual({
       t: "presence",
       userId: "u1",
+      participantId: "p-u1",
       docId: "A",
       name: "Ada",
       color: "#6366f1",
@@ -335,6 +346,7 @@ function voiceChannel(): { channel: VaultChannel; pubsub: InMemoryPubSub } {
     listReadableDocs: async () => new Set<string>(),
     loadDiff: async () => null,
     listEmpty: noEmpty,
+    resolvePresenceIdentity: registryRow,
     backfillConcurrency: 4,
   });
   return { channel, pubsub };
