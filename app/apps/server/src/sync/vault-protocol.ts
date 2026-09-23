@@ -69,8 +69,17 @@ export interface PresenceState {
   name: string;
   color: string;
   status: string;
-  /** Set on the frame published when the connection closes, so a client can
-   *  tell "left" from "online with no note open" (both carry `docId: null`). */
+  /** The server-side connection this frame describes, unique per socket. One
+   *  user is often several devices (laptop + desktop), each its own connection;
+   *  a roster keyed by userId alone would let one device's close hide the
+   *  other, so clients aggregate per connection and only drop the user when
+   *  every connection they know of is gone. Optional only on the type, for
+   *  frames from servers that predate it; this server always sets it. */
+  connId?: string;
+  /** Set on the frame published when THIS connection closes, so a client can
+   *  tell "left" from "online with no note open" (both carry `docId: null`).
+   *  It is about the connection (`connId`), not the user: the user is gone
+   *  only once none of their connections remain. */
   gone?: boolean;
 }
 

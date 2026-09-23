@@ -1,4 +1,5 @@
 import { WebSocketServer, type WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Socket } from "node:net";
 import { config } from "../config.js";
@@ -318,6 +319,10 @@ interface ConnDeps {
 }
 
 class VaultConnection {
+  /** Stamped onto every presence frame this connection publishes (its `gone`
+   *  included), so a client roster can tell one of a user's devices from
+   *  another. Server-minted: a client must not be able to claim a peer's id. */
+  private readonly connId = randomUUID();
   private userId: string | null = null;
   private vaultId: string | null = null;
   /** This client's self-declared instance id (hello `origin`), used to skip
@@ -643,6 +648,7 @@ class VaultConnection {
     return {
       userId: this.userId!,
       participantId: this.identity!.participantId,
+      connId: this.connId,
       docId,
       name,
       color,
@@ -1201,7 +1207,12 @@ class VaultConnection {
     this.pendingResync.clear();
     this.resyncing.clear();
     this.deps.onGone(this);
-    // Tell the vault this user is gone so teammates clear their presence dot.
+    // Tell the vault THIS CONNECTION is gone. The frame carries our `connId`,
+    // and teammates' rosters count connections per user, so a second device of
+    // the same user keeps their dot lit (this used to hide it until that
+    // device's next 10 s heartbeat). Per-connection rather than a per-process
+    // "last socket of this user" count because, behind Redis, the user's other
+    // device may be on another instance that this one cannot see.
     // Guard on `announced` so we only emit for connections that ever appeared.
     if (this.announced && this.userId && this.vaultId) {
       void this.pubsub.publish(

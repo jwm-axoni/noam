@@ -224,7 +224,11 @@ the shared `cm-block-inset` class.
 **Presence (Phase 1 of the human-agent track).** `lib/presence/roster.ts` is the pure roster + decay
 state machine (10 s heartbeat from `vaultSyncEngine`, 30 s stale, 90 s removal, immediate removal on the
 server's `gone` frame; `docId: null` means online with no note open, NOT gone; invisible peers are never
-shown). The store keeps `participants` + `selfParticipantId` from `GET /api/orgs/:orgId/participants`;
+shown). Frames carry the server-minted per-socket `connId`, and the roster keeps one slot per connection
+under a userId: `gone` removes THAT connection, and the peer leaves only when their last one is gone —
+otherwise the UI falls back to their most recent other device. Without that, one device closing hid the
+same user's other device until its next heartbeat. Per-connection, not a per-process refcount, because
+behind Redis the other device may be on another instance. The store keeps `participants` + `selfParticipantId` from `GET /api/orgs/:orgId/participants`;
 `docSession.setParticipantIdentity` publishes the registry color + `participantId` in awareness and on
 the vault channel, and receivers resolve `participantId` against their own registry copy (registry-signed
 display), falling back to the asserted strings only for unknown ids. `lib/presence/color.ts` holds the

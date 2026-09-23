@@ -73,8 +73,10 @@ server's `{ error: "<code>" }` shape.
 ## 4. Presence protocol
 
 Vault-channel presence frame, server → client: `{ t: "presence", userId,
-participantId, docId, name, color, status, gone? }`. `userId`, `participantId`,
-`name` and `color` are stamped by the server from the token and the registry.
+participantId, connId, docId, name, color, status, gone? }`. `userId`, `participantId`,
+`name` and `color` are stamped by the server from the token and the registry;
+`connId` is the server-minted id of the socket the frame describes, so one
+user's several devices can be told apart.
 The client's frame still carries `name`/`color` for servers that predate 027;
 new servers ignore them. A connection whose user has **no live participant row**
 (a deactivated human) publishes no presence at all. The channel re-resolves the
@@ -87,7 +89,7 @@ because agent rows have no presence in Phase 1.
 |---|---|
 | Client heartbeat (re-send own presence) | 10 s, only after `ready` |
 | Stale (dimmed, "no signal for 30 s") | 30 s without a frame |
-| Removed, with a quiet panel note | 90 s without a frame, or immediately on `gone` |
+| Removed, with a quiet panel note | 90 s without a frame, or immediately on `gone` — both per connection: a user with two devices leaves only when the last one is silent or gone, and the roster shows their most recent remaining device until then |
 | Server ping/terminate sweep | 30 s ticks (existing) |
 | y-protocols awareness timeout | 30 s (existing, unchanged) |
 
@@ -125,6 +127,10 @@ server-side is ADR 0003 work.
    channel that was designed to have none.
 4. `gone` is a protocol flag, not a timeout. A dead socket is removed when the
    server says so; the 90 s client timeout is the fallback, not the mechanism.
+5. `gone` names a connection (`connId`), never a user. The roster aggregates a
+   user's connections and drops the user only when none remain, so one device
+   closing cannot hide the other. The count lives on the client because the
+   server's instances do not share connection state behind Redis.
 
 ## 7. Palette
 

@@ -218,6 +218,7 @@ describe("VaultChannel relay (spec 05 §3.1)", () => {
       t: "presence",
       userId: "u1",
       participantId: "p-u1",
+      connId: expect.any(String),
       docId: "A",
       name: "Ada",
       color: "#6366f1",
@@ -230,6 +231,42 @@ describe("VaultChannel relay (spec 05 §3.1)", () => {
     a.presence(null);
     await waitFor(() => b.controls().some((c) => c.t === "presence" && c.docId === null));
     expect(b.controls().some((c) => c.t === "presence" && c.docId === "Z")).toBe(false);
+  });
+
+  it("stamps a per-connection id, so one device's gone cannot hide the user's other device", async () => {
+    // Every socket here authenticates as u1: `laptop` and `desk` are one user's
+    // two devices, `watcher` is a teammate's view of them.
+    const { channel } = channelWith(() => new Set(["A"]));
+    const laptop = new FakeWs();
+    const desk = new FakeWs();
+    const watcher = new FakeWs();
+    for (const ws of [laptop, desk, watcher]) {
+      channel.handleConnection(ws as never);
+      ws.hello("good");
+      await waitFor(() => ws.controls().some((c) => c.t === "ready"));
+    }
+    laptop.presence("A");
+    desk.presence(null);
+    await waitFor(() => watcher.controls().filter((c) => c.t === "presence" && !c.gone).length >= 2);
+    const seen = watcher.controls().filter((c) => c.t === "presence" && !c.gone);
+    const ids = new Set(seen.map((c) => c.connId));
+    expect(ids.size).toBe(2);
+    expect([...ids].every((id) => typeof id === "string" && id.length > 0)).toBe(true);
+    const laptopId = seen.find((c) => c.docId === "A")!.connId;
+    const deskId = seen.find((c) => c.docId === null)!.connId;
+
+    // The desktop closes: exactly one gone frame, naming the desktop's connection.
+    desk.close();
+    await waitFor(() => watcher.controls().some((c) => c.t === "presence" && c.gone === true));
+    const gone = watcher.controls().filter((c) => c.t === "presence" && c.gone === true);
+    expect(gone).toEqual([expect.objectContaining({ userId: "u1", connId: deskId, docId: null })]);
+    expect(gone.some((c) => c.connId === laptopId)).toBe(false);
+
+    // The laptop keeps its id across re-announces (a heartbeat, a newcomer's query).
+    laptop.presence("A");
+    await waitFor(
+      () => watcher.controls().filter((c) => c.t === "presence" && c.connId === laptopId).length >= 2,
+    );
   });
 
   it("re-announces presence so a newcomer learns who's already viewing what", async () => {

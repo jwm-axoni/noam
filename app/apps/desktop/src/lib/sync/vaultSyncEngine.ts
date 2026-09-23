@@ -681,6 +681,7 @@ export class VaultSyncEngine {
         this.onPresence?.({
           userId: control.userId,
           ...(control.participantId ? { participantId: control.participantId } : {}),
+          ...(control.connId ? { connId: control.connId } : {}),
           docId: control.docId,
           name: control.name,
           color: control.color,

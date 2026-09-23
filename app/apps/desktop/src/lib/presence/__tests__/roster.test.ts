@@ -128,6 +128,98 @@ describe("PresenceRoster", () => {
     expect(before.docId).toBe("doc-1");
   });
 
+  describe("one user, several connections", () => {
+    const laptop = (over: Partial<PresenceFrame> = {}) => frame({ connId: "c-laptop", ...over });
+    const desk = (over: Partial<PresenceFrame> = {}) => frame({ connId: "c-desk", ...over });
+
+    it("lists a user once however many devices they are on, showing the latest", () => {
+      const r = new PresenceRoster();
+      expect(r.apply(laptop({ docId: "doc-1" }), now()).joined).toHaveLength(1);
+      const second = r.apply(desk({ docId: "doc-2" }), now());
+      expect(second).toEqual({ joined: [], left: [], staleChanged: [] });
+      expect(r.list()).toEqual([expect.objectContaining({ userId: "u-maya", docId: "doc-2" })]);
+      expect(r.size).toBe(1);
+    });
+
+    it("one device's gone does not hide the other (the review's false disconnect)", () => {
+      const r = new PresenceRoster();
+      r.apply(laptop({ docId: "doc-1" }), now());
+      vi.advanceTimersByTime(1_000);
+      r.apply(desk({ docId: "doc-2" }), now());
+      // The desktop's socket closes: its frame says so, the laptop is still here.
+      const ev = r.apply(desk({ docId: null, gone: true }), now());
+      expect(ev.left).toEqual([]);
+      expect(ev.joined).toEqual([]);
+      // …and the roster falls back to the laptop's state, not to nothing.
+      expect(r.list()).toEqual([
+        expect.objectContaining({ userId: "u-maya", docId: "doc-1", stale: false }),
+      ]);
+      // The last device leaving is the user leaving.
+      const last = r.apply(laptop({ docId: null, gone: true }), now());
+      expect(last.left).toEqual([{ peer: expect.objectContaining({ userId: "u-maya" }), reason: "gone" }]);
+      expect(r.list()).toEqual([]);
+    });
+
+    it("a gone for a connection it never saw says nothing", () => {
+      const r = new PresenceRoster();
+      r.apply(laptop(), now());
+      expect(r.apply(frame({ connId: "c-phone", gone: true }), now())).toEqual({
+        joined: [],
+        left: [],
+        staleChanged: [],
+      });
+      expect(r.list()).toHaveLength(1);
+    });
+
+    it("falling back to a device not heard from in 30 s shows the peer stale", () => {
+      const r = new PresenceRoster();
+      r.apply(laptop({ docId: "doc-1" }), now());
+      vi.advanceTimersByTime(STALE_MS);
+      r.apply(desk({ docId: "doc-2" }), now());
+      expect(r.tick(now())).toEqual({ joined: [], left: [], staleChanged: [] });
+      const ev = r.apply(desk({ docId: null, gone: true }), now());
+      expect(ev.staleChanged).toEqual([expect.objectContaining({ docId: "doc-1", stale: true })]);
+      expect(r.list()[0].stale).toBe(true);
+      // The laptop's next heartbeat un-stales them as usual.
+      expect(r.apply(laptop({ docId: "doc-1" }), now()).staleChanged).toEqual([
+        expect.objectContaining({ stale: false }),
+      ]);
+    });
+
+    it("times out per connection; the peer leaves only when every device is silent", () => {
+      const r = new PresenceRoster();
+      r.apply(laptop(), now());
+      vi.advanceTimersByTime(REMOVE_MS / 2);
+      r.apply(desk(), now());
+      vi.advanceTimersByTime(REMOVE_MS / 2);
+      // The laptop has been silent for REMOVE_MS, the desktop for half that.
+      const mid = r.tick(now());
+      expect(mid.left).toEqual([]);
+      expect(r.list()).toHaveLength(1);
+      vi.advanceTimersByTime(REMOVE_MS / 2);
+      const ev = r.tick(now());
+      expect(ev.left).toEqual([{ peer: expect.objectContaining({ userId: "u-maya" }), reason: "timeout" }]);
+      expect(r.list()).toEqual([]);
+    });
+
+    it("invisible is per connection too", () => {
+      const r = new PresenceRoster();
+      r.apply(laptop(), now());
+      r.apply(desk(), now());
+      expect(r.apply(desk({ status: "invisible", docId: null }), now()).left).toEqual([]);
+      expect(r.list()).toHaveLength(1);
+    });
+
+    it("frames without a connId (an older server) share one slot, as before", () => {
+      const r = new PresenceRoster();
+      r.apply(frame({ docId: "doc-1" }), now());
+      r.apply(frame({ docId: "doc-2" }), now());
+      const ev = r.apply(frame({ docId: null, gone: true }), now());
+      expect(ev.left.map((l) => l.reason)).toEqual(["gone"]);
+      expect(r.list()).toEqual([]);
+    });
+  });
+
   it("clear drops everyone without emitting leave events", () => {
     const r = new PresenceRoster();
     r.apply(frame(), now());

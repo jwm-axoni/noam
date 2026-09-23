@@ -240,7 +240,7 @@ Numbered separately from the build phases above. Spec: `docs/specs/07-participan
 - [x] **Registry API**: `GET/POST /api/orgs/:orgId/participants`, `PATCH .../participants/:id`. Agent rows
   are creatable by owners/admins and inert (no token kind can authenticate as one; that is ADR 0003).
 - [x] **Server-stamped presence identity**: the vault channel overwrites `name`/`color` with the registry row
-  and adds `participantId`; the disconnect frame carries `gone: true`.
+  and adds `participantId` + a per-socket `connId`; the disconnect frame carries `gone: true` for that connection.
 
 #### Phase 1: Presence for humans ✅
 - [x] **People panel** (dock panel `presence`): Online now / In this note / Agents active (empty state links
@@ -248,7 +248,8 @@ Numbered separately from the build phases above. Spec: `docs/specs/07-participan
 - [x] **Registry colors everywhere**: cursors, avatar rings, presence dots and the panel resolve a peer's
   `participantId` against the local registry copy; offline fallback hashes to the same palette.
 - [x] **Heartbeat and decay**: 10 s client heartbeat, 30 s stale (dimmed), 90 s removal, immediate removal on
-  the server's `gone` frame. Pure state machine in `lib/presence/roster.ts`.
+  the server's `gone` frame — all per connection, so a user on two devices stays listed while either is
+  alive. Pure state machine in `lib/presence/roster.ts`.
 - [x] **Palette**: 8 colorblind-safe colors, no reds/oranges, violet reserved (`paletteCvd.test.ts` proves it).
 - [x] **Accessibility**: aria-hidden caret layer, one polite live region (≤ 1 announcement / 5 s), reduced
   motion snaps carets.

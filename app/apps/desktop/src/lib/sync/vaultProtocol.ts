@@ -42,7 +42,11 @@ export interface PresenceState {
   name: string;
   color: string;
   status: string;
-  /** The server saw this connection close. Absent from older servers. */
+  /** The server-side connection (one per socket) this frame describes, so
+   *  one user's several devices can be told apart. Absent from older servers. */
+  connId?: string;
+  /** The server saw THIS connection (`connId`) close — not "the user left":
+   *  they may still be online from another device. Absent from older servers. */
   gone?: boolean;
 }
 
@@ -172,6 +176,7 @@ export function parseServerControl(text: string): ServerControl | null {
         color: o.color,
         status: o.status,
         ...(typeof o.participantId === "string" ? { participantId: o.participantId } : {}),
+        ...(typeof o.connId === "string" ? { connId: o.connId } : {}),
         ...(o.gone === true ? { gone: true } : {}),
       };
     }
