@@ -2,6 +2,7 @@ import type pg from "pg";
 import { pool as defaultPool } from "../db/pool.js";
 import { purgeNoteIndex } from "../index/indexer.js";
 import type { DocWriter } from "../mcp/doc-writer.js";
+import { resolvePresenceIdentity } from "../registry/participants.js";
 import { sha256Hex, stampLastEdited } from "./capture.js";
 import {
   captureCheckpoint,
@@ -85,6 +86,9 @@ export async function revertVaultToCheckpoint(
         [checkpointId],
       );
       const contentByDoc = new Map(docRows.map((r) => [r.doc_id, r]));
+      // The reverting user's own participant row: the revert is THEIR edit.
+      const participantId =
+        (await resolvePresenceIdentity(userId, vaultId, db))?.participantId ?? null;
 
       // The undo for this whole operation, taken BEFORE anything moves. Excluded
       // from its own prune along with the checkpoint we are restoring.
@@ -211,8 +215,11 @@ export async function revertVaultToCheckpoint(
           docsKeptOverEmpty++;
           continue;
         }
-        await docWriter.setContent(vaultId, note.id, snapshot.content, { userId });
-        await stampLastEdited(note.id, userId, db);
+        await docWriter.setContent(vaultId, note.id, snapshot.content, {
+          userId,
+          participantId,
+        });
+        await stampLastEdited(note.id, { userId, participantId }, db);
         docsChanged++;
       }
 

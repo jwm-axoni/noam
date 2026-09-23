@@ -37,6 +37,16 @@ const CHECKPOINT_CHECK_INTERVAL_MS = 5 * 60_000;
 
 export type VersionCause = "idle" | "pre-revert";
 
+/**
+ * Who made an edit: the user account AND the registry participant (ADR 0003
+ * decision 3). An agent's edit carries its minter's `userId` and the agent's
+ * own `participantId`. Both server-resolved; null = unattributed.
+ */
+export interface EditActor {
+  userId: string | null;
+  participantId: string | null;
+}
+
 export function sha256Hex(text: string): string {
   return createHash("sha256").update(text, "utf8").digest("hex");
 }
@@ -54,6 +64,8 @@ export async function recordVersion(
     content: string;
     cause: VersionCause;
     authorId: string | null;
+    /** The participant row behind the version (agent or human), if known. */
+    authorParticipant?: string | null;
   },
   db: Queryable = defaultPool,
 ): Promise<number | null> {
@@ -67,10 +79,18 @@ export async function recordVersion(
   if (latest[0]?.sha256 === sha) return null;
 
   const { rows } = await db.query<{ id: string }>(
-    `INSERT INTO note_versions (doc_id, vault_id, content, sha256, cause, author_id)
-     VALUES ($1, $2, $3, $4, $5, $6)
+    `INSERT INTO note_versions (doc_id, vault_id, content, sha256, cause, author_id, author_participant)
+     VALUES ($1, $2, $3, $4, $5, $6, $7)
      RETURNING id`,
-    [input.docId, input.vaultId, content, sha, input.cause, input.authorId],
+    [
+      input.docId,
+      input.vaultId,
+      content,
+      sha,
+      input.cause,
+      input.authorId,
+      input.authorParticipant ?? null,
+    ],
   );
   await pruneVersions(input.docId, db);
   // BIGSERIAL arrives as a string from node-postgres; the API hands out numbers.
@@ -100,14 +120,15 @@ export async function pruneVersions(
  */
 export async function stampLastEdited(
   docId: string,
-  userId: string | null,
+  actor: EditActor,
   db: Queryable = defaultPool,
 ): Promise<boolean> {
   const { rowCount } = await db.query(
     `UPDATE notes
-        SET last_edited_by = $2, last_edited_at = now(), updated_at = now()
+        SET last_edited_by = $2, last_edited_participant = $3,
+            last_edited_at = now(), updated_at = now()
       WHERE id = $1 AND deleted_at IS NULL`,
-    [docId, userId],
+    [docId, actor.userId, actor.participantId],
   );
   return (rowCount ?? 0) > 0;
 }
@@ -128,8 +149,8 @@ export interface VersionCaptureDeps {
 }
 
 export interface VersionCapture {
-  /** A doc was just edited by `userId` (null = unattributed). */
-  touch(vaultId: string, docId: string, userId: string | null): void;
+  /** A doc was just edited by `actor` (null fields = unattributed). */
+  touch(vaultId: string, docId: string, actor: EditActor): void;
   /** Run a doc's pending idle capture NOW (test hook / shutdown). */
   flush(docId: string): Promise<void>;
   /** Drop every pending timer. */
@@ -139,9 +160,9 @@ export interface VersionCapture {
 interface Session {
   vaultId: string;
   /** Last editor seen in this session — the version's author. */
-  userId: string | null;
+  actor: EditActor;
   timer?: ReturnType<typeof setTimeout>;
-  stampedUserId?: string | null;
+  stamped?: EditActor;
   stampedAt: number;
 }
 
@@ -176,7 +197,8 @@ export function createVersionCapture(deps: VersionCaptureDeps): VersionCapture {
           docId,
           content,
           cause: "idle",
-          authorId: session.userId,
+          authorId: session.actor.userId,
+          authorParticipant: session.actor.participantId,
         },
         db,
       );
@@ -185,9 +207,9 @@ export function createVersionCapture(deps: VersionCaptureDeps): VersionCapture {
     }
   }
 
-  async function stamp(session: Session, docId: string, userId: string): Promise<void> {
+  async function stamp(session: Session, docId: string, actor: EditActor): Promise<void> {
     try {
-      if (await stampLastEdited(docId, userId, db)) {
+      if (await stampLastEdited(docId, actor, db)) {
         deps.onRegistryChanged?.(session.vaultId, null);
       }
     } catch (err) {
@@ -196,15 +218,15 @@ export function createVersionCapture(deps: VersionCaptureDeps): VersionCapture {
   }
 
   return {
-    touch(vaultId, docId, userId) {
+    touch(vaultId, docId, actor) {
       const now = Date.now();
       let session = sessions.get(docId);
       if (!session) {
-        session = { vaultId, userId, stampedAt: 0 };
+        session = { vaultId, actor, stampedAt: 0 };
         sessions.set(docId, session);
       }
       session.vaultId = vaultId;
-      session.userId = userId;
+      session.actor = actor;
 
       if (session.timer) clearTimeout(session.timer);
       const timer = setTimeout(() => void captureIdle(docId), idleMs);
@@ -214,13 +236,18 @@ export function createVersionCapture(deps: VersionCaptureDeps): VersionCapture {
 
       // Stamp immediately when the editor changes hands, else at most once a
       // minute — this write lands in every open sidebar via a registry re-pull.
+      // "Changes hands" compares the participant too: an agent acting for its
+      // minter shares the minter's userId but is a different editor.
+      const editorChanged =
+        session.stamped?.userId !== actor.userId ||
+        session.stamped?.participantId !== actor.participantId;
       if (
-        userId &&
-        (session.stampedUserId !== userId || now - session.stampedAt > STAMP_THROTTLE_MS)
+        (actor.userId || actor.participantId) &&
+        (editorChanged || now - session.stampedAt > STAMP_THROTTLE_MS)
       ) {
-        session.stampedUserId = userId;
+        session.stamped = actor;
         session.stampedAt = now;
-        void stamp(session, docId, userId);
+        void stamp(session, docId, actor);
       }
 
       // Lazy daily checkpoint: activity-triggered, no scheduler. The real

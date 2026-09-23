@@ -4749,6 +4749,84 @@ button.sync-badge-retry:hover {
   color: #dc2626;
   background: rgba(220, 38, 38, 0.14);
 }
+/* MCP token kind (ADR 0003): every row says whether it acts as you or as an agent. */
+.mcp-kind {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  padding: 1px var(--sp-2);
+  color: var(--text-secondary);
+  background: var(--bg-hover);
+}
+.mcp-kind.user {
+  color: #b45309;
+  background: rgba(217, 119, 6, 0.14);
+}
+.mcp-kind.stale {
+  font-weight: 500;
+  opacity: 0.75;
+}
+.mcp-agent-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+}
+.mcp-conn-migrate {
+  padding: var(--sp-2) var(--sp-3) var(--sp-3);
+  border-top: 1px solid var(--border-subtle, var(--bg-hover));
+}
+.mcp-agent-form {
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  margin: var(--sp-2) 0;
+}
+.mcp-agent-form-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+}
+.mcp-preset-list {
+  border: 0;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-1);
+}
+.mcp-preset {
+  display: flex;
+  align-items: baseline;
+  gap: var(--sp-2);
+  font-size: var(--fs-sm);
+}
+.mcp-expiry {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  white-space: nowrap;
+  font-size: var(--fs-sm);
+}
+.mcp-agent-form-row > input {
+  flex: 1;
+  min-width: 0;
+}
+/* Out-rank `.settings-page input:not(...):not(...)`, which would stretch these. */
+.settings-page .mcp-agent-form .mcp-expiry input[type="number"],
+.mcp-expiry input {
+  width: 5em;
+  flex: none;
+}
+.settings-page .mcp-agent-form .mcp-preset input[type="radio"],
+.mcp-preset input[type="radio"] {
+  width: auto;
+  flex: none;
+  margin: 0;
+  padding: 0;
+}
 
 /* "Set up this vault" folder prompt. Sits above the settings modal (200). */
 .vault-folder-backdrop {

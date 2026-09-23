@@ -2,9 +2,26 @@
 
 ## Status
 
-Proposed. Gates Phase 3 (agent participants). Phase 0 shipped the registry rows
-this design attaches to; nothing in Phase 0 or Phase 1 widens the current token
-model.
+Partially implemented (2026-09-23, branch `feat/adr3-agent-tokens`, migration
+028; build report `fable-adr3-report.md`, user guide `docs/AGENT-TOKENS.md`).
+Decisions 1, 2, 3, 4, 6 and 7 are built and tested end to end (server routes,
+scope resolver, audit log, read budget, token hygiene, desktop Settings and
+timeline). Missing, exactly:
+
+- Decision 5, last sentence: "the desktop shows the revocation in the note's
+  timeline with the cutoff time" is NOT built. The revocation is recorded in
+  `mcp_audit` (`token.revoke`, outcome `revoked`) and the token row leaves
+  Settings; no per-note event feed exists to render a cutoff in, and adding
+  one for this line alone was judged out of proportion. Everything else in
+  decision 5 is built: per-request and mid-batch token re-check,
+  `disconnectParticipant`, the `gone` presence frame.
+- Decision 4, last sentence: local vaults forwarding their append-only log
+  belongs to ADR 0002, which was explicitly out of scope for this build.
+- The two-agent live negative control from the verification list waits for
+  Phase 3: no agent runtime exists yet, so it is asserted only over MCP.
+
+Gates Phase 3 (agent participants). Phase 0 shipped the registry rows this
+design attaches to.
 
 ## Context
 

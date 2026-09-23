@@ -15,6 +15,7 @@ const TABLES = [
   "vault_checkpoints",
   "billing_events",
   "subscriptions",
+  "mcp_audit",
   "mcp_tokens",
   "shares",
   "notes",

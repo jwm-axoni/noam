@@ -108,6 +108,10 @@ The release workflow (manual dispatch → protected `release` environment → dr
 GitHub Release), Developer ID signing, notarization, artifact verification, the
 auto-update controls and the clean-publication process are covered in [[RELEASE]].
 
+Connecting an AI client over MCP — agent tokens, scopes and presets, the audit
+log, read budgets, revocation timing, and migrating an old "acts as you" token
+— is covered in [[AGENT-TOKENS]].
+
 ---
 
 ## Workflows, templates and packages

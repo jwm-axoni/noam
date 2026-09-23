@@ -1,6 +1,10 @@
 /* Vault/team section bodies plus the former dialog's compatibility entry. */
-import { lazy, Suspense, useEffect, useState } from "react";
+import { lazy, Suspense, useEffect, useId, useMemo, useState } from "react";
 import {
+  type AccessTreeResponse,
+  type AgentTokenRequest,
+  type McpConnections,
+  type McpScopePreset,
   type McpToolInfo,
   type McpTokenRow,
   type Member,
@@ -9,6 +13,15 @@ import {
   type VaultCheckpoint,
 } from "../lib/api";
 import { toast } from "../lib/toast";
+import {
+  expiryLabel,
+  type ScopeNames,
+  staleLabel,
+  summarizeScopes,
+  sunsetLabel,
+} from "../lib/mcpTokenLabels";
+import type { Participant } from "../lib/presence/participants";
+import { syncManager } from "../lib/sync/docSession";
 import { agoFromIso, checkpointTitle, noteCountLabel } from "./versionFormat";
 import { authManager } from "../lib/auth/authManager";
 import {
@@ -32,6 +45,7 @@ import { SyncBadge } from "./Identity";
 import { AccessPanel } from "./AccessPanel";
 import { AsyncButton } from "./AsyncButton";
 import { ConfirmDialog } from "./ConfirmDialog";
+import { MenuSelect, type MenuSelectOption } from "./MenuSelect";
 import { canActOnMember } from "./memberRoles";
 import { RoleSelect } from "./RoleSelect";
 // Static, not via ./Face: this module is itself a lazy chunk, so it pays for
@@ -156,7 +170,7 @@ export function VaultSettingsSection({
         </div>
       );
     case "mcp":
-      return <McpTab />;
+      return <McpTab canManage={canManage} />;
     case "versioning":
       return <VersioningTab canManage={canManage} />;
     case "import-export":
@@ -2162,26 +2176,37 @@ function VersioningTab({ canManage }: { canManage: boolean }) {
 /**
  * MCP: expose this vault to AI clients over the Model Context Protocol.
  * The MCP endpoint is part of the same server; a client authenticates with a
- * token minted here and then gets the SAME CRUD access to notes/folders that
- * the signed-in user has (owners/admins see everything; members see what's
- * shared with them). This is where you grab the URL + a token.
+ * token minted here. An AGENT token (ADR 0003) acts as one named agent
+ * participant, limited to its scope rows (a preset) and capped by its minter's
+ * own access; a legacy USER token acts as its holder and is being sunset, so
+ * every row says which kind it is.
  */
-function McpTab() {
+function McpTab({ canManage }: { canManage: boolean }) {
   const session = useStore((s) => s.session);
   const serverUrl = useStore((s) => s.serverUrl);
+  const participants = useStore((s) => s.participants);
 
   const mcpUrl = `${serverUrl.replace(/\/+$/, "")}/api/mcp`;
-  const hasVault = !!session?.activeOrganizationId;
+  const orgId = session?.activeOrganizationId ?? null;
+  const hasVault = !!orgId;
 
   const [tokens, setTokens] = useState<McpTokenRow[]>([]);
   const [tools, setTools] = useState<McpToolInfo[]>([]);
+  const [presets, setPresets] = useState<McpConnections["presets"]>([]);
+  const [sunset, setSunset] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [name, setName] = useState("");
+  // Agents created from this tab, until the store's registry refresh has them.
+  const [createdAgents, setCreatedAgents] = useState<Participant[]>([]);
+  // The vault's server structure, to offer drafter folders and name scopes.
+  const [tree, setTree] = useState<AccessTreeResponse | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The one-time plaintext display. Never logged or persisted anywhere else.
   const [justCreated, setJustCreated] = useState<{ name: string; token: string } | null>(
     null,
   );
+  const [migrating, setMigrating] = useState<string | null>(null);
+  const [rotating, setRotating] = useState<McpTokenRow | null>(null);
   const [copied, setCopied] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
   // Bumps every 20s so "connected" dots + relative times stay live while open.
@@ -2196,10 +2221,12 @@ function McpTab() {
     const load = () =>
       authManager.api
         .listMcpConnections()
-        .then(({ tokens, tools }) => {
+        .then((c) => {
           if (cancelled) return;
-          setTokens(tokens);
-          setTools(tools);
+          setTokens(c.tokens);
+          setTools(c.tools);
+          setPresets(c.presets);
+          setSunset(c.userTokenSunset);
         })
         .catch(() => {})
         .finally(() => {
@@ -2216,6 +2243,44 @@ function McpTab() {
     };
   }, [hasVault]);
 
+  // Owner/admin only: the access-tree listing is manager-gated, like minting.
+  useEffect(() => {
+    const vaultId = syncManager.registry.vaultId;
+    if (!canManage || !hasVault || !vaultId) return;
+    let cancelled = false;
+    authManager.api
+      .listAccessTree(vaultId)
+      .then((t) => {
+        if (!cancelled) setTree(t);
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [canManage, hasVault]);
+
+  const agents = useMemo(() => {
+    const byId = new Map<string, Participant>();
+    for (const p of [...participants, ...createdAgents]) {
+      if (p.kind === "agent") byId.set(p.id, p);
+    }
+    return [...byId.values()];
+  }, [participants, createdAgents]);
+
+  const folders = useMemo(
+    () => [...(tree?.folders ?? [])].sort((a, b) => a.path.localeCompare(b.path)),
+    [tree],
+  );
+
+  const scopeNames = useMemo<ScopeNames>(() => {
+    const folderPath = new Map((tree?.folders ?? []).map((f) => [f.id, f.path]));
+    const notePath = new Map((tree?.notes ?? []).map((n) => [n.id, n.relPath]));
+    return {
+      folder: (id) => folderPath.get(id) ?? null,
+      file: (id) => notePath.get(id) ?? syncManager.registry.pathForDocId(id),
+    };
+  }, [tree]);
+
   const copy = async (text: string, tag: string) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -2226,38 +2291,68 @@ function McpTab() {
     }
   };
 
-  const create = async () => {
+  /** Run a token action; on failure show it inline + as a toast (#85). */
+  const run = async (what: string, fn: () => Promise<void>): Promise<boolean> => {
     setBusy(true);
     setError(null);
     try {
-      const created = await authManager.api.createMcpToken(name.trim() || "MCP token");
-      setJustCreated({ name: created.name, token: created.token });
-      const { token: _t, ...row } = created;
-      setTokens((prev) => [row, ...prev]);
-      setName("");
+      await fn();
+      return true;
     } catch (e) {
       const message = e instanceof Error ? e.message : String(e);
       setError(message);
-      // Otherwise the button just returns to idle and the user clicks again,
-      // minting duplicate tokens on a server that is actually failing (#85).
-      toast(`Couldn't create the MCP token — ${message}`, "error");
+      toast(`Couldn't ${what} — ${message}`, "error");
+      return false;
     } finally {
       setBusy(false);
     }
   };
 
-  const revoke = async (id: string) => {
-    setBusy(true);
-    setError(null);
-    try {
+  const createAgent = async (displayName: string, harness: AgentHarness) => {
+    if (!orgId) throw new Error("No active vault");
+    const p = await authManager.api.createAgentParticipant(orgId, displayName, harness);
+    setCreatedAgents((prev) => [...prev, p]);
+    return p;
+  };
+
+  const mint = (req: AgentTokenFormValues) =>
+    run("create the agent token", async () => {
+      const created = await authManager.api.createAgentMcpToken(req);
+      const { token, ...row } = created;
+      setJustCreated({ name: row.name, token });
+      setTokens((prev) => [row, ...prev]);
+    });
+
+  const migrate = (id: string, req: AgentTokenFormValues) =>
+    run("migrate the token", async () => {
+      const { expiresInDays: _days, ...body } = req;
+      const created = await authManager.api.migrateMcpToken(id, body);
+      const { token, migratedFrom, ...row } = created;
+      setJustCreated({ name: row.name, token });
+      setTokens((prev) => [row, ...prev.filter((t) => t.id !== (migratedFrom ?? id))]);
+      setMigrating(null);
+    });
+
+  const renew = (id: string) =>
+    run("renew the token", async () => {
+      const row = await authManager.api.renewMcpToken(id);
+      setTokens((prev) => prev.map((t) => (t.id === id ? { ...row, scopes: row.scopes ?? [] } : t)));
+      toast(`${row.name}: ${expiryLabel(row.expiresAt, Date.now(), formatDate)}`);
+    });
+
+  const rotate = (old: McpTokenRow) =>
+    run("rotate the token", async () => {
+      const created = await authManager.api.rotateMcpToken(old.id);
+      const { token, ...row } = created;
+      setJustCreated({ name: row.name, token });
+      setTokens((prev) => [row, ...prev.filter((t) => t.id !== old.id)]);
+    });
+
+  const revoke = (id: string) =>
+    run("revoke the token", async () => {
       await authManager.api.revokeMcpToken(id);
       setTokens((prev) => prev.filter((t) => t.id !== id));
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setBusy(false);
-    }
-  };
+    });
 
   if (!hasVault) {
     return (
@@ -2271,11 +2366,15 @@ function McpTab() {
     ? `claude mcp add --transport http context ${mcpUrl} \\\n  --header "Authorization: Bearer ${justCreated.token}"`
     : "";
 
+  const colorOf = (participantId: string | null) =>
+    agents.find((a) => a.id === participantId)?.color ?? null;
+
   return (
     <div className="legacy-settings-section">
       <div className="muted">
-        Connect any MCP-compatible AI client to this vault. It gets the same
-        access you do — read, search, create, edit and delete notes and folders.
+        Connect any MCP-compatible AI client to this vault. An agent token acts as a
+        named agent with a limited scope — never more than the person who minted it —
+        and can be revoked per agent.
       </div>
 
       <div className="subhead">Endpoint URL</div>
@@ -2289,24 +2388,26 @@ function McpTab() {
       </div>
 
       <div className="menu-sep" />
-      <div className="subhead">Access tokens</div>
+      <div className="subhead">New agent token</div>
       <div className="muted">
-        A token authenticates the client and scopes it to you in this vault.
-        Add it as an <code>Authorization: Bearer</code> header. Revoke any time.
+        Add the token as an <code>Authorization: Bearer</code> header. Revoke any time.
       </div>
 
-      <div className="row invite-bar" data-setting-id="mcp-tokens" tabIndex={-1}>
-        <input
-          placeholder="Token name, e.g. Claude Desktop"
-          value={name}
-          onChange={(e) => setName(e.target.value)}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void create();
-          }}
-        />
-        <button className="primary" disabled={busy} onClick={() => void create()}>
-          Create token
-        </button>
+      <div data-setting-id="mcp-tokens" tabIndex={-1}>
+        {canManage ? (
+          <AgentTokenForm
+            agents={agents}
+            presets={presets}
+            folders={folders}
+            withExpiry
+            submitLabel="Create token"
+            busy={busy}
+            onCreateAgent={createAgent}
+            onSubmit={mint}
+          />
+        ) : (
+          <div className="muted">An owner or admin mints agent tokens.</div>
+        )}
       </div>
 
       {error && <div className="auth-error">{error}</div>}
@@ -2342,7 +2443,7 @@ function McpTab() {
       <div className="subhead">Connections</div>
       <div className="muted">
         Every token is a connection into this vault. Each reaches the same{" "}
-        {tools.length || ""} tools, gated by your access — expand one to see them,
+        {tools.length || ""} tools, gated by its scope — expand one to see them,
         how active it is, and how much it's been used.
       </div>
 
@@ -2355,6 +2456,9 @@ function McpTab() {
           {tokens.map((t) => {
             const live = isConnected(t.lastUsedAt);
             const open = expanded === t.id;
+            const isAgent = t.kind === "agent";
+            const color = isAgent ? colorOf(t.participantId) : null;
+            const stale = staleLabel(t.stale);
             return (
               <li key={t.id} className={`mcp-conn${open ? " open" : ""}`}>
                 <div className="mcp-conn-head">
@@ -2366,9 +2470,24 @@ function McpTab() {
                   <div className="mcp-conn-main">
                     <div className="mcp-conn-title">
                       {t.name}
+                      {isAgent ? (
+                        <span className="mcp-kind agent">
+                          {color && (
+                            <span
+                              className="mcp-agent-dot"
+                              style={{ background: color }}
+                              aria-hidden="true"
+                            />
+                          )}
+                          Agent · {t.participantName ?? "unknown"}
+                        </span>
+                      ) : (
+                        <span className="mcp-kind user">Acts as you</span>
+                      )}
                       <span className={`mcp-status ${live ? "on" : "off"}`}>
                         {live ? "Connected" : "Disconnected"}
                       </span>
+                      {stale && <span className="mcp-kind stale">{stale}</span>}
                     </div>
                     <div className="mcp-conn-sub muted">
                       {clientLabel(t.lastClient)}
@@ -2379,6 +2498,13 @@ function McpTab() {
                       {" · "}
                       {t.lastUsedAt ? `last active ${relTime(t.lastUsedAt)}` : "never used"}
                     </div>
+                    <div className="mcp-conn-sub muted">
+                      {isAgent
+                        ? `${summarizeScopes(t.scopes, scopeNames)} · ${expiryLabel(t.expiresAt, Date.now(), formatDate)}`
+                        : sunset
+                          ? sunsetLabel(sunset, formatDate)
+                          : "Migrate to an agent token"}
+                    </div>
                   </div>
                   <button
                     className="link-btn"
@@ -2386,6 +2512,34 @@ function McpTab() {
                   >
                     {open ? "Hide tools" : `Tools · ${tools.length}`}
                   </button>
+                  {isAgent ? (
+                    <>
+                      <AsyncButton
+                        className="link-btn"
+                        disabled={busy}
+                        onClick={() => renew(t.id)}
+                      >
+                        Renew
+                      </AsyncButton>
+                      <button
+                        className="link-btn"
+                        disabled={busy}
+                        onClick={() => setRotating(t)}
+                      >
+                        Rotate
+                      </button>
+                    </>
+                  ) : (
+                    canManage && (
+                      <button
+                        className="link-btn"
+                        disabled={busy}
+                        onClick={() => setMigrating((m) => (m === t.id ? null : t.id))}
+                      >
+                        {migrating === t.id ? "Cancel" : "Migrate"}
+                      </button>
+                    )
+                  )}
                   <AsyncButton
                     className="link-btn danger"
                     disabled={busy}
@@ -2394,6 +2548,24 @@ function McpTab() {
                     Revoke
                   </AsyncButton>
                 </div>
+                {migrating === t.id && (
+                  <div className="mcp-conn-migrate">
+                    <div className="muted">
+                      Replace “{t.name}” with an agent token. The old token stops
+                      working once the new one is made.
+                    </div>
+                    <AgentTokenForm
+                      agents={agents}
+                      presets={presets}
+                      folders={folders}
+                      withExpiry={false}
+                      submitLabel="Migrate"
+                      busy={busy}
+                      onCreateAgent={createAgent}
+                      onSubmit={(req) => migrate(t.id, req)}
+                    />
+                  </div>
+                )}
                 {open && (
                   <ul className="mcp-tool-list">
                     {tools.map((tool) => (
@@ -2415,6 +2587,208 @@ function McpTab() {
           })}
         </ul>
       )}
+
+      {rotating && (
+        <ConfirmDialog
+          title="Rotate this token?"
+          confirmLabel="Rotate"
+          tone="accent"
+          onCancel={() => setRotating(null)}
+          onConfirm={async () => {
+            await rotate(rotating);
+            setRotating(null);
+          }}
+        >
+          A new token replaces “{rotating.name}” with the same agent and scope. The
+          old one stops working immediately — update the client that uses it.
+        </ConfirmDialog>
+      )}
+    </div>
+  );
+}
+
+type AgentHarness = "claude-code" | "codex-cli" | "gemini-cli" | "custom";
+
+const HARNESS_OPTIONS: ReadonlyArray<MenuSelectOption<AgentHarness>> = [
+  { value: "claude-code", label: "Claude Code" },
+  { value: "codex-cli", label: "Codex CLI" },
+  { value: "gemini-cli", label: "Gemini CLI" },
+  { value: "custom", label: "Custom" },
+];
+
+/** Sentinel agent-picker value: register a new agent participant first. */
+const NEW_AGENT = "__new__";
+
+type AgentTokenFormValues = AgentTokenRequest & { expiresInDays?: number };
+
+/**
+ * Agent + preset picker shared by "New agent token" and a user token's
+ * Migrate. A new agent is registered BEFORE the token is requested and then
+ * selected, so a failed mint retried does not register it twice.
+ */
+function AgentTokenForm({
+  agents,
+  presets,
+  folders,
+  withExpiry,
+  submitLabel,
+  busy,
+  onCreateAgent,
+  onSubmit,
+}: {
+  agents: Participant[];
+  presets: McpConnections["presets"];
+  folders: Array<{ id: string; path: string }>;
+  withExpiry: boolean;
+  submitLabel: string;
+  busy: boolean;
+  onCreateAgent: (displayName: string, harness: AgentHarness) => Promise<Participant>;
+  onSubmit: (req: AgentTokenFormValues) => Promise<boolean>;
+}) {
+  const [agentId, setAgentId] = useState<string>(agents[0]?.id ?? NEW_AGENT);
+  const [agentName, setAgentName] = useState("");
+  const [harness, setHarness] = useState<AgentHarness>("claude-code");
+  const [preset, setPreset] = useState<McpScopePreset>("reader");
+  const [folderId, setFolderId] = useState<string>("");
+  const [name, setName] = useState("");
+  const [days, setDays] = useState("90");
+  const [agentError, setAgentError] = useState<string | null>(null);
+  const radioName = useId();
+
+  const isNew = agentId === NEW_AGENT || !agents.some((a) => a.id === agentId);
+  const daysNum = Number(days);
+  const daysOk = !withExpiry || (Number.isInteger(daysNum) && daysNum >= 1 && daysNum <= 365);
+  const ready =
+    !busy &&
+    daysOk &&
+    (!isNew || agentName.trim().length > 0) &&
+    (preset !== "drafter" || !!folderId);
+
+  const submit = async () => {
+    if (!ready) return;
+    setAgentError(null);
+    let participant = agents.find((a) => a.id === agentId);
+    if (isNew) {
+      try {
+        participant = await onCreateAgent(agentName.trim(), harness);
+      } catch (e) {
+        const message = e instanceof Error ? e.message : String(e);
+        setAgentError(message);
+        toast(`Couldn't create the agent — ${message}`, "error");
+        return;
+      }
+      setAgentId(participant.id);
+      setAgentName("");
+    }
+    if (!participant) return;
+    const ok = await onSubmit({
+      participantId: participant.id,
+      preset,
+      folderId: preset === "drafter" ? folderId : undefined,
+      name: name.trim() || participant.displayName,
+      expiresInDays: withExpiry ? daysNum : undefined,
+    });
+    if (ok) setName("");
+  };
+
+  const agentOptions: MenuSelectOption<string>[] = [
+    ...agents.map((a) => ({ value: a.id, label: a.displayName })),
+    { value: NEW_AGENT, label: "New agent…" },
+  ];
+
+  return (
+    <div className="mcp-agent-form">
+      <div className="mcp-agent-form-row">
+        <MenuSelect
+          value={isNew ? NEW_AGENT : agentId}
+          options={agentOptions}
+          onSelect={setAgentId}
+          disabled={busy}
+          ariaLabel="Agent"
+          triggerClassName="role-field-trigger"
+        />
+        {isNew && (
+          <>
+            <input
+              placeholder="Agent name, e.g. Research bot"
+              value={agentName}
+              onChange={(e) => setAgentName(e.target.value)}
+            />
+            <MenuSelect
+              value={harness}
+              options={HARNESS_OPTIONS}
+              onSelect={setHarness}
+              disabled={busy}
+              ariaLabel="Agent harness"
+              triggerClassName="role-field-trigger"
+            />
+          </>
+        )}
+      </div>
+      {agentError && <div className="auth-error">{agentError}</div>}
+
+      <fieldset className="mcp-preset-list" aria-label="Scope">
+        {presets.map((p) => (
+          <label key={p.name} className="mcp-preset">
+            <input
+              type="radio"
+              name={radioName}
+              value={p.name}
+              checked={preset === p.name}
+              onChange={() => setPreset(p.name)}
+            />
+            <span>
+              <strong>{p.name[0].toUpperCase() + p.name.slice(1)}</strong>
+              <span className="muted"> — {p.description}</span>
+            </span>
+          </label>
+        ))}
+      </fieldset>
+
+      {preset === "drafter" &&
+        (folders.length === 0 ? (
+          <div className="muted">This vault has no folders to draft in yet.</div>
+        ) : (
+          <MenuSelect
+            value={folderId}
+            options={[
+              ...(folderId ? [] : [{ value: "", label: "Choose a folder…" }]),
+              ...folders.map((f) => ({ value: f.id, label: `${f.path}/` })),
+            ]}
+            onSelect={setFolderId}
+            disabled={busy}
+            ariaLabel="Folder the agent may write in"
+            triggerClassName="role-field-trigger"
+          />
+        ))}
+
+      <div className="mcp-agent-form-row">
+        <input
+          placeholder="Token name (optional)"
+          value={name}
+          onChange={(e) => setName(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void submit();
+          }}
+        />
+        {withExpiry && (
+          <label className="mcp-expiry">
+            Expires in
+            <input
+              type="number"
+              min={1}
+              max={365}
+              value={days}
+              onChange={(e) => setDays(e.target.value)}
+              aria-label="Expires in days"
+            />
+            days
+          </label>
+        )}
+        <AsyncButton className="primary" disabled={!ready} onClick={submit}>
+          {submitLabel}
+        </AsyncButton>
+      </div>
     </div>
   );
 }

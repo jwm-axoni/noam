@@ -29,9 +29,15 @@ const CONTENT_FIELD = "content";
 /** Transaction origin tag for edits that originate from the MCP server. */
 export const MCP_ORIGIN = "mcp";
 
-/** Who is behind a server-side write, for attribution (versions, last-edited). */
+/**
+ * Who is behind a server-side write, for attribution (versions, last-edited).
+ * Both fields are SERVER-resolved (ADR 0003 decision 3): `participantId` comes
+ * from the authenticated token (`McpAuth.participantId`) or session, never from
+ * anything the request body claims.
+ */
 export interface DocActor {
   userId?: string | null;
+  participantId?: string | null;
 }
 
 /**
@@ -115,7 +121,7 @@ export interface DocWriter {
 export type DocWrittenHook = (
   vaultId: string,
   docId: string,
-  userId: string | null,
+  actor: { userId: string | null; participantId: string | null },
 ) => void;
 
 /**
@@ -189,6 +195,7 @@ export function createDocWriter(
     actor?: DocActor,
   ): Promise<void> {
     const userId = actor?.userId ?? null;
+    const participantId = actor?.participantId ?? null;
     const live = server.hocuspocus.documents.get(formatDocName(vaultId, docId));
     if (live) {
       // Live path: the sync server's onChange persists + broadcasts for us.
@@ -201,7 +208,7 @@ export function createDocWriter(
       // persist exactly like a human's.
       live.transact(() => fn(live.getText(CONTENT_FIELD)), {
         source: "local",
-        context: { source: MCP_ORIGIN, userId },
+        context: { source: MCP_ORIGIN, userId, participantId },
       } satisfies LocalTransactionOrigin);
       return;
     }
@@ -244,7 +251,7 @@ export function createDocWriter(
         // server's `onDocEdited`. Best-effort for the same reason the publish
         // above is: the write is already durable.
         try {
-          onDocWritten?.(vaultId, docId, userId);
+          onDocWritten?.(vaultId, docId, { userId, participantId });
         } catch (err) {
           console.warn(`[mcp] onDocWritten hook failed for ${docId}`, err);
         }

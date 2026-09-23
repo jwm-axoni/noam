@@ -2,6 +2,7 @@ import type pg from "pg";
 import { pool as defaultPool } from "../db/pool.js";
 import { orgRole } from "../permissions/lookup.js";
 import { auth } from "../auth/auth.js";
+import { findLiveHuman } from "../registry/participants.js";
 import type { McpAuth } from "./tokens.js";
 
 /**
@@ -83,5 +84,13 @@ export async function resolveOAuthMcpAuth(
 
   if (!(await orgRole(organizationId, session.userId, db))) return null;
 
-  return { userId: session.userId, organizationId };
+  // An OAuth connector acts as the user, so it is attributed to the user's own
+  // registry row — resolved here, never taken from anything the client sends.
+  const human = await findLiveHuman(organizationId, session.userId, db);
+  return {
+    userId: session.userId,
+    organizationId,
+    kind: "user",
+    participantId: human?.id ?? null,
+  };
 }
