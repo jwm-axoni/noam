@@ -12,6 +12,8 @@ export const PANEL_TYPES = [
   "workflows",
   "tasks",
   "calendar",
+  "presence",
+  "review",
 ] as const;
 export type PanelType = (typeof PANEL_TYPES)[number];
 
@@ -86,6 +88,9 @@ export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>>
   // Same reasoning: a standing list you work a note FROM, not a note surface.
   tasks: ["left", "right"],
   calendar: ["left", "right"],
+  // Who is here: a standing roster beside the note, never a document surface.
+  presence: ["left", "right"],
+  review: ["left", "right", "center"],
 };
 
 export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
@@ -99,6 +104,8 @@ export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
   workflows: 1,
   tasks: 1,
   calendar: 1,
+  presence: 1,
+  review: 1,
 };
 
 export function isZoneId(value: unknown): value is ZoneId {

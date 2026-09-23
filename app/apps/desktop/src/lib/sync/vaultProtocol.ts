@@ -35,10 +35,15 @@ export const CLIENT_CAPS = ["voice"];
  *  `docId` null means the user isn't viewing anything (or left) — clear them. */
 export interface PresenceState {
   userId: string;
+  /** Registry participant id — server-stamped (the server also overwrites
+   *  name/color with the registry's values). Absent from older servers. */
+  participantId?: string;
   docId: string | null;
   name: string;
   color: string;
   status: string;
+  /** The server saw this connection close. Absent from older servers. */
+  gone?: boolean;
 }
 
 export type ServerControl =
@@ -166,6 +171,8 @@ export function parseServerControl(text: string): ServerControl | null {
         name: o.name,
         color: o.color,
         status: o.status,
+        ...(typeof o.participantId === "string" ? { participantId: o.participantId } : {}),
+        ...(o.gone === true ? { gone: true } : {}),
       };
     }
     return null;

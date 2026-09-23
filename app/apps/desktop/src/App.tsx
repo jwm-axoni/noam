@@ -63,6 +63,8 @@ import { currentEditorContext } from "./components/workflows/editorContext";
 import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
 import { findPanelTab } from "./layout/operations";
 import { useLayoutStore } from "./layout/store";
+import { togglePanel } from "./components/workspace/ActivityBar";
+import { presenceV1Enabled } from "./lib/presence/flag";
 import { navigationHistory } from "./layout/navigationHistory";
 import { CENTER_NOTE_GROUP_ID, type PanelType } from "./layout/types";
 import { closePanelTab } from "./layout/workspaceActions";
@@ -1095,6 +1097,11 @@ export default function App() {
       if (globalShortcut === "action-picker") {
         e.preventDefault();
         setActionPickerOpen((open) => !open);
+        return;
+      }
+      if (globalShortcut === "presence") {
+        e.preventDefault();
+        if (presenceV1Enabled()) togglePanel("presence");
         return;
       }
       // A workflow's own `shortcut`. Built-ins are matched FIRST and reserved

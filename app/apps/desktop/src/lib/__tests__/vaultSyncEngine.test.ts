@@ -1,9 +1,11 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 import { ApiClient } from "../api";
 import {
+  PRESENCE_HEARTBEAT_MS,
   VaultSyncEngine,
   deriveVaultWsUrl,
   type DocUpdateSink,
+  type PresenceFrame,
   type WebSocketLike,
 } from "../sync/vaultSyncEngine";
 import {
@@ -876,5 +878,131 @@ describe("VaultSyncEngine — server-empty reporting", () => {
 
     created[0].onclose?.(null);
     expect(engine.backfillSettled()).toBe(true);
+  });
+});
+
+describe("VaultSyncEngine — presence heartbeat + registry identity", () => {
+  const lastOf = <T,>(items: T[]): T => items[items.length - 1];
+  // Only the interval is faked: the connect path awaits real microtasks and
+  // `setTimeout(0)` ticks, which a fully faked clock would freeze.
+  afterEach(() => vi.useRealTimers());
+
+  const presenceFrames = (ws: FakeWs) =>
+    ws.sent
+      .filter((x): x is string => typeof x === "string")
+      .map((s) => JSON.parse(s) as Record<string, unknown>)
+      .filter((f) => f.t === "presence");
+
+  async function connected(opts: { onPresence?: (p: PresenceFrame) => void } = {}) {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    let ws: FakeWs | null = null;
+    const engine = new VaultSyncEngine({
+      api: tokenApi(),
+      vaultId: "v1",
+      sink: new MemSink(),
+      wsFactory: () => (ws = new FakeWs()),
+      onPresence: opts.onPresence,
+      random: () => 0,
+    });
+    engine.setPresence({ docId: "D", name: "Ada", color: "#047e67", status: "online" });
+    engine.start();
+    ws!.onopen?.(null);
+    await awaitHello(ws!);
+    return { engine, ws: () => ws! };
+  }
+
+  it("re-sends the presence frame every 10 s, only once ready", async () => {
+    expect(PRESENCE_HEARTBEAT_MS).toBe(10_000);
+    const { engine, ws } = await connected();
+    const initial = presenceFrames(ws()).length; // the post-hello announce
+    expect(initial).toBe(1);
+
+    // hello is out but no `ready` yet: no heartbeat.
+    vi.advanceTimersByTime(30_000);
+    expect(presenceFrames(ws())).toHaveLength(initial);
+
+    ws().onmessage?.({ data: JSON.stringify({ t: "ready" }) });
+    const afterReady = presenceFrames(ws()).length; // `ready` re-announces once
+    expect(afterReady).toBe(initial + 1);
+
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS - 1);
+    expect(presenceFrames(ws())).toHaveLength(afterReady);
+    vi.advanceTimersByTime(1);
+    expect(presenceFrames(ws())).toHaveLength(afterReady + 1);
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 2);
+    expect(presenceFrames(ws())).toHaveLength(afterReady + 3);
+    expect(lastOf(presenceFrames(ws()))).toMatchObject({ docId: "D", name: "Ada", color: "#047e67" });
+    engine.stop();
+  });
+
+  it("sends nothing on the heartbeat when there is no local presence", async () => {
+    const { engine, ws } = await connected();
+    engine.setPresence(null);
+    ws().onmessage?.({ data: JSON.stringify({ t: "ready" }) });
+    const n = presenceFrames(ws()).length;
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 3);
+    expect(presenceFrames(ws())).toHaveLength(n);
+    engine.stop();
+  });
+
+  it("stops the heartbeat on disconnect and on stop", async () => {
+    const { engine, ws } = await connected();
+    ws().onmessage?.({ data: JSON.stringify({ t: "ready" }) });
+    const sock = ws();
+    const n = presenceFrames(sock).length;
+    sock.onclose?.({ code: 1006 }); // dropped
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 3);
+    expect(presenceFrames(sock)).toHaveLength(n);
+    expect(vi.getTimerCount()).toBe(0);
+
+    engine.stop();
+    vi.advanceTimersByTime(PRESENCE_HEARTBEAT_MS * 3);
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("stops the heartbeat when stopped while ready", async () => {
+    const { engine, ws } = await connected();
+    ws().onmessage?.({ data: JSON.stringify({ t: "ready" }) });
+    expect(vi.getTimerCount()).toBe(1);
+    engine.stop();
+    expect(vi.getTimerCount()).toBe(0);
+  });
+
+  it("parses participantId and gone from a presence frame", async () => {
+    const got: PresenceFrame[] = [];
+    const { engine, ws } = await connected({ onPresence: (p) => got.push(p) });
+    ws().onmessage?.({
+      data: JSON.stringify({
+        t: "presence", userId: "u2", participantId: "p2", docId: "D",
+        name: "Maya", color: "#2981fb", status: "online",
+      }),
+    });
+    ws().onmessage?.({
+      data: JSON.stringify({
+        t: "presence", userId: "u2", participantId: "p2", docId: null,
+        name: "Maya", color: "#2981fb", status: "online", gone: true,
+      }),
+    });
+    // An older server: neither field.
+    ws().onmessage?.({
+      data: JSON.stringify({ t: "presence", userId: "u3", docId: null, name: "Sam", color: "#696713", status: "away" }),
+    });
+    expect(got).toEqual([
+      { userId: "u2", participantId: "p2", docId: "D", name: "Maya", color: "#2981fb", status: "online" },
+      { userId: "u2", participantId: "p2", docId: null, name: "Maya", color: "#2981fb", status: "online", gone: true },
+      { userId: "u3", docId: null, name: "Sam", color: "#696713", status: "away" },
+    ]);
+    engine.stop();
+  });
+
+  it("parseServerControl ignores malformed participantId/gone rather than trusting them", () => {
+    expect(
+      parseServerControl(
+        JSON.stringify({
+          t: "presence", userId: "u", docId: null, name: "n", color: "#000000",
+          status: "online", participantId: 7, gone: "yes",
+        }),
+      ),
+    ).toEqual({ t: "presence", userId: "u", docId: null, name: "n", color: "#000000", status: "online" });
   });
 });

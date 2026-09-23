@@ -6,7 +6,9 @@ import { keymap, EditorView } from "@codemirror/view";
 import { WORKSPACE_RESIZE_EVENT } from "../layout/types";
 import { Compartment, EditorState } from "@codemirror/state";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
-import { remoteCursors } from "../lib/editor/remoteCursors";
+import { remoteCursors, type RemoteUserFields } from "../lib/editor/remoteCursors";
+import { directoryFor } from "../lib/presence/participants";
+import { presenceV1Enabled } from "../lib/presence/flag";
 import type { Awareness } from "y-protocols/awareness";
 import {
   createEditorState,
@@ -64,9 +66,29 @@ interface Peer {
 }
 
 interface AwarenessPeerState {
-  user?: { id?: string; name?: string; color?: string; status?: ActivityStatus };
+  user?: {
+    id?: string;
+    participantId?: string;
+    name?: string;
+    color?: string;
+    status?: ActivityStatus;
+  };
   activity?: { line?: number; at?: number };
   ping?: { to?: string; name?: string; at?: number };
+}
+
+/**
+ * Registry-signed display for a peer's awareness `user`: when its participantId
+ * is in our local registry, the registry's name/color win over whatever the
+ * peer asserted; unknown ids keep the asserted values.
+ */
+function resolveRemoteUser(
+  user: RemoteUserFields,
+  fallbackColor = "#30bced",
+): { name: string; color: string } {
+  const asserted = { name: user.name || "Someone", color: user.color ?? fallbackColor };
+  if (!presenceV1Enabled()) return asserted;
+  return directoryFor(useStore.getState().participants).resolve(user.participantId, asserted);
 }
 
 /** Derive the unique peers currently present in a doc from awareness states. */
@@ -80,10 +102,11 @@ function readPeers(awareness: Awareness): Peer[] {
     const line = typeof s.activity?.line === "number" ? s.activity.line : null;
     const at = typeof s.activity?.at === "number" ? s.activity.at : null;
     if (!prev) {
+      const shown = resolveRemoteUser(u, colorForUser(u.id));
       seen.set(u.id, {
         id: u.id,
-        name: u.name ?? "Someone",
-        color: u.color ?? colorForUser(u.id),
+        name: shown.name,
+        color: shown.color,
         status: u.status,
         line,
         lastActive: at,
@@ -654,7 +677,7 @@ export function Editor() {
           yCollab(bridge.text, awareness, { undoManager: bridge.undoManager }),
           // Our own animated carets + always-on name flags, over yCollab's
           // selection highlight (its inline caret is hidden in editor.css).
-          remoteCursors(bridge.text, awareness),
+          remoteCursors(bridge.text, awareness, resolveRemoteUser),
           keymap.of(readOnlyGuardedKeymap(yUndoManagerKeymap)),
           // Publish "editing line N" so peers can see where everyone is.
           EditorView.updateListener.of((u) => {

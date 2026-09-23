@@ -26,6 +26,7 @@ const TABLES = [
   "blobs",
   "invitation",
   "member",
+  "participants",
   "organization",
   "session",
   "account",

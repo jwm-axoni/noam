@@ -94,6 +94,7 @@ round-trip lossless. Full detail: [[03-sync-engine]].
 | [[03-sync-engine]] | Yjs + Hocuspocus, the Yjs sync protocol, the file↔CRDT bridge algorithm + loop-avoidance |
 | [[04-team-collaboration]] | Better Auth org model, folder ACL, how permissions gate the sync engine, presence |
 | [[05-vault-sync-engine]] | Vault-wide always-on background sync; stateless relay + pluggable PubSub (Redis for HA); bridge tiering |
+| [[07-participants-and-presence]] | Participant registry (humans + inert agent rows, migration 027), server-stamped presence identity, the People panel, heartbeat/decay, the colorblind-safe palette, and the spec-vs-code drift list. ADRs: `adr/0002-local-byoh-enforcement.md`, `adr/0003-agent-token-identity.md` |
 
 ---
 

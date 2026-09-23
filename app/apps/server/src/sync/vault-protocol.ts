@@ -52,15 +52,26 @@ export interface HelloFrame {
 
 /** A teammate's live "who's viewing what" state, forwarded to every subscriber
  *  of the vault so the sidebar can show presence dots on notes/folders. `docId`
- *  null means "not viewing anything" (or gone) — clients clear that user. The
- *  `userId` is stamped by the server from the token, never trusted from the
- *  client, so presence can't be spoofed. */
+ *  null means "not viewing anything" — clients clear that user's dots.
+ *
+ *  Identity is stamped by the server, never trusted from the client, so
+ *  presence can't be spoofed: `userId` comes from the vault token, and
+ *  `participantId`, `name` and `color` come from the user's live participant
+ *  row (migration 027) — the client's own name/color strings are discarded. A
+ *  user with no live row (a deactivated participant) publishes no presence at
+ *  all, and one deactivated while connected is announced `gone`. */
 export interface PresenceState {
   userId: string;
+  /** The registry row id. Optional only on the type, for frames from servers
+   *  that predate the registry; this server always sets it. */
+  participantId?: string;
   docId: string | null;
   name: string;
   color: string;
   status: string;
+  /** Set on the frame published when the connection closes, so a client can
+   *  tell "left" from "online with no note open" (both carry `docId: null`). */
+  gone?: boolean;
 }
 
 export type ServerControl =

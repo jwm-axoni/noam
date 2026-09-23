@@ -1,0 +1,161 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noam · Diff-loop design variants · Comparison board</title>
+<style>
+  :root{--charcoal:#2b2724; --cream:#f8f3ea; --violet:#7f73ff;
+    --paper:#fffdf8; --line:#e5dcc8; --muted:#655e52;}
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--cream); color:var(--charcoal);
+    font-family:system-ui,-apple-system,"Segoe UI",sans-serif; font-size:15px; line-height:1.6;}
+  .wrap{max-width:1280px; margin:0 auto; padding:36px 28px 80px;}
+  h1{font-family:Georgia,serif; font-size:30px; margin:0 0 6px;}
+  .lede{color:var(--muted); max-width:760px; margin:0 0 26px;}
+  :focus-visible{outline:2px solid var(--violet); outline-offset:2px;}
+  .verdict{border:1px solid var(--line); border-left:5px solid var(--violet); background:var(--paper);
+    border-radius:12px; padding:18px 22px; margin-bottom:30px;}
+  .verdict h2{margin:0 0 8px; font-size:18px;}
+  .verdict p{margin:0; font-size:14.5px;}
+  .board{display:grid; grid-template-columns:repeat(3, 1fr); gap:20px; align-items:start;}
+  @media (max-width:1000px){.board{grid-template-columns:1fr;}}
+  .vcard{border:1px solid var(--line); border-radius:14px; background:var(--paper); overflow:hidden;}
+  .preview{height:300px; overflow:hidden; border-bottom:1px solid var(--line); background:#fff; position:relative;}
+  .preview iframe{width:1280px; height:800px; border:0; transform:scale(.30); transform-origin:top left;
+    pointer-events:none;}
+  .vbody{padding:18px 20px 22px;}
+  .vbody h3{margin:0 0 2px; font-size:18px;}
+  .vbody .tag{font-size:12.5px; color:var(--muted); text-transform:uppercase; letter-spacing:.06em;}
+  .vbody p.desc{font-size:14px; color:var(--muted); margin:10px 0 14px;}
+  .proscons{font-size:13.5px;}
+  .proscons li{margin-bottom:7px;}
+  .proscons ul{margin:6px 0 12px; padding-left:20px;}
+  .open{display:inline-block; margin-top:6px; min-height:44px; line-height:44px; padding:0 18px;
+    background:var(--charcoal); color:var(--cream); border-radius:9px; text-decoration:none; font-weight:600; font-size:14px;}
+  .feedback{margin-top:44px; border:1px solid var(--line); border-radius:14px; background:var(--paper); padding:26px 28px;}
+  .feedback h2{margin:0 0 6px; font-size:20px;}
+  .feedback p{color:var(--muted); font-size:14px; margin:0 0 18px;}
+  .fgrid{display:grid; grid-template-columns:repeat(3,1fr); gap:18px;}
+  @media (max-width:900px){.fgrid{grid-template-columns:1fr;}}
+  .ffield{border:1px solid var(--line); border-radius:10px; padding:14px 16px; background:var(--cream);}
+  .ffield h4{margin:0 0 8px; font-size:15px;}
+  .ffield label{font-size:13px; display:block; margin:8px 0 4px;}
+  .ffield select, .ffield textarea{width:100%; font:inherit; font-size:14px; border:1px solid var(--line);
+    border-radius:8px; padding:8px 10px; background:#fff;}
+  .ffield textarea{min-height:74px; resize:vertical;}
+  .frow{margin-top:18px; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
+  .btn{min-height:44px; padding:0 20px; border-radius:9px; border:1px solid var(--line);
+    background:var(--violet); color:#fff; font-weight:700; font-size:14px; cursor:pointer;}
+  .overall{min-height:44px; border:1px solid var(--line); border-radius:8px; padding:0 12px; font:inherit; font-size:14px;}
+  #copied{font-size:13.5px; color:var(--muted); display:none;}
+  .mandates{margin:0 0 26px; padding:0; list-style:none; display:flex; flex-wrap:wrap; gap:8px; font-size:13px;}
+  .mandates li{background:var(--paper); border:1px solid var(--line); border-radius:999px; padding:5px 13px; color:var(--muted);}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Suggestion-diff review: three directions</h1>
+  <p class="lede">All three honor the same interaction mandates from the plan. They differ in where the review lives and how much attention each decision gets. Open each full view, it is interactive: <b>]</b> / <b>[</b> move, <b>A</b> accepts, <b>R</b> rejects.</p>
+
+  <ul class="mandates">
+    <li>Inline diffs + gutter markers</li><li>Persistent review bar, never toasts</li>
+    <li>] [ A R keyboard grammar</li><li>Batch review + trust tiers</li>
+    <li>Presence decay states</li><li>Conflict cards</li>
+    <li>Fixed 8-color agent palette</li><li>44px targets, real focus rings</li>
+    <li>Welcome moment, accept transition, digest voice</li>
+  </ul>
+
+  <div class="verdict">
+    <h2>My recommendation: ship A, keep B as a power mode</h2>
+    <p>A is the spec's child: context stays visible, the queue is the natural home for batch review and trust tiers, and it is the cheapest to build from the plan. B's focused session is the right answer for clearing a backlog of twelve suggestions, so keep it as an explicit mode rather than the default. Steal C's chip bar for narrow windows and the eventual mobile story.</p>
+  </div>
+
+  <div class="board">
+    <div class="vcard">
+      <div class="preview"><iframe src="variant-1.html" title="Variant A preview" loading="lazy"></iframe></div>
+      <div class="vbody">
+        <span class="tag">Variant A</span><h3>The Rail</h3>
+        <p class="desc">Cream editor with a persistent right review rail. Suggestion queue, batch controls, trust tiers, and the digest all live in the sidebar. Closest to the written spec.</p>
+        <div class="proscons"><b>Pros</b><ul>
+          <li>Everything visible at once. The queue doubles as an audit trail, and batch plus trust controls sit next to the items they affect.</li>
+          <li>Inline context never leaves the screen. You always see the note around the diff.</li>
+        </ul><b>Cons</b><ul>
+          <li>The rail eats editor width and squeezes the note on smaller windows.</li>
+          <li>A tall queue can feel like a second inbox, and reviewers may process cards top-down instead of reading the note.</li>
+        </ul></div>
+        <a class="open" href="variant-1.html" target="_blank" rel="noopener">Open full view</a>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="preview"><iframe src="variant-2.html" title="Variant B preview" loading="lazy"></iframe></div>
+      <div class="vbody">
+        <span class="tag">Variant B</span><h3>Review Session</h3>
+        <p class="desc">Dark, full-screen focused mode. One proposal at a time, large diff, prominent keyboard hints, progress bar. Esc returns to the note.</p>
+        <div class="proscons"><b>Pros</b><ul>
+          <li>Highest attention per decision. The keyboard-first flow shines when clearing a backlog.</li>
+          <li>The mode boundary makes each accept feel deliberate, which fights click-through fatigue.</li>
+        </ul><b>Cons</b><ul>
+          <li>Hides the surrounding note, so accepting without full context can mislead.</li>
+          <li>Mode switching costs add up for a single quick accept. Can feel heavy for one suggestion.</li>
+        </ul></div>
+        <a class="open" href="variant-2.html" target="_blank" rel="noopener">Open full view</a>
+      </div>
+    </div>
+
+    <div class="vcard">
+      <div class="preview"><iframe src="variant-3.html" title="Variant C preview" loading="lazy"></iframe></div>
+      <div class="vbody">
+        <span class="tag">Variant C</span><h3>The Drawer</h3>
+        <p class="desc">Editor-first. A slim bottom bar holds suggestion chips; an expandable drawer reveals the focused diff, batch, trust, and digest. Minimal and dense.</p>
+        <div class="proscons"><b>Pros</b><ul>
+          <li>The editor stays king. The chip bar is glanceable and scales to many suggestions without a tall sidebar.</li>
+          <li>Best information density. Details expand only when needed.</li>
+        </ul><b>Cons</b><ul>
+          <li>Two-step reveal (chip, then drawer) adds friction to every single review.</li>
+          <li>Conflict cards feel cramped in the drawer, and it competes with the keyboard for vertical space.</li>
+        </ul></div>
+        <a class="open" href="variant-3.html" target="_blank" rel="noopener">Open full view</a>
+      </div>
+    </div>
+  </div>
+
+  <div class="feedback">
+    <h2>Your call</h2>
+    <p>Rate each direction, leave notes, pick an overall winner, then copy the summary and send it back.</p>
+    <div class="fgrid">
+      <div class="ffield"><h4>A · The Rail</h4>
+        <label>Rating <select id="ra"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        <label>Notes <textarea id="ca" placeholder="What works, what does not"></textarea></label></div>
+      <div class="ffield"><h4>B · Review Session</h4>
+        <label>Rating <select id="rb"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        <label>Notes <textarea id="cb" placeholder="What works, what does not"></textarea></label></div>
+      <div class="ffield"><h4>C · The Drawer</h4>
+        <label>Rating <select id="rc"><option value="">-</option><option>1</option><option>2</option><option>3</option><option>4</option><option>5</option></select></label>
+        <label>Notes <textarea id="cc" placeholder="What works, what does not"></textarea></label></div>
+    </div>
+    <div class="frow">
+      <label for="overall" style="font-weight:700">Overall pick</label>
+      <select class="overall" id="overall"><option value="">Undecided</option><option>A · The Rail</option><option>B · Review Session</option><option>C · The Drawer</option><option>Remix of several</option></select>
+      <button class="btn" onclick="copyFeedback()">Copy feedback summary</button>
+      <span id="copied">Copied. Paste it back in chat.</span>
+    </div>
+  </div>
+</div>
+
+<script>
+function copyFeedback(){
+  const t =
+    'Diff-loop variant feedback\n' +
+    'A · The Rail: ' + (document.getElementById('ra').value||'-') + '/5 - ' + document.getElementById('ca').value + '\n' +
+    'B · Review Session: ' + (document.getElementById('rb').value||'-') + '/5 - ' + document.getElementById('cb').value + '\n' +
+    'C · The Drawer: ' + (document.getElementById('rc').value||'-') + '/5 - ' + document.getElementById('cc').value + '\n' +
+    'Overall pick: ' + document.getElementById('overall').value;
+  navigator.clipboard.writeText(t).then(()=>{
+    document.getElementById('copied').style.display='inline';
+  });
+}
+</script>
+</body>
+</html>

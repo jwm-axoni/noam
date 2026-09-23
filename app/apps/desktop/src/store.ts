@@ -40,6 +40,10 @@ import { vaultScopes } from "./lib/sync/vaultScope";
 import type { SyncStatus } from "./lib/sync/syncManager";
 import type { DocSyncState, SyncProgress } from "./lib/sync/vaultScope";
 import type { VaultPeer } from "./lib/sync/vaultSyncEngine";
+import type { Participant } from "./lib/presence/participants";
+import { leaveMessage, type RosterEvents } from "./lib/presence/roster";
+import { queueAnnouncement } from "./lib/presence/announcer";
+import { presenceV1Enabled } from "./lib/presence/flag";
 import type { VoiceSpeaker } from "./lib/sync/docSession";
 import { MicPermissionError } from "./lib/voice/capture";
 import * as perf from "./lib/perf";
@@ -291,6 +295,11 @@ interface AppStore {
   openFolderIsSynced: boolean | null;
   organizations: Organization[];
   members: Member[];
+  /** The active org's participant registry (registry names + colors). Kept on
+   *  a failed refresh; replaced on the next successful one. */
+  participants: Participant[];
+  /** This user's own participant id in the active org, when the server said. */
+  selfParticipantId: string | null;
   pendingInvitations: Invitation[];
   userInvitations: Invitation[];
   syncEnabled: boolean;
@@ -366,6 +375,9 @@ interface AppStore {
   /** Live "who's viewing what" roster (teammates only) — drives the sidebar
    *  presence dots on notes/folders. Empty when sync is off or disconnected. */
   vaultPresence: VaultPeer[];
+  /** The last teammate to leave, for the People panel's quiet note ("Maya
+   *  disconnected"). Clears itself after PRESENCE_LEAVE_NOTE_MS. */
+  presenceLastLeave: { text: string; at: number } | null;
   /** Teammates transmitting right now (push-to-talk). Purely transient — this
    *  is the only record a voice broadcast ever leaves anywhere. */
   voiceSpeakers: VoiceSpeaker[];
@@ -1246,6 +1258,53 @@ function probeFolderSync(
  */
 function leaveVaultSync(): void {
   syncManager.disable();
+  // The next vault's identity is re-applied by `syncParticipantIdentity` once
+  // its sync is enabled / its participants land.
+  syncManager.setParticipantIdentity(null);
+}
+
+/** Which org `participants` was fetched for. The registry rows carry no org,
+ *  and a stale list must never publish one vault's identity in another. */
+let participantsOrgId: string | null = null;
+
+/**
+ * Publish this user's registry identity (name + color + participantId) on
+ * presence, or clear it. Only when the cached participants belong to the
+ * ACTIVE org and hold our own row; otherwise the local hash-color fallback.
+ * Idempotent, so it is called from every point either input can change.
+ */
+function syncParticipantIdentity(get: () => AppStore): void {
+  const st = get();
+  const orgId = st.session?.activeOrganizationId ?? null;
+  const self =
+    presenceV1Enabled() && orgId && participantsOrgId === orgId && st.selfParticipantId
+      ? st.participants.find((p) => p.id === st.selfParticipantId)
+      : undefined;
+  syncManager.setParticipantIdentity(
+    self ? { participantId: self.id, name: self.displayName, color: self.color } : null,
+  );
+}
+
+/** How long the People panel keeps its "Maya disconnected" note. */
+const PRESENCE_LEAVE_NOTE_MS = 10_000;
+let presenceLeaveTimer: ReturnType<typeof setTimeout> | null = null;
+
+/** Turn roster join/leave events into the panel note + polite announcements. */
+function handlePresenceEvents(
+  events: RosterEvents,
+  set: (partial: Partial<AppStore>) => void,
+): void {
+  if (!presenceV1Enabled()) return;
+  for (const peer of events.joined) queueAnnouncement(`${peer.name} joined`);
+  const last = events.left[events.left.length - 1];
+  if (!last) return;
+  for (const { peer, reason } of events.left) queueAnnouncement(leaveMessage(peer.name, reason));
+  set({ presenceLastLeave: { text: leaveMessage(last.peer.name, last.reason), at: Date.now() } });
+  if (presenceLeaveTimer) clearTimeout(presenceLeaveTimer);
+  presenceLeaveTimer = setTimeout(() => {
+    presenceLeaveTimer = null;
+    set({ presenceLastLeave: null });
+  }, PRESENCE_LEAVE_NOTE_MS);
 }
 
 /**
@@ -1422,11 +1481,14 @@ export const useStore = create<AppStore>((set, get) => ({
   openingNotePath: null,
   organizations: [],
   members: [],
+  participants: [],
+  selfParticipantId: null,
   pendingInvitations: [],
   userInvitations: [],
   ...vaultScopedSyncReset(),
   lastSyncedAt: null,
   vaultPresence: [],
+  presenceLastLeave: null,
   voiceSpeakers: [],
   broadcasting: false,
   voiceError: null,
@@ -2286,7 +2348,10 @@ export const useStore = create<AppStore>((set, get) => ({
     });
     // Live sidebar presence — the vault channel tells us which teammate is
     // viewing which note; mirror the roster into the store for FileTree.
-    syncManager.setVaultPresenceListener((peers) => set({ vaultPresence: peers }));
+    syncManager.setVaultPresenceListener((peers, events) => {
+      set({ vaultPresence: peers });
+      if (events) handlePresenceEvents(events, set);
+    });
     // Who's talking right now. Nothing is stored — this list empties itself as
     // each transmission finishes playing.
     syncManager.setVoiceListener((speaking) => set({ voiceSpeakers: speaking }));
@@ -2489,6 +2554,7 @@ export const useStore = create<AppStore>((set, get) => ({
     // Retire the vault scope BEFORE the session goes away, so nothing tries to
     // reconcile/pull with a token that is about to be revoked.
     leaveVaultSync();
+    participantsOrgId = null;
     await authManager.signOut();
     // A queued shared link belongs to the account that clicked it.
     clearPendingNoteLink();
@@ -2508,6 +2574,8 @@ export const useStore = create<AppStore>((set, get) => ({
       landingVault: false,
       organizations: [],
       members: [],
+      participants: [],
+      selfParticipantId: null,
       pendingInvitations: [],
       userInvitations: [],
       ...vaultScopedSyncReset(),
@@ -2737,7 +2805,7 @@ export const useStore = create<AppStore>((set, get) => ({
       // Three independent GETs. Run serially they were three round trips in the
       // launch chain; none of them depends on another's answer.
       const roster = (async () => {
-        const [members, pendingInvitations, userInvitations] = await Promise.all([
+        const [members, pendingInvitations, userInvitations, participants] = await Promise.all([
           activeOrgId
             ? api.listMembers(activeOrgId).catch(() => [] as Member[])
             : Promise.resolve([] as Member[]),
@@ -2751,9 +2819,22 @@ export const useStore = create<AppStore>((set, get) => ({
             .listUserInvitations()
             .then((invs) => invs.filter((i) => i.status === "pending"))
             .catch(() => [] as Invitation[]),
+          // null on failure: keep whatever we had rather than blank the registry.
+          activeOrgId
+            ? api.listParticipants(activeOrgId).catch((e) => {
+                console.warn("[presence] participants fetch failed", e);
+                return null;
+              })
+            : Promise.resolve(null),
         ]);
         if (authInitGen !== gen) return;
         set({ members, pendingInvitations, userInvitations });
+        // Only for the org it was fetched for: a switch may have landed meanwhile.
+        if (participants && activeOrgId === (get().session?.activeOrganizationId ?? null)) {
+          participantsOrgId = activeOrgId;
+          set({ participants: participants.participants, selfParticipantId: participants.self });
+          syncParticipantIdentity(get);
+        }
       })();
       // The launch path does not wait for the roster; every other caller (the
       // members panel, an invite accept) still gets the full refresh it expects.
@@ -3898,6 +3979,7 @@ export const useStore = create<AppStore>((set, get) => ({
             // note gets a provider instead of seeding from disk.
             set({ syncEnabled: true });
             syncManager.setPresenceStatus(get().activityStatus);
+            syncParticipantIdentity(get);
             rememberOrgVault(orgId, vault.path);
             rememberLastVault(orgId);
             perf.mark("sync-primed");
@@ -3917,6 +3999,7 @@ export const useStore = create<AppStore>((set, get) => ({
         perf.mark("sync-enabled");
         // Broadcast the user's current activity status on this session's presence.
         syncManager.setPresenceStatus(get().activityStatus);
+        syncParticipantIdentity(get);
         // This folder is now the one this vault opens with.
         rememberOrgVault(orgId, vault.path);
         rememberLastVault(orgId);

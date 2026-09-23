@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noam · Suggestion review · Variant C: The Drawer</title>
+<style>
+  :root{
+    --charcoal:#2b2724; --cream:#f8f3ea; --violet:#7f73ff;
+    --paper:#fffdf8; --line:#e5dcc8; --muted:#655e52; --faint:#8a8172;
+    --green:#009E73; --blue:#0072B2; --amber:#D55E00;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; background:var(--cream); color:var(--charcoal);
+    font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif; font-size:15px; line-height:1.55;
+    display:flex; flex-direction:column; height:100vh;}
+  button{font:inherit; cursor:pointer;}
+  :focus-visible{outline:2px solid var(--violet); outline-offset:2px; border-radius:6px;}
+  .kbd{font-family:ui-monospace,SFMono-Regular,Menlo,monospace; font-size:12px;
+    border:1px solid var(--line); border-bottom-width:2px; border-radius:5px;
+    padding:1px 7px; background:var(--paper); white-space:nowrap;}
+
+  .appbar{display:flex; align-items:center; gap:10px; padding:9px 18px; border-bottom:1px solid var(--line);
+    background:var(--paper); min-height:56px;}
+  .logo{width:28px;height:28px;border-radius:7px;background:var(--charcoal);color:var(--cream);
+    display:grid;place-items:center;font-weight:700;font-size:14px;}
+  .doc-title{font-size:15px; font-weight:700;}
+  .presence{margin-left:auto; display:flex; gap:6px; align-items:center; font-size:13px; color:var(--muted);}
+  .pdot{width:10px;height:10px;border-radius:50%; display:inline-block; margin-right:4px;}
+
+  .editor{flex:1; overflow-y:auto; padding:30px 40px 40px; min-height:0;}
+  .note{max-width:700px; margin:0 auto;}
+  .welcome{border:1px solid var(--line); border-left:4px solid var(--green); background:var(--paper);
+    border-radius:8px; padding:12px 16px; margin-bottom:24px; font-size:13.5px; display:flex; gap:12px; align-items:flex-start;}
+  .welcome .x{margin-left:auto; flex:none;}
+  .btn{min-height:44px; padding:0 16px; border-radius:8px; border:1px solid var(--line);
+    background:var(--paper); font-weight:600; font-size:13.5px; display:inline-flex; align-items:center; gap:8px;}
+  .btn.primary{background:var(--violet); border-color:var(--violet); color:#fff;}
+  .btn.accept{background:var(--green); border-color:var(--green); color:#fff;}
+  .btn.quiet{background:transparent; border-color:transparent; color:var(--muted); min-height:44px;}
+
+  .pline{position:relative; padding-left:30px; margin:0 0 16px;}
+  .gutter{position:absolute; left:0; top:3px; bottom:3px; width:18px; display:flex; flex-direction:column; align-items:center; gap:5px;}
+  .gbar{width:3px; border-radius:2px; flex:1; min-height:16px;}
+  .gdot{width:16px;height:16px;border-radius:50%;font-size:9px;font-weight:700;color:#fff;display:grid;place-items:center;flex:none;}
+  .note h1{font-size:28px; margin:0 0 18px; letter-spacing:-.01em;}
+  .note h2{font-size:19px; margin:24px 0 10px;}
+  .note p{margin:0 0 16px;}
+  .note ul{margin:0 0 16px; padding-left:20px;}
+  .note li{margin-bottom:6px;}
+  del.diff{background:#f6d9d2; color:#7c2f1d; text-decoration:line-through; border-radius:3px; padding:0 3px;}
+  ins.diff{background:#d9efe4; color:#0b5c3f; text-decoration:none; border-radius:3px; padding:0 3px;}
+  .cursor{position:absolute; width:2px; border-radius:1px;}
+  .cursor .flag{position:absolute; top:-22px; left:-3px; font-size:10.5px; font-weight:700; color:#fff;
+    border-radius:4px; padding:1px 7px; white-space:nowrap;}
+  .inline-note{font-size:12.5px; color:var(--muted);}
+
+  /* Bottom bar */
+  .bottombar{background:var(--paper); border-top:1px solid var(--line); padding:8px 16px;
+    display:flex; align-items:center; gap:10px; min-height:60px;}
+  .chips{display:flex; gap:8px; overflow-x:auto; flex:1; padding:4px 2px;}
+  .schip{display:flex; align-items:center; gap:8px; border:1.5px solid var(--line); background:var(--cream);
+    border-radius:999px; padding:0 14px 0 6px; min-height:44px; font-size:13px; font-weight:600; white-space:nowrap;}
+  .schip .av{width:28px;height:28px;border-radius:50%;display:grid;place-items:center;color:#fff;font-size:12px;font-weight:700;}
+  .schip.active{border-color:var(--violet); box-shadow:0 0 0 2px rgba(127,115,255,.22);}
+  .schip.done{opacity:.4;}
+  .schip.conf{border-color:var(--amber);}
+  .bar-actions{display:flex; gap:8px; align-items:center; flex:none;}
+  .bar-actions .btn{min-height:44px;}
+  .expand{min-height:44px; min-width:44px; border-radius:8px; border:1px solid var(--line); background:var(--cream);
+    font-size:16px; line-height:1;}
+
+  /* Drawer */
+  .drawer{background:var(--paper); border-top:1px solid var(--line); max-height:0; overflow:hidden;
+    transition:max-height .28s ease;}
+  .drawer.open{max-height:46vh;}
+  .drawer-inner{overflow-y:auto; max-height:46vh; padding:20px 24px 28px;}
+  .d-head{display:flex; align-items:center; gap:12px; margin-bottom:14px; flex-wrap:wrap;}
+  .d-head h3{margin:0; font-size:17px;}
+  .d-head .meta{font-size:13px; color:var(--muted);}
+  .d-diff{border:1px solid var(--line); border-radius:10px; padding:16px 18px; background:var(--cream); font-size:15px; margin-bottom:14px;}
+  .d-diff .old{color:#7c2f1d; margin-bottom:8px;}
+  .d-diff .new{color:#0b5c3f;}
+  .d-row{display:flex; gap:10px; flex-wrap:wrap; align-items:center; margin-bottom:14px;}
+  .d-row .btn{min-height:44px;}
+  .conflict{border:1.5px solid var(--amber); border-radius:10px; padding:14px 16px; background:var(--cream); margin-bottom:14px;}
+  .conflict .cols{display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:10px 0;}
+  .conflict .col{border:1px solid var(--line); border-radius:7px; padding:9px 12px; font-size:13.5px; background:var(--paper);}
+  .digest{border-left:4px solid var(--violet); background:var(--cream); border-radius:0 10px 10px 0;
+    padding:12px 16px; font-size:13.5px; margin-bottom:14px; border-top:1px solid var(--line);
+    border-right:1px solid var(--line); border-bottom:1px solid var(--line);}
+  .trust{display:flex; align-items:center; gap:10px; font-size:13.5px; color:var(--muted); flex-wrap:wrap;}
+  select{min-height:44px; border:1px solid var(--line); border-radius:8px; background:var(--paper); padding:0 10px; font:inherit; font-size:13.5px;}
+  .pop{animation:acceptPop .5s ease;}
+  @keyframes acceptPop{0%{box-shadow:0 0 0 0 rgba(0,158,115,.55);}100%{box-shadow:0 0 0 14px rgba(0,158,115,0);}}
+  .allcaught{display:none; font-size:14px; color:var(--muted); align-items:center; gap:8px;}
+</style>
+</head>
+<body>
+
+<header class="appbar">
+  <div class="logo">N</div>
+  <div class="doc-title">Q3 Planning</div>
+  <div class="presence">
+    <span><span class="pdot" style="background:#7f73ff"></span>John</span>
+    <span><span class="pdot" style="background:#009E73"></span>Claude</span>
+    <span style="opacity:.55"><span class="pdot" style="background:#999"></span>Ollama · disconnected</span>
+  </div>
+</header>
+
+<main class="editor">
+  <div class="note">
+    <div class="welcome" id="welcome">
+      <div><strong>Claude just joined this note.</strong>
+      <span style="color:var(--muted)">It can read <b>/notes</b> and propose edits in <b>/drafts</b>. Every proposal arrives as a diff, nothing applies without your OK, and every accept is reversible for 30 days.</span></div>
+      <button class="btn quiet x" onclick="document.getElementById('welcome').style.display='none'" aria-label="Dismiss">✕</button>
+    </div>
+
+    <h1 class="pline"><span class="gutter"><span class="gbar" style="background:#D55E00"></span><span class="gdot" style="background:#D55E00">!</span></span>Q3 Planning <span style="color:var(--muted);font-size:18px;">(draft)</span></h1>
+
+    <p class="pline">
+      <span class="gutter"><span class="gbar" style="background:#009E73"></span><span class="gdot" style="background:#009E73">C</span></span>
+      <span class="cursor" style="left:96px; top:30px; height:20px; background:#009E73;"><span class="flag" style="background:#009E73">Claude</span></span>
+      <del class="diff">Noam is a notes app with sync.</del>
+      <ins class="diff">Launch is six weeks out. The build is stable, the site is live, and the only thing left is telling the story right.</ins>
+    </p>
+
+    <h2 class="pline"><span class="gutter"><span class="gbar" style="background:transparent"></span></span>Launch checklist</h2>
+    <div class="pline">
+      <span class="gutter"><span class="gbar" style="background:#009E73"></span><span class="gdot" style="background:#009E73">C</span></span>
+      <span class="cursor" style="left:60px; top:4px; height:20px; background:#7f73ff;"><span class="flag" style="background:#7f73ff">John</span></span>
+      <ul style="margin:0;">
+        <li>Ship the macOS build</li>
+        <li><ins class="diff">Publish the migration guide</ins></li>
+        <li>Announce on launch day</li>
+      </ul>
+    </div>
+
+    <p class="pline inline-note"><span class="gutter"><span class="gbar" style="background:transparent"></span></span>
+      Ollama disconnected mid-edit. Its cursor faded after 30s with no heartbeat and was removed at 90s.</p>
+  </div>
+</main>
+
+<div class="drawer" id="drawer">
+  <div class="drawer-inner" id="drawer-inner"></div>
+</div>
+
+<footer class="bottombar" aria-label="Suggestion review bar">
+  <div class="chips" id="chips" role="tablist" aria-label="Suggestions"></div>
+  <span class="allcaught" id="allcaught">Nothing to review. You are caught up.</span>
+  <div class="bar-actions">
+    <span class="inline-note"><span class="kbd">]</span><span class="kbd">[</span> <span class="kbd">A</span> <span class="kbd">R</span></span>
+    <button class="expand" id="expand-btn" onclick="toggleDrawer()" aria-label="Expand review details" aria-expanded="false">▲</button>
+    <button class="btn" onclick="decide(idx,'reject')">Reject</button>
+    <button class="btn accept" onclick="decide(idx,'accept')">Accept</button>
+  </div>
+</footer>
+
+<script>
+const S = [
+  {who:'Claude', color:'#009E73', initial:'C', kind:'suggestion', title:'Stronger intro',
+   body:'<div class="old">Noam is a notes app with sync.</div><div class="new">Launch is six weeks out. The build is stable, the site is live, and the only thing left is telling the story right.</div>'},
+  {who:'Claude', color:'#009E73', initial:'C', kind:'suggestion', title:'New checklist item',
+   body:'<div class="new">+ Publish the migration guide <span class="inline-note">(under Launch checklist)</span></div>'},
+  {who:'Codex', color:'#0072B2', initial:'X', kind:'conflict', title:'Title conflict',
+   body:'<div class="conflict" style="margin:0"><b>Codex proposed a title change, then you edited the title.</b><div class="cols"><div class="col"><b style="font-size:11.5px;color:var(--muted)">YOURS, JUST NOW</b>Q3 Planning (draft)</div><div class="col"><b style="font-size:11.5px;color:var(--muted)">CODEX, 4 MIN AGO</b>Q3 Launch Plan</div></div><div class="d-row" style="margin:0"><button class="btn" onclick="resolveConflict()">Keep mine</button><button class="btn" onclick="resolveConflict()">Keep theirs</button><button class="btn" onclick="resolveConflict()">Keep both</button></div></div>'},
+];
+let idx = 0, remaining = 3, drawerOpen = false;
+
+function renderChips(){
+  const w = document.getElementById('chips'); w.innerHTML='';
+  S.forEach((s,i)=>{
+    const b = document.createElement('button');
+    b.className = 'schip' + (i===idx && s.state!=='done' ? ' active' : '') + (s.state==='done' ? ' done' : '') + (s.kind==='conflict' ? ' conf' : '');
+    b.setAttribute('role','tab');
+    b.innerHTML = '<span class="av" style="background:'+s.color+'">'+s.initial+'</span>'+s.title+
+      (s.kind==='conflict' ? ' <span style="color:var(--amber)">●</span>' : '');
+    b.onclick = ()=>{ idx=i; renderChips(); renderDrawer(); };
+    w.appendChild(b);
+  });
+  const done = remaining===0;
+  document.getElementById('allcaught').style.display = done?'inline-flex':'none';
+  document.getElementById('chips').style.display = done?'none':'flex';
+}
+function renderDrawer(){
+  const s = S[idx], el = document.getElementById('drawer-inner');
+  if(s.state==='done'){
+    el.innerHTML = '<div class="d-head"><h3>'+s.title+'</h3><span class="meta">'+(s.state==='accepted'?'Accepted':'Rejected')+' · reversible for 30 days</span></div>';
+    return;
+  }
+  el.innerHTML =
+    '<div class="d-head"><span class="av" style="background:'+s.color+';width:30px;height:30px;border-radius:50%;display:grid;place-items:center;color:#fff;font-weight:700;">'+s.initial+'</span>'+
+    '<h3>'+s.title+'</h3><span class="meta">'+s.who+' · proposed diff · '+(idx+1)+' of '+S.length+'</span>'+
+    '<span style="flex:1"></span><span class="inline-note"><span class="kbd">]</span> next <span class="kbd">[</span> prev</span></div>'+
+    '<div class="d-diff">'+s.body+'</div>'+
+    '<div class="d-row"><button class="btn accept" onclick="decide('+idx+',\'accept\')">Accept <span class="kbd">A</span></button>'+
+    '<button class="btn" onclick="decide('+idx+',\'reject\')">Reject <span class="kbd">R</span></button>'+
+    '<button class="btn primary" onclick="batchAccept()">Accept all from Claude</button></div>'+
+    '<div class="trust"><b style="color:var(--charcoal)">Trust:</b> Claude asks per proposal. '+
+    '<select aria-label="Claude trust tier"><option>Always ask</option><option>Auto-accept in drafts</option><option>Auto-accept in this note</option></select></div>'+
+    '<div style="height:14px"></div>'+
+    '<div class="digest"><b>While you were away:</b> Claude drafted the launch checklist and proposed a new intro. Two suggestions are waiting, and one needs your call because you edited the title after Codex proposed a change. Nothing was applied without you.</div>';
+}
+function toggleDrawer(force){
+  drawerOpen = force!==undefined ? force : !drawerOpen;
+  document.getElementById('drawer').classList.toggle('open', drawerOpen);
+  document.getElementById('expand-btn').textContent = drawerOpen ? '▼' : '▲';
+  document.getElementById('expand-btn').setAttribute('aria-expanded', drawerOpen);
+}
+function decide(i, how){
+  const s=S[i]; if(!s||s.state==='done') return;
+  s.state = how==='accept'?'accepted':'rejected'; remaining--;
+  if(how==='accept'){ const d=document.getElementById('drawer'); d.classList.remove('pop'); void d.offsetWidth; d.classList.add('pop'); }
+  if(!drawerOpen) toggleDrawer(true);
+  let n=0; while(S[idx].state==='done' && n++<S.length) idx=(idx+1)%S.length;
+  renderChips(); renderDrawer();
+}
+function resolveConflict(){ decide(2,'accept'); }
+function batchAccept(){
+  S.forEach((s,i)=>{ if(s.state!=='done'&&s.kind==='suggestion'){ s.state='accepted'; remaining--; } });
+  renderChips(); renderDrawer();
+}
+document.addEventListener('keydown', e=>{
+  if(/INPUT|SELECT|TEXTAREA/.test(e.target.tagName)) return;
+  if(e.key===']'){ let n=0; do{idx=(idx+1)%S.length;n++;}while(S[idx].state==='done'&&n<S.length); renderChips(); renderDrawer(); }
+  else if(e.key==='['){ let n=0; do{idx=(idx-1+S.length)%S.length;n++;}while(S[idx].state==='done'&&n<S.length); renderChips(); renderDrawer(); }
+  else if(e.key==='a'||e.key==='A') decide(idx,'accept');
+  else if(e.key==='r'||e.key==='R') decide(idx,'reject');
+});
+renderChips(); renderDrawer(); toggleDrawer(true);
+</script>
+</body>
+</html>
