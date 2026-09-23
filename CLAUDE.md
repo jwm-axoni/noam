@@ -13,10 +13,11 @@ edit together in real time. Every OSS competitor does one or the other; the whol
 
 Three pieces; this repository holds the first two.
 
-- **Desktop app** (`app/apps/desktop`) — the product people install. Public release
-  automation and auto-update are disabled until the clean repository, new updater key,
-  and neutral release URL are ready. macOS releases use Developer ID signing and Apple
-  notarization. See `docs/RELEASE.md`.
+- **Desktop app** (`app/apps/desktop`) — the product people install. Releases are cut by
+  the manual-dispatch `Release` workflow into a draft GitHub Release; publishing it is what
+  installed apps auto-update from (per-user toggle + a managed IT policy can disable
+  checks). macOS releases use Developer ID signing and Apple notarization. See
+  `docs/RELEASE.md`.
 - **Backend server** (`app/apps/server`) — self-hostable Node + Postgres source. There is no
   managed instance operated by this project; every user deploys their own server to their own
   cloud environment and enters that server's URL in Settings. Self-host/deploy guide:
