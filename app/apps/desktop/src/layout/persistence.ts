@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { readSidebarWidth } from "../lib/prefs";
+import { presenceV1Enabled } from "../lib/presence/flag";
 import { panelRegistry } from "./panelRegistry";
 import {
   CENTER_NOTE_GROUP_ID,
@@ -103,6 +104,11 @@ function parsePanel(value: unknown): PanelInstance | null {
     typeof id !== "string" || !isPanelType(type) ||
     !Number.isInteger(stateVersion) || !panelRegistry[type].validateState(state)
   ) return null;
+  // The presenceV1 kill switch hides the People button, its shortcut and the
+  // auto-open, but a panel saved in the layout while the flag was on would
+  // otherwise come straight back on hydrate. Treat it like an unknown panel
+  // so the repair below drops its tab and fixes the active reference.
+  if (type === "presence" && !presenceV1Enabled()) return null;
   return { id, type, stateVersion: stateVersion as number, state };
 }
 
