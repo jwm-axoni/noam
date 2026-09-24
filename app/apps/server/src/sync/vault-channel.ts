@@ -1,4 +1,5 @@
 import { WebSocketServer, type WebSocket } from "ws";
+import { randomUUID } from "node:crypto";
 import type { IncomingMessage, Server as HttpServer } from "node:http";
 import type { Socket } from "node:net";
 import { config } from "../config.js";
@@ -6,6 +7,7 @@ import { type PubSub, vaultTopic } from "./pubsub.js";
 import { verifyVaultToken } from "../tokens/vault-token.js";
 import { listReadableDocsInVault } from "../permissions/vault-docs.js";
 import { listEmptyDocs, loadDocDiff } from "../yjs/persistence.js";
+import { resolvePresenceIdentity, type PresenceIdentity } from "../registry/participants.js";
 import {
   parseHello,
   parsePresence,
@@ -24,6 +26,7 @@ import {
   VOICE_RATE_BYTES_PER_SEC,
   type ServerControl,
   type PresenceFrame,
+  type PresenceState,
 } from "./vault-protocol.js";
 
 /**
@@ -62,6 +65,9 @@ export interface VaultChannelDeps {
   /** Which readable docs hold no server content — reported on `ready`. */
   listEmpty?: typeof listEmptyDocs;
   verifyToken?: typeof verifyVaultToken;
+  /** The caller's registry identity in this vault, stamped onto every presence
+   *  frame it publishes (default: the `participants` table). */
+  resolvePresenceIdentity?: typeof resolvePresenceIdentity;
   backfillConcurrency?: number;
   /** Per-connection outbound cap in bytes (default `config.vaultSendCapBytes`). */
   sendCapBytes?: number;
@@ -112,6 +118,7 @@ export class VaultChannel {
   private readonly loadDiff: typeof loadDocDiff;
   private readonly listEmpty: typeof listEmptyDocs;
   private readonly verifyToken: typeof verifyVaultToken;
+  private readonly resolveIdentity: typeof resolvePresenceIdentity;
   private readonly concurrency: number;
   private readonly sendCapBytes: number;
   private readonly sendStallMs: number;
@@ -135,6 +142,7 @@ export class VaultChannel {
     this.loadDiff = deps.loadDiff ?? loadDocDiff;
     this.listEmpty = deps.listEmpty ?? listEmptyDocs;
     this.verifyToken = deps.verifyToken ?? verifyVaultToken;
+    this.resolveIdentity = deps.resolvePresenceIdentity ?? resolvePresenceIdentity;
     this.concurrency = deps.backfillConcurrency ?? config.backfillConcurrency;
     this.sendCapBytes = deps.sendCapBytes ?? config.vaultSendCapBytes;
     this.sendStallMs = deps.sendStallMs ?? config.vaultSendStallMs;
@@ -286,6 +294,7 @@ export class VaultChannel {
       loadDiff: this.loadDiff,
       listEmpty: this.listEmpty,
       verifyToken: this.verifyToken,
+      resolveIdentity: this.resolveIdentity,
       concurrency: this.concurrency,
       sendCapBytes: this.sendCapBytes,
       sendStallMs: this.sendStallMs,
@@ -301,6 +310,7 @@ interface ConnDeps {
   loadDiff: typeof loadDocDiff;
   listEmpty: typeof listEmptyDocs;
   verifyToken: typeof verifyVaultToken;
+  resolveIdentity: typeof resolvePresenceIdentity;
   concurrency: number;
   sendCapBytes: number;
   sendStallMs: number;
@@ -309,6 +319,10 @@ interface ConnDeps {
 }
 
 class VaultConnection {
+  /** Stamped onto every presence frame this connection publishes (its `gone`
+   *  included), so a client roster can tell one of a user's devices from
+   *  another. Server-minted: a client must not be able to claim a peer's id. */
+  private readonly connId = randomUUID();
   private userId: string | null = null;
   private vaultId: string | null = null;
   /** This client's self-declared instance id (hello `origin`), used to skip
@@ -328,8 +342,15 @@ class VaultConnection {
   private readonly helloTimer: ReturnType<typeof setTimeout>;
   // This connection's last-announced presence (which note the user is viewing),
   // kept so we can re-broadcast it when a newcomer asks, and clear it on close.
+  // Name/color here are already the stamped (registry) values.
   private myPresence: { docId: string | null; name: string; color: string; status: string } | null =
     null;
+  /** This user's live participant row in the vault's org, looked up after auth
+   *  and again on every `acl-changed`. Null ⇒ no row (e.g. a deactivated
+   *  participant): this connection publishes no presence at all. */
+  private identity: PresenceIdentity | null = null;
+  /** One warning per connection for presence dropped for lack of a row. */
+  private warnedNoIdentity = false;
   /** A presence frame that arrived before auth finished; replayed right after
    *  the pub/sub subscribe so the announce (and the roster query it triggers)
    *  doesn't wait for the backfill. */
@@ -442,12 +463,20 @@ class VaultConnection {
     this.vaultId = claims.vaultId;
     if (this.closed) return; // closed while verifying — don't run the ACL query
 
+    // Registry identity for presence stamping, in parallel with the ACL query.
+    // A lookup failure degrades to "no row" rather than refusing the socket:
+    // presence is cosmetic, sync is not.
+    const identity = this.deps.resolveIdentity(this.userId, this.vaultId).catch((err) => {
+      console.error("Vault channel presence identity lookup failed:", err);
+      return null;
+    });
     try {
       this.readable = await this.deps.listReadableDocs(this.userId, this.vaultId);
     } catch (err) {
       console.error("Vault channel ACL resolve failed:", err);
       return this.fail("acl resolve failed");
     }
+    this.identity = await identity;
 
     // Subscribe BEFORE backfill so no live update is missed during the drain;
     // Yjs updates are idempotent/commutative, so overlap with the snapshot is
@@ -572,9 +601,13 @@ class VaultConnection {
   }
 
   /** A client announced which note it's now viewing. Stamp the authenticated
-   *  userId (never trust the client's), fan it out to the vault, and — on the
-   *  first announce — ask everyone else to re-announce so this newcomer learns
-   *  the current roster (the channel holds no shared presence state). */
+   *  userId (never trust the client's) and the registry row's participantId,
+   *  name and color — the client's name/color strings are always discarded
+   *  (audit F5). A user with no live row publishes nothing: deactivated
+   *  participants leave presence (spec §4 item 5). Fan it out to the vault,
+   *  and — on the first announce — ask everyone else to re-announce so this
+   *  newcomer learns the current roster (the channel holds no shared presence
+   *  state). */
   private handlePresence(frame: PresenceFrame): void {
     if (!this.userId || !this.vaultId) {
       // Clients announce right behind `hello` so teammates' sidebars light up
@@ -585,20 +618,42 @@ class VaultConnection {
       this.pendingPresence = frame;
       return;
     }
+    if (!this.identity) {
+      if (!this.warnedNoIdentity) {
+        this.warnedNoIdentity = true;
+        console.warn(
+          `[vault-channel] dropping presence: no live participant row (user=${this.userId} vault=${this.vaultId})`,
+        );
+      }
+      return;
+    }
     this.myPresence = {
       docId: frame.docId,
-      name: frame.name,
-      color: frame.color,
+      name: this.identity.name,
+      color: this.identity.color,
       status: frame.status,
     };
-    void this.pubsub.publish(
-      vaultTopic(this.vaultId),
-      encodePubsubPresence({ userId: this.userId, ...this.myPresence }),
-    );
+    void this.pubsub.publish(vaultTopic(this.vaultId), encodePubsubPresence(this.presenceState()));
     if (!this.announced) {
       this.announced = true;
       void this.pubsub.publish(vaultTopic(this.vaultId), encodePubsubPresenceQuery());
     }
+  }
+
+  /** This connection's stamped presence, as published to the vault. Callers
+   *  guarantee `userId` and `identity` are set (only announced connections,
+   *  which always have a row, publish). */
+  private presenceState(): PresenceState {
+    const { docId = null, name = "", color = "", status = "" } = this.myPresence ?? {};
+    return {
+      userId: this.userId!,
+      participantId: this.identity!.participantId,
+      connId: this.connId,
+      docId,
+      name,
+      color,
+      status,
+    };
   }
 
   /**
@@ -820,15 +875,56 @@ class VaultConnection {
     if (msg.type === "presence-query") {
       // A newcomer joined — re-announce our current presence so they see us.
       if (this.myPresence && this.userId && this.vaultId) {
-        void this.pubsub.publish(
-          vaultTopic(this.vaultId),
-          encodePubsubPresence({ userId: this.userId, ...this.myPresence }),
-        );
+        void this.pubsub.publish(vaultTopic(this.vaultId), encodePubsubPresence(this.presenceState()));
       }
       return;
     }
     // acl-changed: re-evaluate; drop revoked docs, backfill newly-granted ones.
     void this.refreshAcl();
+    // …and the registry identity: a participant PATCH (deactivate/rename) and a
+    // member removal both announce through this same message.
+    void this.refreshIdentity();
+  }
+
+  /**
+   * Re-resolve this user's registry row after an `acl-changed`. Deactivated
+   * (row gone) ⇒ tell the vault they left and stop publishing; renamed or
+   * recolored ⇒ re-publish the stamped presence. A row that APPEARS is not
+   * announced here: the client's next presence frame (its heartbeat) does it.
+   */
+  private async refreshIdentity(): Promise<void> {
+    if (!this.userId || !this.vaultId) return;
+    let next: PresenceIdentity | null;
+    try {
+      next = await this.deps.resolveIdentity(this.userId, this.vaultId);
+    } catch (err) {
+      console.error("Vault channel presence identity refresh failed:", err);
+      return;
+    }
+    if (this.closed) return;
+    const prev = this.identity;
+    if (!next) {
+      if (prev && this.announced && this.myPresence) {
+        void this.pubsub.publish(
+          vaultTopic(this.vaultId),
+          encodePubsubPresence({ ...this.presenceState(), docId: null, gone: true }),
+        );
+      }
+      this.identity = null;
+      this.myPresence = null;
+      this.announced = false;
+      return;
+    }
+    this.identity = next;
+    if (
+      prev &&
+      this.announced &&
+      this.myPresence &&
+      (prev.participantId !== next.participantId || prev.name !== next.name || prev.color !== next.color)
+    ) {
+      this.myPresence = { ...this.myPresence, name: next.name, color: next.color };
+      void this.pubsub.publish(vaultTopic(this.vaultId), encodePubsubPresence(this.presenceState()));
+    }
   }
 
   private async refreshAcl(
@@ -1111,13 +1207,17 @@ class VaultConnection {
     this.pendingResync.clear();
     this.resyncing.clear();
     this.deps.onGone(this);
-    // Tell the vault this user is gone so teammates clear their presence dot.
+    // Tell the vault THIS CONNECTION is gone. The frame carries our `connId`,
+    // and teammates' rosters count connections per user, so a second device of
+    // the same user keeps their dot lit (this used to hide it until that
+    // device's next 10 s heartbeat). Per-connection rather than a per-process
+    // "last socket of this user" count because, behind Redis, the user's other
+    // device may be on another instance that this one cannot see.
     // Guard on `announced` so we only emit for connections that ever appeared.
     if (this.announced && this.userId && this.vaultId) {
-      const { name = "", color = "", status = "" } = this.myPresence ?? {};
       void this.pubsub.publish(
         vaultTopic(this.vaultId),
-        encodePubsubPresence({ userId: this.userId, docId: null, name, color, status }),
+        encodePubsubPresence({ ...this.presenceState(), docId: null, gone: true }),
       );
       this.announced = false;
     }

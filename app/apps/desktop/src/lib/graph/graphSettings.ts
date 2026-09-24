@@ -60,7 +60,7 @@ export interface GraphSettings {
 export const DEFAULT_SETTINGS: GraphSettings = {
   scope: "global",
   localDepth: 1,
-  charge: -10.8,
+  charge: -24,
   linkDistance: 337,
   linkStrength: 0.44,
   gravity: 0.21,
@@ -85,11 +85,9 @@ export const SETTING_RANGES = {
   minDegree: { min: 0, max: 20, step: 1 },
 } as const;
 
-// Bumped to v5 so the new physics/appearance defaults take effect over any saved
-// values — a persisted v4 blob would otherwise pin every existing install to the
-// old look, which is precisely what re-tuning the defaults is meant to fix.
-export const SETTINGS_STORAGE_KEY = "context.graph.settings.v6";
-const LEGACY_SETTINGS_STORAGE_KEYS = ["context.graph.settings.v5", "context.graph.settings.v4"];
+// v7 migrates only the old default repulsion; custom tuning and filters survive.
+export const SETTINGS_STORAGE_KEY = "context.graph.settings.v7";
+const LEGACY_SETTINGS_STORAGE_KEYS = ["context.graph.settings.v6", "context.graph.settings.v5", "context.graph.settings.v4"];
 const PRIMARY_GRAPH_INSTANCE_ID = "panel:graph";
 
 function validColorMode(value: unknown): value is ColorMode {
@@ -105,6 +103,11 @@ export function loadSettings(instanceId?: string): GraphSettings {
   try {
     const key = instanceId ? `${SETTINGS_STORAGE_KEY}:${instanceId}` : SETTINGS_STORAGE_KEY;
     let raw = localStorage.getItem(key);
+    let migrated = false;
+    if (!raw && instanceId) {
+      raw = localStorage.getItem(`context.graph.settings.v6:${instanceId}`);
+      migrated = raw != null;
+    }
     // The pre-Phase-3 graph was a singleton. Migrate that preference blob only
     // into the primary instance; a deliberately-created second graph is new and
     // therefore starts with the new type-color/orphan-visible defaults.
@@ -114,18 +117,21 @@ export function loadSettings(instanceId?: string): GraphSettings {
         : [SETTINGS_STORAGE_KEY, ...LEGACY_SETTINGS_STORAGE_KEYS];
       for (const legacyKey of migrationKeys) {
         raw = localStorage.getItem(legacyKey);
-        if (raw) break;
+        if (raw) { migrated = legacyKey !== SETTINGS_STORAGE_KEY; break; }
       }
     }
     if (!raw) return { ...DEFAULT_SETTINGS };
     const parsed = JSON.parse(raw) as Partial<GraphSettings>;
-    return {
+    if (migrated && parsed.charge === -10.8) parsed.charge = DEFAULT_SETTINGS.charge;
+    const settings: GraphSettings = {
       ...DEFAULT_SETTINGS,
       ...parsed,
       colorMode: validColorMode(parsed.colorMode) ? parsed.colorMode : DEFAULT_SETTINGS.colorMode,
       scope: validScope(parsed.scope) ? parsed.scope : DEFAULT_SETTINGS.scope,
       localDepth: parsed.localDepth === 2 ? 2 : 1,
     };
+    if (migrated) saveSettings(settings, instanceId);
+    return settings;
   } catch {
     return { ...DEFAULT_SETTINGS };
   }

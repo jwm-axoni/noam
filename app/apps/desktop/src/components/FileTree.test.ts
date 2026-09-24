@@ -35,6 +35,8 @@ const mocks = vi.hoisted(() => ({
   setItemColor: vi.fn(),
   mutateBackgroundText: vi.fn(),
   toggle: vi.fn(),
+  openParents: vi.fn(),
+  scrollTo: vi.fn(async () => {}),
 }));
 
 vi.mock("../store", () => ({
@@ -81,7 +83,9 @@ vi.mock("@tauri-apps/api/webview", () => ({
 vi.mock("react-arborist", async () => {
   const { createElement, useImperativeHandle, useState } = await import("react");
   return {
-    Tree: ({ data, children: Row, ref, onRename }: {
+    Tree: ({ data, children: Row, ref, onRename, width, height }: {
+      width: number;
+      height: number;
       data: TreeNode[];
       children: ComponentType<NodeRendererProps<TreeNode>>;
       ref: import("react").Ref<unknown>;
@@ -90,7 +94,7 @@ vi.mock("react-arborist", async () => {
       const [editing, setEditing] = useState<string | null>(null);
       mocks.renameInline.mockImplementation(onRename);
       mocks.edit.mockImplementation((path: string) => setEditing(path));
-      useImperativeHandle(ref, () => ({ edit: mocks.edit }));
+      useImperativeHandle(ref, () => ({ edit: mocks.edit, openParents: mocks.openParents, scrollTo: mocks.scrollTo, idToIndex: { "A.md": 0 }, visibleStartIndex: 0, visibleStopIndex: 1 }));
       const render = (nodes: TreeNode[], depth = 0): ReturnType<typeof createElement>[] =>
         nodes.flatMap((data) => [
           createElement(Row, {
@@ -109,7 +113,7 @@ vi.mock("react-arborist", async () => {
           }),
           ...render(data.children ?? [], depth + 1),
         ]);
-      return createElement("div", {}, render(data));
+      return createElement("div", { "data-tree-height": height, "data-tree-width": width }, render(data));
     },
   };
 });
@@ -131,10 +135,17 @@ function deferred<T>() {
 describe("FileTree refused move callbacks", () => {
   let container: HTMLDivElement;
   let root: Root;
+  let resize: (width: number, height: number) => void;
 
   beforeEach(() => {
     vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
     vi.stubGlobal("ResizeObserver", class {
+      constructor(callback: ResizeObserverCallback) {
+        resize = (width, height) => callback(
+          [{ contentRect: { width, height } } as ResizeObserverEntry],
+          this as unknown as ResizeObserver,
+        );
+      }
       observe() {}
       disconnect() {}
     });
@@ -163,6 +174,52 @@ describe("FileTree refused move callbacks", () => {
     container = document.createElement("div");
     document.body.append(container);
     root = createRoot(container);
+  });
+
+  it("defers explicit reveals while hidden and does not replay them on later tab switches", async () => {
+    const frames: FrameRequestCallback[] = [];
+    vi.stubGlobal("requestAnimationFrame", (callback: FrameRequestCallback) => { frames.push(callback); return frames.length; });
+    const flushFrames = async () => {
+      for (let i = 0; i < 5; i++) await act(async () => { frames.splice(0).forEach(callback => callback(0)); });
+    };
+    mocks.state.tree = node("", [node("A.md")]);
+    mocks.state.revealRequest = { path: "A.md", token: 1, edit: false };
+    await act(async () => root.render(createElement(FileTree, { visible: false })));
+    await flushFrames();
+    expect(mocks.openParents).not.toHaveBeenCalled();
+    expect(mocks.scrollTo).not.toHaveBeenCalled();
+    await act(async () => root.render(createElement(FileTree, { visible: true })));
+    await flushFrames();
+    expect(mocks.scrollTo).toHaveBeenCalledExactlyOnceWith("A.md", "smart");
+    await act(async () => root.render(createElement(FileTree, { visible: false })));
+    await act(async () => root.render(createElement(FileTree, { visible: true })));
+    await flushFrames();
+    expect(mocks.scrollTo).toHaveBeenCalledTimes(1);
+  });
+
+  it("keeps the file list sized while its dock tab is hidden and restores the new size", async () => {
+    mocks.state.tree = node("", [node("A.md"), node("B.md")]);
+    await act(async () => root.render(createElement(FileTree)));
+    await act(async () => resize(320, 900));
+    const list = container.querySelector<HTMLElement>("[data-tree-height]")!;
+    expect(Number(list.dataset.treeHeight)).toBe(866);
+    // Switching to Workflows hides Files with display:none. ResizeObserver
+    // reports zero for the mounted Files panel until the user switches back.
+    await act(async () => resize(0, 0));
+    expect(Number(list.dataset.treeHeight)).toBe(866);
+    expect(Number(list.dataset.treeWidth)).toBe(320);
+    await act(async () => resize(280, 700));
+    expect(Number(list.dataset.treeHeight)).toBe(666);
+    expect(Number(list.dataset.treeWidth)).toBe(280);
+    expect(container.querySelector("[data-tree-height]")).toBe(list);
+    expect(container.querySelectorAll("[data-tree-path]")).toHaveLength(2);
+  });
+
+  it("never gives the virtualized list a negative height in a short dock", async () => {
+    mocks.state.tree = node("", [node("A.md")]);
+    await act(async () => root.render(createElement(FileTree)));
+    await act(async () => resize(280, 20));
+    expect(Number(container.querySelector<HTMLElement>("[data-tree-height]")!.dataset.treeHeight)).toBeGreaterThanOrEqual(0);
   });
 
   /** Let React, a lazy chunk and a promise chain settle, bounded. */

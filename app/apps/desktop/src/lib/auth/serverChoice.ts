@@ -147,6 +147,12 @@ export function decideAuthStep({
   defaultServerUrl?: string;
 }): AuthStep {
   if (pendingServerLink) return "confirm-link";
+  // No usable server means nothing to post to, whatever was answered before.
+  // The real case: a device that picked the old "managed" option on 0.1.59 —
+  // which persisted the choice but not the URL, because the URL already equalled
+  // that build's default — upgrades into a build whose default is empty. Routing
+  // it to the form put every request through `new URL("/api/…")`.
+  if (!normalizeServerUrl(serverUrl)) return "choose-server";
   if (choice) return "form";
   // Never asked. Only a device still sitting on the build's default has an
   // unanswered question; anything else answered it by pointing elsewhere.

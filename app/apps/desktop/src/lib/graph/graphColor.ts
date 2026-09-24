@@ -14,45 +14,68 @@ export interface ColorResult {
   legend: LegendEntry[];
 }
 
+export type GraphSurface = "light" | "dark";
+
 /**
- * Categorical palette for folder coloring: **Observable 10** (d3's `schemeObservable10`,
- * the modern successor to Tableau 10), hue order preserved, with two changes for
- * the near-black void this is the only palette ever drawn on:
- *   - every hue is lifted toward its brighter, more saturated form, because a
- *     palette designed for white paper loses most of its separation once the
- *     surround goes black — the darker members converge toward the background
- *     instead of toward each other;
- *   - Observable 10's brown (#9c6b4e) and grey (#9498a0) are replaced by cyan
- *     and lime. Both read as "unlit" rather than as a category on a dark field;
- *     a folder should never look switched off.
- * Ten hues is also about the ceiling for a categorical scale before neighbours
- * stop being tellable apart, so the tail is two spares rather than an ambition
- * to color thirty folders distinctly.
+ * Categorical palettes, one per surface: Catppuccin Mocha pastels on dark,
+ * their Catppuccin Latte counterparts on light (same hue at the same index, so
+ * a folder or custom type keeps its identity across a theme flip). Muted on
+ * purpose, matching Obsidian's graph: saturated hues made the field shout.
+ * Ordered to alternate warm and cool so neighbouring folders stay apart. The
+ * grey Overlay tone is reserved for "unknown type" and never cycles here, so a
+ * real category never looks switched off.
  */
-export const PALETTE: string[] = [
-  "#5b8ff9", // blue
-  "#f6c445", // amber
-  "#ff8360", // coral
-  "#4fd6b8", // teal
-  "#4ad66d", // green
-  "#ff8ab7", // pink
-  "#b47cff", // violet
-  "#9fd0ff", // sky
-  "#22d3ee", // cyan     (Observable's brown — too dark on black)
-  "#c3e64b", // lime     (Observable's grey — reads as disabled)
-  "#ff5c8a", // rose
-  "#7d90bd", // steel
-];
+export const PALETTES: Record<GraphSurface, readonly string[]> = {
+  dark: [
+    "#89b4fa", // blue
+    "#fab387", // peach
+    "#a6e3a1", // green
+    "#cba6f7", // mauve
+    "#f9e2af", // yellow
+    "#94e2d5", // teal
+    "#f5c2e7", // pink
+    "#b4befe", // lavender
+    "#eba0ac", // maroon
+    "#74c7ec", // sapphire
+    "#f2cdcd", // flamingo
+  ],
+  light: [
+    "#1e66f5", // blue
+    "#fe640b", // peach
+    "#40a02b", // green
+    "#8839ef", // mauve
+    "#df8e1d", // yellow
+    "#179299", // teal
+    "#ea76cb", // pink
+    "#7287fd", // lavender
+    "#e64553", // maroon
+    "#209fb5", // sapphire
+    "#dd7878", // flamingo
+  ],
+};
 
 export const TYPE_COLORS = {
-  meeting: "#f6c445",
-  person: "#ff8ab7",
-  project: "#b47cff",
-  organization: "#4fd6b8",
-  resource: "#5b8ff9",
-  system: "#7d90bd",
-  unknown: "#a1a6b3",
-} as const;
+  dark: {
+    meeting: "#f9e2af", // yellow
+    person: "#f5c2e7", // pink
+    project: "#cba6f7", // mauve
+    organization: "#94e2d5", // teal
+    resource: "#89b4fa", // blue
+    system: "#a6e3a1", // green
+    unknown: "#9399b2", // overlay
+  },
+  light: {
+    meeting: "#df8e1d",
+    person: "#ea76cb",
+    project: "#8839ef",
+    organization: "#179299",
+    resource: "#1e66f5",
+    system: "#40a02b",
+    unknown: "#7c7f93",
+  },
+} as const satisfies Record<GraphSurface, Record<string, string>>;
+
+type BuiltInType = keyof (typeof TYPE_COLORS)["dark"];
 
 function hashType(value: string): number {
   let hash = 2166136261;
@@ -63,15 +86,17 @@ function hashType(value: string): number {
   return hash >>> 0;
 }
 
-function assignByType(nodes: GraphNode[]): ColorResult {
+function assignByType(nodes: GraphNode[], surface: GraphSurface): ColorResult {
+  const palette = PALETTES[surface];
+  const types = TYPE_COLORS[surface];
   const counts = new Map<string, number>();
   const colors = new Map<string, string>();
   const colorById = new Map<string, string>();
   for (const node of nodes) {
     const value = node.type?.trim().toLowerCase() || "unknown";
-    const color = value in TYPE_COLORS
-      ? TYPE_COLORS[value as keyof typeof TYPE_COLORS]
-      : PALETTE[hashType(value) % PALETTE.length]!;
+    const color = value in types
+      ? types[value as BuiltInType]
+      : palette[hashType(value) % palette.length]!;
     colors.set(value, color);
     counts.set(value, (counts.get(value) ?? 0) + 1);
     colorById.set(node.id, color);
@@ -136,11 +161,12 @@ function topFolder(path: string): string {
   return path.includes("/") ? path.split("/")[0] : "Root";
 }
 
-function assignByFolder(nodes: GraphNode[]): ColorResult {
-  // Stable colors: sort distinct folders alphabetically, then index into PALETTE.
+function assignByFolder(nodes: GraphNode[], surface: GraphSurface): ColorResult {
+  // Stable colors: sort distinct folders alphabetically, then index into the palette.
+  const palette = PALETTES[surface];
   const folders = Array.from(new Set(nodes.map((n) => topFolder(n.path)))).sort();
   const folderColor = new Map<string, string>();
-  folders.forEach((f, i) => folderColor.set(f, PALETTE[i % PALETTE.length]));
+  folders.forEach((f, i) => folderColor.set(f, palette[i % palette.length]));
 
   const colorById = new Map<string, string>();
   const counts = new Map<string, number>();
@@ -156,8 +182,6 @@ function assignByFolder(nodes: GraphNode[]): ColorResult {
 
   return { colorById, legend };
 }
-
-export type GraphSurface = "light" | "dark";
 
 /**
  * Build a four-step sequential ramp from the active accent. The first step is
@@ -240,9 +264,9 @@ export function assignColors(
 ): ColorResult {
   switch (mode) {
     case "type":
-      return assignByType(nodes);
+      return assignByType(nodes, surface);
     case "folder":
-      return assignByFolder(nodes);
+      return assignByFolder(nodes, surface);
     case "degree":
       return assignByDegree(nodes, accent, surface);
     case "uniform":

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assignColors, degreeRamp, PALETTE, TYPE_COLORS } from "./graphColor";
+import { assignColors, degreeRamp, PALETTES, TYPE_COLORS } from "./graphColor";
 import type { GraphNode } from "./buildGraph";
 
 // The degree ramp's job is to make link-degree *visible*. It was doing the
@@ -11,13 +11,34 @@ const node = (id: string, linkCount: number, path = `${id}.md`): GraphNode =>
   ({ id, title: id, path, type: null, linkCount }) as GraphNode;
 
 describe("assignColors — type", () => {
-  it("pins every built-in type to its stable token color", () => {
-    const entries = Object.entries(TYPE_COLORS).filter(([type]) => type !== "unknown");
-    const nodes = entries.map(([type], index) => ({ ...node(String(index), 0), type }));
-    const { colorById } = assignColors(nodes, "type", "#7f73ff");
-    for (let index = 0; index < entries.length; index += 1) {
-      expect(colorById.get(String(index))).toBe(entries[index]![1]);
+  it("pins every built-in type to its stable token color on each surface", () => {
+    for (const surface of ["dark", "light"] as const) {
+      const entries = Object.entries(TYPE_COLORS[surface]).filter(([type]) => type !== "unknown");
+      const nodes = entries.map(([type], index) => ({ ...node(String(index), 0), type }));
+      const { colorById } = assignColors(nodes, "type", "#7f73ff", surface);
+      for (let index = 0; index < entries.length; index += 1) {
+        expect(colorById.get(String(index))).toBe(entries[index]![1]);
+      }
     }
+  });
+
+  it("uses the Catppuccin Mocha tones on dark and Latte on light", () => {
+    const meeting = [{ ...node("m", 0), type: "meeting" }];
+    expect(assignColors(meeting, "type", "#fff", "dark").colorById.get("m")).toBe("#f9e2af");
+    expect(assignColors(meeting, "type", "#fff", "light").colorById.get("m")).toBe("#df8e1d");
+    const missing = [node("x", 0)];
+    expect(assignColors(missing, "type", "#fff", "dark").colorById.get("x")).toBe("#9399b2");
+    expect(assignColors(missing, "type", "#fff", "light").colorById.get("x")).toBe("#7c7f93");
+  });
+
+  it("keeps the two palettes index-aligned so a hue survives a theme flip", () => {
+    expect(PALETTES.dark).toHaveLength(PALETTES.light.length);
+    expect(new Set(PALETTES.dark).size).toBe(PALETTES.dark.length);
+    expect(new Set(PALETTES.light).size).toBe(PALETTES.light.length);
+    const custom = [{ ...node("c", 0), type: "field-note" }];
+    const dark = assignColors(custom, "type", "#fff", "dark").colorById.get("c")!;
+    const light = assignColors(custom, "type", "#fff", "light").colorById.get("c")!;
+    expect(PALETTES.dark.indexOf(dark)).toBe(PALETTES.light.indexOf(light));
   });
 
   it("uses stable token colors and a neutral unknown category", () => {
@@ -126,7 +147,9 @@ describe("assignColors — folder", () => {
     expect(colorById.get("a")).toBe(colorById.get("b"));
     expect(colorById.get("a")).not.toBe(colorById.get("c"));
     expect(legend.map((l) => l.label).sort()).toEqual(["Personal", "Root", "Work"]);
-    for (const l of legend) expect(PALETTE).toContain(l.color);
+    for (const l of legend) expect(PALETTES.dark).toContain(l.color);
+    const light = assignColors(nodes, "folder", "#7f73ff", "light");
+    for (const l of light.legend) expect(PALETTES.light).toContain(l.color);
   });
 });
 
@@ -155,11 +178,19 @@ describe("palette contrast on the void", () => {
   };
 
   it("keeps every categorical hue at 3:1 or better", () => {
-    for (const c of PALETTE) {
+    for (const c of [...PALETTES.dark, ...Object.values(TYPE_COLORS.dark)]) {
       expect(
         contrast(c, BACKDROP),
         `${c} is too dim to read as a category`,
       ).toBeGreaterThanOrEqual(3);
+    }
+  });
+
+  it("keeps every light-surface hue distinguishable from white", () => {
+    // Latte's yellow is the weakest of these; a node is a filled disc, not
+    // text, so 2:1 (not WCAG's 3:1 for text-sized UI) is the bar here.
+    for (const c of [...PALETTES.light, ...Object.values(TYPE_COLORS.light)]) {
+      expect(contrast(c, "#ffffff"), `${c} washes out on light`).toBeGreaterThanOrEqual(2);
     }
   });
 

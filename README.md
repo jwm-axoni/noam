@@ -86,7 +86,7 @@ On the server, Hocuspocus authenticates each document connection. Postgres store
 - Create MCP tokens for remote agents; local agents can work directly on disk.
 - Run the sync stack yourself with Docker and Postgres.
 
-Noam is in active development. Signed, Apple-notarized macOS builds are published on the [Releases](../../releases) page (Apple Silicon; auto-update is not enabled yet). The live checklist in [`docs/STATUS.md`](docs/STATUS.md) separates implemented behavior from planned work.
+Noam is in active development. Signed, Apple-notarized macOS builds are published on the [Releases](../../releases) page (Apple Silicon). Builds from version 0.1.60 check for newer releases and offer Install & Restart. The live checklist in [`docs/STATUS.md`](docs/STATUS.md) separates implemented behavior from planned work.
 
 ## Capabilities
 
@@ -106,10 +106,10 @@ Beyond the core editor and sync, Noam adds a layer of automation and structured 
 
 Noam is local-first in the strict sense. Notes are plain files on your disk, and the app does its work (editing, search, indexing, the graph, tasks, and local AI access) entirely on your machine.
 
-![Noam trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI and works offline; the only line crossing the boundary is an opt-in sync of binary CRDT updates over TLS to a server you choose](docs/assets/noam-trust-boundary.png)
+![Noam trust-boundary diagram: your device holds the files, editor, search index, graph, tasks, and local AI; note sync is opt-in](docs/assets/noam-trust-boundary.png)
 
-- **Nothing leaves your device until you sign in.** A fresh install has no account and opens no background connection. Editing, search, tasks, and everything above happen offline. Note data moves only after you create an account and turn on sync.
-- **No telemetry, analytics, or crash reporting.** The app carries no tracking or phone-home code of any kind. The only network destination it can ever use is the sync server you choose.
+- **Your notes stay on your device until you enable sync.** Editing, search, tasks, and everything above work offline. A released app checks GitHub for updates at launch and while open unless you turn automatic checks off in Settings; this request carries no note content.
+- **No telemetry, analytics, or crash reporting.** Noam does not send usage data. Its update check contacts GitHub, and note sync contacts the server you choose only when enabled.
 - **You run your own server.** Noam is free and self-hosted only: there is no managed instance to opt into. Settings → Connection points at the server you deploy, and the whole stack (Node and Postgres) self-hosts with the included Docker setup, free and unlimited.
 - **Your Markdown never travels as files.** When you do sync, only opaque binary CRDT updates cross the wire over TLS, and each device re-derives its own `.md` files and index. Sync is not yet end-to-end encrypted, so a server you trust can reconstruct content; at-rest encryption is planned, and self-hosting closes the gap today.
 - **AI access is opt-in and governed.** A local agent reaches only the notes you point it at on disk. A remote agent needs an MCP token you mint, scoped to one vault and constrained by the same per-file permissions as people. Reads return a revision, so a stale write fails instead of overwriting newer work.
@@ -120,10 +120,10 @@ Noam is local-first in the strict sense. Notes are plain files on your disk, and
 
 ### macOS (recommended)
 
-**[Download Noam 0.1.59 for macOS (.dmg)](https://github.com/jwm-axoni/noam/releases/download/v0.1.59/Noam_0.1.59_aarch64.dmg)**. Open it and drag **Noam** to **Applications**. (Or grab any version from [Releases](https://github.com/jwm-axoni/noam/releases).) Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
+**[Download the latest Noam for macOS (.dmg)](https://github.com/jwm-axoni/noam/releases/latest/download/Noam_aarch64.dmg)**. Open it and drag **Noam** to **Applications**. (Or grab any version from [Releases](https://github.com/jwm-axoni/noam/releases).) Builds are Developer ID-signed and notarized by Apple, so the app opens normally.
 
 - **Apple Silicon only.** Intel Macs are not supported yet.
-- Auto-update is not enabled yet, so check the Releases page for new versions.
+- Version 0.1.60 and later check for updates and show an **Install & Restart** prompt. Version 0.1.59 needs a one-time manual download of the new app.
 
 ## Build from source
 

@@ -6,7 +6,9 @@ import { keymap, EditorView } from "@codemirror/view";
 import { WORKSPACE_RESIZE_EVENT } from "../layout/types";
 import { Compartment, EditorState } from "@codemirror/state";
 import { yCollab, yUndoManagerKeymap } from "y-codemirror.next";
-import { remoteCursors } from "../lib/editor/remoteCursors";
+import { remoteCursors, type RemoteUserFields } from "../lib/editor/remoteCursors";
+import { directoryFor } from "../lib/presence/participants";
+import { presenceV1Enabled } from "../lib/presence/flag";
 import type { Awareness } from "y-protocols/awareness";
 import {
   createEditorState,
@@ -64,9 +66,29 @@ interface Peer {
 }
 
 interface AwarenessPeerState {
-  user?: { id?: string; name?: string; color?: string; status?: ActivityStatus };
+  user?: {
+    id?: string;
+    participantId?: string;
+    name?: string;
+    color?: string;
+    status?: ActivityStatus;
+  };
   activity?: { line?: number; at?: number };
   ping?: { to?: string; name?: string; at?: number };
+}
+
+/**
+ * Registry-signed display for a peer's awareness `user`: when its participantId
+ * is in our local registry, the registry's name/color win over whatever the
+ * peer asserted; unknown ids keep the asserted values.
+ */
+function resolveRemoteUser(
+  user: RemoteUserFields,
+  fallbackColor = "#30bced",
+): { name: string; color: string } {
+  const asserted = { name: user.name || "Someone", color: user.color ?? fallbackColor };
+  if (!presenceV1Enabled()) return asserted;
+  return directoryFor(useStore.getState().participants).resolve(user.participantId, asserted);
 }
 
 /** Derive the unique peers currently present in a doc from awareness states. */
@@ -80,10 +102,11 @@ function readPeers(awareness: Awareness): Peer[] {
     const line = typeof s.activity?.line === "number" ? s.activity.line : null;
     const at = typeof s.activity?.at === "number" ? s.activity.at : null;
     if (!prev) {
+      const shown = resolveRemoteUser(u, colorForUser(u.id));
       seen.set(u.id, {
         id: u.id,
-        name: u.name ?? "Someone",
-        color: u.color ?? colorForUser(u.id),
+        name: shown.name,
+        color: shown.color,
         status: u.status,
         line,
         lastActive: at,
@@ -382,6 +405,7 @@ export function Editor() {
   const lineNumbers = useStore((s) => s.lineNumbers);
   const previousReadOnlyRef = useRef(readOnly);
   const editorMeasure = useStore((s) => s.editorMeasure);
+  const editorFontSize = useStore((s) => s.editorFontSize);
   const previewHostRef = useRef<HTMLDivElement | null>(null);
   const [rosterOpen, setRosterOpen] = useState(false);
   // Wraps the presence stack + its roster popover so an outside click can be
@@ -653,7 +677,7 @@ export function Editor() {
           yCollab(bridge.text, awareness, { undoManager: bridge.undoManager }),
           // Our own animated carets + always-on name flags, over yCollab's
           // selection highlight (its inline caret is hidden in editor.css).
-          remoteCursors(bridge.text, awareness),
+          remoteCursors(bridge.text, awareness, resolveRemoteUser),
           keymap.of(readOnlyGuardedKeymap(yUndoManagerKeymap)),
           // Publish "editing line N" so peers can see where everyone is.
           EditorView.updateListener.of((u) => {
@@ -930,7 +954,7 @@ export function Editor() {
       : null;
 
   return (
-    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
       <div className="editor-topbar">
           {readOnly && (
             <div
@@ -965,10 +989,10 @@ export function Editor() {
               <button
                 type="button"
                 className="editor-action-secondary"
-                aria-label={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
+                aria-label={editorMeasure === "full" ? "Use normal note width" : "Use wide note width"}
                 aria-pressed={editorMeasure === "full"}
-                title={editorMeasure === "full" ? "Use normal note width" : "Use full note width"}
-                onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+                title={editorMeasure === "full" ? "Use normal note width" : "Use wide note width"}
+                onClick={() => useStore.getState().toggleEditorWide()}
               >
                 <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 12h16M7 9l-3 3 3 3M17 9l3 3-3 3" /></svg>
               </button>
@@ -979,9 +1003,9 @@ export function Editor() {
                 <div className="editor-actions-menu">
                   <button
                     type="button"
-                    onClick={() => useStore.getState().setEditorMeasure(editorMeasure === "full" ? 88 : "full")}
+                    onClick={() => useStore.getState().toggleEditorWide()}
                   >
-                    {editorMeasure === "full" ? "Normal note width" : "Full note width"}
+                    {editorMeasure === "full" ? "Normal note width" : "Wide note width"}
                   </button>
                 </div>
               </details>

@@ -221,6 +221,23 @@ blind to the content element's, so a centring pad there made every full-line sel
 margins — block replace widgets (which are `.cm-content`'s direct children) get the inset back through
 the shared `cm-block-inset` class.
 
+**Presence (Phase 1 of the human-agent track).** `lib/presence/roster.ts` is the pure roster + decay
+state machine (10 s heartbeat from `vaultSyncEngine`, 30 s stale, 90 s removal, immediate removal on the
+server's `gone` frame; `docId: null` means online with no note open, NOT gone; invisible peers are never
+shown). Frames carry the server-minted per-socket `connId`, and the roster keeps one slot per connection
+under a userId: `gone` removes THAT connection, and the peer leaves only when their last one is gone —
+otherwise the UI falls back to their most recent other device. Without that, one device closing hid the
+same user's other device until its next heartbeat. Per-connection, not a per-process refcount, because
+behind Redis the other device may be on another instance. The store keeps `participants` + `selfParticipantId` from `GET /api/orgs/:orgId/participants`;
+`docSession.setParticipantIdentity` publishes the registry color + `participantId` in awareness and on
+the vault channel, and receivers resolve `participantId` against their own registry copy (registry-signed
+display), falling back to the asserted strings only for unknown ids. `lib/presence/color.ts` holds the
+8-color colorblind-safe palette (no reds/oranges; `NOAM_VIOLET` reserved; `textOn` picks label text;
+`__tests__/paletteCvd.test.ts` re-derives the CVD and contrast claims from the constant). The People panel
+is the `presence` dock panel. `components/review/` + `lib/review/` are the suggestion diff loop (Phase 2 UI,
+flag `noam.flags.suggestionsV0`, no proposal source until ADR 0001); its single-key grammar fires only with
+focus inside a review zone and never from `.cm-editor` or a contenteditable.
+
 Live preview reveals markdown at **two scopes** (`lib/editor/reveal.ts`): LINE for the markers that
 shape a line (`#`, `>`, the task dash, block widgets) and TOKEN for inline ones (`**`, `==`, `%%`,
 `` ` ``, `[]()`), where `tokenOwner` finds the inline node a marker delimits and only a selection
@@ -330,9 +347,20 @@ flow through the same sync server via `createDocWriter` so AI edits persist/broa
   hard-deleted folder's ancestry from `folder_tombstones` (`d.deleted_at >= n.created_at`, so a dead
   tombstone cannot claim a note created later) — without it a folder delete reaches a share-only
   member as a REVOCATION (no tombstone) instead of a deletion.
+- `registry/participants.ts` + `http/routes/participants.ts` — the **participant registry** (migration 027,
+  spec `docs/specs/07-participants-and-presence.md`): one row per human or agent per organization,
+  `kind IN ('human','agent')`. Human rows are created by a Postgres **trigger on `member` inserts** (all
+  three join paths, same transaction), deactivated by a trigger on member delete, renamed by a trigger on
+  `"user".name`. Color is `participant_color(user_id)`: FNV-1a in plpgsql, byte-identical to the desktop's
+  `hashString`, over a fixed 8-color palette. Agent rows are inert until ADR 0003 (no token kind can
+  authenticate as one). Routes: `GET/POST /api/orgs/:orgId/participants`, `PATCH .../:id` (rename agents
+  only, deactivation one-way). The vault channel **stamps** `participantId`, `name` and `color` from the
+  registry onto every presence frame (client strings are ignored), publishes NOTHING for a user with no
+  live row (a deactivated human), re-resolves the row on `acl-changed` (a vanished row ⇒ one `gone`
+  frame; only a HUMAN deactivation broadcasts it), and marks the disconnect frame `gone: true`.
 - `tokens/sync-token.ts` — HS256 per-doc JWT (`jose`), TTL `SYNC_TOKEN_TTL_SECONDS` (default 600).
 - `mcp/` — JSON-RPC 2.0 over Streamable HTTP at `POST /api/mcp` (no SSE; GET/DELETE → 405). Tools:
-  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/create_note/update_note/append_note/edit_note/move_note/delete_note`.
+  `list_vaults/list_folders/create_folder/move_folder/delete_folder/list_notes/read_note/search_notes/query_knowledge/create_note/update_note/append_note/edit_note/move_note/delete_note` (15; pinned by `tests/mcp-tool-inventory.test.ts`).
   `read_note` returns a `revision` (sha256 of the body); `update_note`/`append_note`/`edit_note` take an
   optional `expectedRevision` and refuse a stale write (the check runs under the doc writer's per-doc
   lock, so check + apply are atomic). `edit_note` applies exact-anchor replace/insert/delete ops (an

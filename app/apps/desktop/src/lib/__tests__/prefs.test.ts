@@ -6,6 +6,9 @@
 import { afterEach, describe, expect, it } from "vitest";
 import {
   clampEditorMeasure,
+  clampEditorFontSize,
+  readEditorFontSize,
+  writeEditorFontSize,
   EDITOR_MEASURE_DEFAULT,
   EDITOR_MEASURE_MAX,
   EDITOR_MEASURE_MIN,
@@ -15,12 +18,14 @@ import {
   readHeadingColorMode,
   readDefaultViewMode,
   readEditorMeasure,
+  readEditorNormalMeasure,
   readPropertiesCollapsed,
   remapPropertiesCollapsed,
   setAccentTheme,
   setHeadingColorMode,
   writeDefaultViewMode,
   writeEditorMeasure,
+  writeEditorNormalMeasure,
   writePropertiesCollapsed,
 } from "../prefs";
 
@@ -269,6 +274,37 @@ describe("readEditorMeasure — migration from the old switch", () => {
   });
 });
 
+describe("existing editor widths", () => {
+  it("preserves an explicitly saved 88ch width on upgrade", () => {
+    const store = stubStorage({ [NEW_KEY]: "88" });
+    expect(readEditorMeasure()).toBe(88);
+    // Reading and writing preferences must retain the same choice.
+    writeEditorMeasure(88);
+    expect(readEditorMeasure()).toBe(88);
+    expect(store.get(NEW_KEY)).toBe("88");
+  });
+
+  it("leaves any other stored width alone", () => {
+    for (const raw of ["full", "100", "60"]) {
+      stubStorage({ [NEW_KEY]: raw });
+      expect(String(readEditorMeasure())).toBe(raw);
+    }
+  });
+});
+
+describe("the normal width the Wide toggle returns to", () => {
+  it("defaults to the readable measure", () => {
+    stubStorage();
+    expect(readEditorNormalMeasure()).toBe(EDITOR_MEASURE_DEFAULT);
+  });
+
+  it("remembers the last non-full width", () => {
+    stubStorage();
+    writeEditorNormalMeasure(100);
+    expect(readEditorNormalMeasure()).toBe(100);
+  });
+});
+
 describe("readEditorMeasure — stored values", () => {
   it("round-trips both shapes through the writer", () => {
     const store = stubStorage();
@@ -321,5 +357,26 @@ describe("clampEditorMeasure", () => {
     expect(clampEditorMeasure(Number.NaN)).toBe(EDITOR_MEASURE_DEFAULT);
     expect(clampEditorMeasure(Number.POSITIVE_INFINITY)).toBe(EDITOR_MEASURE_MAX);
     expect(clampEditorMeasure(Number.NEGATIVE_INFINITY)).toBe(EDITOR_MEASURE_MIN);
+  });
+});
+
+describe("editor font size", () => {
+  it("defaults to 16px and persists a clamped size", () => {
+    stubStorage();
+    expect(readEditorFontSize()).toBe(16);
+    for (const [input, expected] of [[12, 12], [22, 22], [30, 22], [2, 12], [18.6, 19]]) {
+      writeEditorFontSize(input);
+      expect(readEditorFontSize()).toBe(expected);
+    }
+  });
+  it("recovers from malformed or denied storage", () => {
+    for (const value of ["", "bad", "Infinity"]) {
+      stubStorage({ "context.editorFontSize": value });
+      expect(readEditorFontSize()).toBe(16);
+    }
+    stubThrowingStorage();
+    expect(readEditorFontSize()).toBe(16);
+    expect(() => writeEditorFontSize(20)).not.toThrow();
+    expect(clampEditorFontSize(NaN)).toBe(16);
   });
 });

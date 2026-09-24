@@ -207,7 +207,6 @@ export function TabBar({ groupId = CENTER_NOTE_GROUP_ID, onClosePanelTab }: {
           </ViewportMenu>
         )}
       </div>
-      <div className="titlebar-empty-drag" data-tauri-drag-region aria-hidden="true" />
 
       {selected && (
         <ViewportMenu

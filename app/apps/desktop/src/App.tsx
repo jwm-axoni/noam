@@ -63,6 +63,8 @@ import { currentEditorContext } from "./components/workflows/editorContext";
 import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
 import { findPanelTab } from "./layout/operations";
 import { useLayoutStore } from "./layout/store";
+import { togglePanel } from "./components/workspace/ActivityBar";
+import { presenceV1Enabled } from "./lib/presence/flag";
 import { navigationHistory } from "./layout/navigationHistory";
 import { CENTER_NOTE_GROUP_ID, type PanelType } from "./layout/types";
 import { closePanelTab } from "./layout/workspaceActions";
@@ -740,6 +742,7 @@ export default function App() {
   });
   const historyPanelPresent = useLayoutStore((state) => findPanelTab(state.layout, "history") != null);
   const editorMeasure = useStore((s) => s.editorMeasure);
+  const editorFontSize = useStore((s) => s.editorFontSize);
   // An open image/PDF preview isn't a synced note — hide the save/sync chrome.
   const isPreview = openNote != null && previewKind(openNote.path) != null;
   // Covers the LAST VAULT'S OPEN and nothing else. It used to cover the whole
@@ -1096,6 +1099,11 @@ export default function App() {
         setActionPickerOpen((open) => !open);
         return;
       }
+      if (globalShortcut === "presence") {
+        e.preventDefault();
+        if (presenceV1Enabled()) togglePanel("presence");
+        return;
+      }
       // A workflow's own `shortcut`. Built-ins are matched FIRST and reserved
       // combinations never bind (see `components/workflows/shortcuts.ts`), so a
       // vault full of downloaded workflows cannot take ⌘S away from anyone.
@@ -1331,7 +1339,7 @@ export default function App() {
                     // skeleton's own font-size — `--editor-measure` is a `ch`
                     // length, so it resolves against whatever font the element
                     // using it has; see `components/editor.css`.)
-                    <div className="editor-column" style={editorMeasureStyle(editorMeasure)}>
+                    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
                       <div className="editor-host-wrap" />
                       <StatusBar stats={null} />
                       <EditorSkeleton />

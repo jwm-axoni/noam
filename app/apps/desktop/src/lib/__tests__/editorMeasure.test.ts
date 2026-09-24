@@ -48,16 +48,15 @@ describe("slider ↔ measure", () => {
 
   it("reads out characters, or the word", () => {
     expect(measureLabel(88)).toBe("88 characters");
-    expect(measureLabel("full")).toBe("Full width");
+    expect(measureLabel("full")).toBe("Wide");
   });
 });
 
 describe("the token the editor follows", () => {
-  it("carries the measure in ch, and full width as a percentage", () => {
+  it("bounds Wide at 90ch and applies the font size on the editor column", () => {
     expect(editorMeasureStyle(72)["--editor-measure"]).toBe("72ch");
-    // 100% makes `(100% - var(--editor-measure)) / 2` zero, so `--editor-pad-x`
-    // falls back to the gutter — which is what "full" means.
-    expect(editorMeasureStyle("full")["--editor-measure"]).toBe("100%");
+    expect(editorMeasureStyle("full", 20)["--editor-measure"]).toBe("90ch");
+    expect(editorMeasureStyle(72, 20)["--type-document-size"]).toBe("20px");
   });
 });
 
@@ -104,6 +103,18 @@ describe("preview geometry", () => {
       previewWidth: 500,
     });
     expect(wide.columnPx).toBeLessThan(full.columnPx);
+  });
+
+  it("caps any column at 88% of a wide pane, like Minimal's max width", () => {
+    // 2000px pane: the gutters alone would allow 1872px, the cap allows 1760.
+    const full = computePreviewColumn({
+      paneWidth: 2000,
+      gutterPx,
+      measurePx: "full",
+      previewWidth: 500,
+    });
+    expect(full.columnPx).toBeCloseTo(440);
+    expect(full.insetPx).toBeCloseTo(30);
   });
 
   it("always fills the miniature exactly", () => {
@@ -156,12 +167,12 @@ describe("editor column stylesheet behavior", () => {
     column.append(line);
     document.body.append(column);
 
-    expect(computedToken("--editor-measure")).toBe("88ch");
+    expect(computedToken("--editor-measure")).toBe("72ch");
     expect(computedToken("--editor-gutter")).toBe("64px");
     expect(computedToken("--editor-pad-x")).toBe("");
     expect(computedToken("--editor-measure", column)).toBe("72ch");
     expect(computedToken("--editor-pad-x", column).replace(/\s+/g, " ")).toBe(
-      "max(var(--editor-gutter),calc((100% - var(--editor-measure))/2))",
+      "max(var(--editor-gutter),calc((100% - min(var(--editor-measure),88%))/2))",
     );
     expect(computedToken("--editor-pad-x", line)).toBe(computedToken("--editor-pad-x", column));
     column.remove();

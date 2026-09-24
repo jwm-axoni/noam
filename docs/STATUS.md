@@ -228,6 +228,41 @@ Six changes that together make a vault something a team can actually govern.
 - [x] **Join code = email invite**: redeeming a code consumes a pending invitation for the same address
   (invited role honoured, invitation marked accepted, seat not double-counted).
 
+### Human-agent collaboration track (AI plan v2, 2026-09-23)
+
+Numbered separately from the build phases above. Spec: `docs/specs/07-participants-and-presence.md`.
+
+#### Phase 0: Participant identity ✅
+- [x] **Participant registry** (migration 027): one row per human or agent per organization, `kind IN
+  (human,agent)`, deterministic immutable color, one-way deactivation. Human rows are created by a
+  Postgres trigger on `member` inserts (same transaction as the join, for all three join paths), deactivated
+  on member delete, renamed with the account.
+- [x] **Registry API**: `GET/POST /api/orgs/:orgId/participants`, `PATCH .../participants/:id`. Agent rows
+  are creatable by owners/admins and inert (no token kind can authenticate as one; that is ADR 0003).
+- [x] **Server-stamped presence identity**: the vault channel overwrites `name`/`color` with the registry row
+  and adds `participantId` + a per-socket `connId`; the disconnect frame carries `gone: true` for that connection.
+
+#### Phase 1: Presence for humans ✅
+- [x] **People panel** (dock panel `presence`): Online now / In this note / Agents active (empty state links
+  to the changelog). Auto-opens once in multi-member vaults. Desktop-only in this release.
+- [x] **Registry colors everywhere**: cursors, avatar rings, presence dots and the panel resolve a peer's
+  `participantId` against the local registry copy; offline fallback hashes to the same palette.
+- [x] **Heartbeat and decay**: 10 s client heartbeat, 30 s stale (dimmed), 90 s removal, immediate removal on
+  the server's `gone` frame — all per connection, so a user on two devices stays listed while either is
+  alive. Pure state machine in `lib/presence/roster.ts`.
+- [x] **Palette**: 8 colorblind-safe colors, no reds/oranges, violet reserved (`paletteCvd.test.ts` proves it).
+- [x] **Accessibility**: aria-hidden caret layer, one polite live region (≤ 1 announcement / 5 s), reduced
+  motion snaps carets.
+
+#### Phase 2: Suggestion diff loop ⬜ _(needs ADR 0001)_
+- [x] Review UI built as real components (`components/review/`): Rail, focus session, chip bar, review bar,
+  keyboard grammar `] [ A R`, batch accept, trust tiers, conflict cards, XSS-inert rendering. Reachable only
+  behind the `noam.flags.suggestionsV0` device flag with a demo source.
+- [ ] Proposal staging primitive (sandbox Y.Doc per proposal) and server-side accept authorization.
+
+#### Phase 3: Agent participants ⬜ _(gated on ADR 0002 + ADR 0003 and the audit checklist)_
+- [ ] Agent-scoped token kind, read instrumentation, audit table, local stdio MCP server, setup wizard.
+
 ### Phase 4: Polish / upgrades _(deferred)_ ⬜
 - [ ] Structural rich-text CRDT (y-prosemirror / `Y.XmlFragment`) for full WYSIWYG.
 - [ ] Vector / hybrid search (Orama) for semantic + AI retrieval.

@@ -56,8 +56,8 @@ const icon = (children: ReactNode) => (
 
 const filesLoader: PanelRegistration["load"] = () =>
   import("../components/FileTree").then(({ FileTree }) => ({
-    default: function FilesPanel() {
-      return <FileTree />;
+    default: function FilesPanel({ visible }: PanelBodyProps) {
+      return <FileTree visible={visible} />;
     },
   }));
 
@@ -106,6 +106,27 @@ const calendarLoader: PanelRegistration["load"] = () =>
   import("../components/calendar/CalendarPanelHost").then(({ CalendarPanelHost }) => ({
     default: CalendarPanelHost,
   }));
+
+const presenceLoader: PanelRegistration["load"] = () =>
+  import("../components/PresencePanel").then(({ PresencePanel }) => ({
+    default: PresencePanel,
+  }));
+
+const reviewLoader: PanelRegistration["load"] = () =>
+  import("../components/review/ReviewPanel").then(({ ReviewPanel }) => ({ default: ReviewPanel }));
+
+/** Keep only the People panel's per-section collapsed flags. */
+const presencePersistentState = (state: Record<string, unknown>) => {
+  const raw = state.collapsed;
+  if (raw == null || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const src = raw as Record<string, unknown>;
+  const collapsed = Object.fromEntries(
+    (["online", "agents", "note"] as const).flatMap((key) =>
+      typeof src[key] === "boolean" ? [[key, src[key]]] : [],
+    ),
+  );
+  return { collapsed };
+};
 
 const outlineLoader: PanelRegistration["load"] = () =>
   import("../components/OutlinePanel").then(({ OutlinePanel }) => ({
@@ -239,6 +260,35 @@ export const panelRegistry = {
     minimumHeight: 220,
     multiplicity: 1,
     load: calendarLoader,
+    validateState: emptyState,
+    persistentState: noPersistentState,
+  },
+  presence: {
+    type: "presence",
+    label: "People",
+    defaultZone: "right",
+    defaultGroup: "primary",
+    // lucide `users`.
+    icon: icon(<><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2" /><circle cx="9" cy="7" r="4" /><path d="M22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75" /></>),
+    allowedZones: ["left", "right"],
+    minimumWidth: 220,
+    minimumHeight: 180,
+    multiplicity: 1,
+    load: presenceLoader,
+    validateState: emptyState,
+    persistentState: presencePersistentState,
+  },
+  review: {
+    type: "review",
+    label: "Review",
+    defaultZone: "right",
+    defaultGroup: "secondary",
+    icon: icon(<><path d="M4 5h16v11H8l-4 4z" /><path d="m9 10.5 2 2 4-4" /></>),
+    allowedZones: ["left", "right", "center"],
+    minimumWidth: 320,
+    minimumHeight: 220,
+    multiplicity: 1,
+    load: reviewLoader,
     validateState: emptyState,
     persistentState: noPersistentState,
   },

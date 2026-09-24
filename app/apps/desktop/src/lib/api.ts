@@ -1,4 +1,5 @@
 import { ACCESS_CHECK_MAX } from "@noam/contracts/access";
+import type { Participant } from "./presence/participants";
 
 // The ONE typed HTTP boundary to the Noam server. Every `fetch`
 // to the server lives here — auth, organizations, registry, shares, sync-token.
@@ -975,6 +976,18 @@ export class ApiClient {
       { query: organizationId ? { organizationId } : undefined },
     );
     return Array.isArray(data) ? data : (data?.members ?? []);
+  }
+
+  /** The org's live participant registry (humans now, agents from Phase 3) and
+   *  the caller's own participant id. No user ids or emails are exposed. */
+  async listParticipants(
+    organizationId: string,
+  ): Promise<{ participants: Participant[]; self: string | null }> {
+    const { data } = await this.request<{ participants?: Participant[]; self?: string | null }>(
+      "GET",
+      `/api/orgs/${encodeURIComponent(organizationId)}/participants`,
+    );
+    return { participants: data?.participants ?? [], self: data?.self ?? null };
   }
 
   async inviteMember(input: {
