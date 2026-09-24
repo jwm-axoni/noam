@@ -2,14 +2,20 @@ import { serve } from "@hono/node-server";
 import type { Server as HttpServer } from "node:http";
 import { config } from "./config.js";
 import { createApp } from "./http/app.js";
-import { createSyncServer, disconnectDoc, evictDoc } from "./sync/hocuspocus.js";
+import {
+  createSyncServer,
+  disconnectDoc,
+  disconnectParticipant,
+  evictDoc,
+} from "./sync/hocuspocus.js";
+import { pool } from "./db/pool.js";
 import { attachSyncUpgrade } from "./sync/http-upgrade.js";
 import { createPubSub } from "./sync/pubsub.js";
 import { VaultChannel } from "./sync/vault-channel.js";
 import { setMemberJoinedPublisher } from "./sync/member-events.js";
 import { backfillIndex } from "./index/indexer.js";
 import { createDocWriter } from "./mcp/doc-writer.js";
-import { createVersionCapture, type VersionCapture } from "./versions/capture.js";
+import { createVersionCapture, type EditActor, type VersionCapture } from "./versions/capture.js";
 import { maybeDailyCheckpoint } from "./versions/checkpoints.js";
 
 /**
@@ -50,8 +56,8 @@ async function main() {
   // sync server, which needs this hook) — hence the late binding. Every edit,
   // however it arrived, ends up in exactly one place.
   let versionCapture: VersionCapture | null = null;
-  const noteEdited = (vaultId: string, docId: string, userId: string | null) =>
-    versionCapture?.touch(vaultId, docId, userId);
+  const noteEdited = (vaultId: string, docId: string, actor: EditActor) =>
+    versionCapture?.touch(vaultId, docId, actor);
 
   // Every persisted doc change is fanned out to background vault subscribers.
   const sync = createSyncServer(
@@ -96,6 +102,33 @@ async function main() {
     // Coalesced per vault inside the channel, and skipped for the client whose
     // own write caused it (`originId`).
     onRegistryChanged,
+    // Agent-token revocation (ADR 0003 item 5): kick the participant's doc
+    // sockets and retract its presence chip on every collection of the org.
+    disconnectParticipant: (participantId) => {
+      const n = disconnectParticipant(sync, participantId);
+      if (n > 0) console.log(`[mcp] revoked participant ${participantId}: closed ${n} socket(s)`);
+    },
+    onParticipantGone: (organizationId, participantId) => {
+      void (async () => {
+        const { rows: p } = await pool.query<{ display_name: string; color: string }>(
+          "SELECT display_name, color FROM participants WHERE id = $1 AND organization_id = $2",
+          [participantId, organizationId],
+        );
+        const row = p[0];
+        if (!row) return;
+        const { rows: vaults } = await pool.query<{ id: string }>(
+          "SELECT id FROM vaults WHERE organization_id = $1",
+          [organizationId],
+        );
+        for (const v of vaults) {
+          await vaultChannel.publishParticipantGone(v.id, {
+            participantId,
+            name: row.display_name,
+            color: row.color,
+          });
+        }
+      })().catch(broadcastFailed("participant-gone"));
+    },
     // MCP tools write notes through the same sync server, so AI edits persist,
     // re-index, and broadcast exactly like a human edit — to open editors via
     // Hocuspocus when the doc is live, and to background subscribers via this

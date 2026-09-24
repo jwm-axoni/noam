@@ -117,8 +117,22 @@ describe("participant registry", () => {
   describe("migration 027 (AC1, AC2)", () => {
     it("upgrades a database at 026 with existing orgs, members and vaults", async () => {
       // Roll this database back to 026: no participants objects, no record.
+      // 028 (ADR 0003) references `participants` from three tables, so it has
+      // to come off first — the same statements as
+      // scripts/rollback/028_agent_tokens.down.sql.
       await pool.query(`
-        DELETE FROM _migrations WHERE name = '027_participants.sql';
+        ALTER TABLE note_versions DROP COLUMN IF EXISTS author_participant;
+        ALTER TABLE notes DROP COLUMN IF EXISTS last_edited_participant;
+        DROP TABLE IF EXISTS mcp_audit;
+        DROP TABLE IF EXISTS mcp_token_scopes;
+        DELETE FROM mcp_tokens WHERE kind = 'agent';
+        DROP INDEX IF EXISTS mcp_tokens_participant_idx;
+        ALTER TABLE mcp_tokens DROP CONSTRAINT IF EXISTS mcp_tokens_kind_participant_chk;
+        ALTER TABLE mcp_tokens
+          DROP COLUMN IF EXISTS expires_at,
+          DROP COLUMN IF EXISTS kind,
+          DROP COLUMN IF EXISTS participant_id;
+        DELETE FROM _migrations WHERE name IN ('027_participants.sql', '028_agent_tokens.sql');
         DROP TRIGGER IF EXISTS participants_member_insert ON member;
         DROP TRIGGER IF EXISTS participants_member_delete ON member;
         DROP TRIGGER IF EXISTS participants_user_rename ON "user";
@@ -153,7 +167,7 @@ describe("participant registry", () => {
       await seedMember(orgs[2], blank, "member");
       await seedMember(orgs[0], cy, "member");
 
-      expect(await runMigrations()).toEqual(["027_participants.sql"]);
+      expect(await runMigrations()).toEqual(["027_participants.sql", "028_agent_tokens.sql"]);
 
       // Exactly one live human row per member row, checked by count query.
       const { rows: perMember } = await pool.query<{ n: number }>(

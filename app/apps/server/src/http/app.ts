@@ -26,6 +26,7 @@ import { createBillingRoutes } from "./routes/billing.js";
 import { PolarBillingProvider } from "../billing/polar.js";
 import type { BillingProvider } from "../billing/provider.js";
 import type { DocWriter } from "../mcp/doc-writer.js";
+import { createMcpAudit, type McpAudit } from "../audit/mcp-audit.js";
 
 export interface AppDeps extends ShareDeps {
   /** Server-side note writer for the MCP tools (backed by the sync server). */
@@ -64,6 +65,23 @@ export interface AppDeps extends ShareDeps {
    * token expires. Inner routers keep it optional for focused unit tests.
    */
   onAclChanged: (vaultId: string) => void;
+  /**
+   * Agent-token revocation (ADR 0003 item 5). Both fire from
+   * `DELETE /api/mcp/tokens/:id` when the token was an agent token:
+   * `disconnectParticipant` closes every doc socket whose connection context
+   * carries that participant (`sync/hocuspocus.ts`), and `onParticipantGone`
+   * publishes a `gone` presence frame for the participant on every collection
+   * of the organization (`sync/vault-channel.ts publishParticipantGone`) so
+   * the chip retracts without waiting for decay. Optional here so focused
+   * tests can omit them; `src/index.ts` always wires both.
+   */
+  disconnectParticipant?: (participantId: string) => void;
+  onParticipantGone?: (organizationId: string, participantId: string) => void;
+  /**
+   * The MCP audit sink + read budget (ADR 0003 items 4 and 6). Defaults to the
+   * Postgres-backed `createMcpAudit()`; tests inject a fake or a tighter budget.
+   */
+  mcpAudit?: McpAudit;
 }
 
 /**
@@ -237,6 +255,9 @@ export function createApp(deps: AppDeps): Hono {
       docWriter: deps.docWriter,
       disconnectDoc: deps.disconnectDoc,
       onRegistryChanged: deps.onRegistryChanged,
+      disconnectParticipant: deps.disconnectParticipant,
+      onParticipantGone: deps.onParticipantGone,
+      audit: deps.mcpAudit ?? createMcpAudit(),
     }),
   );
 

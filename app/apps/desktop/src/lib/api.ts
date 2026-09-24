@@ -158,6 +158,13 @@ export interface RegisteredNote {
   last_edited_by_name?: string | null;
   lastEditedAt?: string | null;
   last_edited_at?: string | null;
+  /** The participant row (human OR agent) behind the last edit, server-stamped
+   *  from the token/connection (ADR 0003) — for an agent's edit `lastEditedBy`
+   *  is its minter, and only this names the agent. */
+  lastEditedParticipant?: string | null;
+  last_edited_participant?: string | null;
+  lastEditedParticipantName?: string | null;
+  last_edited_participant_name?: string | null;
   /** Palette id (see `lib/appearance`), shared by the whole team. */
   color?: string | null;
   /** Who created the note. Read by the inbound reconciler: a note the LOCAL user
@@ -170,6 +177,8 @@ export interface RegisteredNote {
 /** The normalized "last edited by" fact for one note (see {@link noteLastEdited}). */
 export interface NoteLastEdited {
   userId: string | null;
+  participantId: string | null;
+  /** The participant's registry name when known, else the user's name. */
   name: string | null;
   /** ISO timestamp from the server. */
   at: string;
@@ -278,9 +287,21 @@ export interface PublicLink {
   createdAt: string;
 }
 
+/** One scope row on an agent token (ADR 0003 item 2). `vault` ids are the org id. */
+export interface McpTokenScope {
+  resourceType: "folder" | "file" | "vault";
+  resourceId: string;
+  permission: "view" | "edit";
+}
+
+/** A scope template the server offers at mint (`GET /api/mcp/tokens` `presets`). */
+export type McpScopePreset = "reader" | "drafter" | "editor";
+
 export interface McpTokenRow {
   id: string;
   name: string;
+  /** `user` acts as its holder (sunset); `agent` acts as one agent participant. */
+  kind: "user" | "agent";
   tokenPrefix: string;
   createdAt: string;
   lastUsedAt: string | null;
@@ -288,6 +309,23 @@ export interface McpTokenRow {
   useCount: number;
   /** The client on the other end (its User-Agent), if it has ever connected. */
   lastClient: string | null;
+  userId: string;
+  participantId: string | null;
+  participantName: string | null;
+  expiresAt: string | null;
+  /** Unused for 30+ days. */
+  stale: boolean;
+  /** Empty for a user token (it acts with its holder's full access). */
+  scopes: McpTokenScope[];
+}
+
+/** Body for minting an agent token, or for migrating a user token to one. */
+export interface AgentTokenRequest {
+  participantId: string;
+  preset: McpScopePreset;
+  /** Required for `drafter`: the one folder it may write in. */
+  folderId?: string;
+  name?: string;
 }
 
 /** One MCP tool a connection can reach, classified for a compact access badge. */
@@ -301,6 +339,9 @@ export interface McpToolInfo {
 export interface McpConnections {
   tokens: McpTokenRow[];
   tools: McpToolInfo[];
+  presets: Array<{ name: McpScopePreset; description: string }>;
+  /** ISO date after which `user` tokens stop working; null from an older server. */
+  userTokenSunset: string | null;
 }
 
 /** Attachment blob metadata returned by the server (camelCase). */
@@ -332,9 +373,18 @@ export interface NoteVersion {
    *  that was replaced, captured so a revert is itself undoable. */
   cause: "idle" | "pre-revert";
   authorId: string | null;
+  /** Display name: the author PARTICIPANT's registry name when the server
+   *  stamped one (so an agent's version names the agent), else the user's. */
   authorName: string | null;
+  authorParticipant?: string | null;
+  authorParticipantName?: string | null;
   sha256: string;
   size: number;
+}
+
+/** Prefer the participant's name as the version's author label (ADR 0003). */
+function withParticipantAuthor<T extends NoteVersion>(v: T): T {
+  return v.authorParticipantName ? { ...v, authorName: v.authorParticipantName } : v;
 }
 
 export interface NoteVersionDetail extends NoteVersion {
@@ -990,6 +1040,20 @@ export class ApiClient {
     return { participants: data?.participants ?? [], self: data?.self ?? null };
   }
 
+  /** Register an agent participant (owner/admin). 409 `duplicate_agent_name` on a taken name. */
+  async createAgentParticipant(
+    organizationId: string,
+    displayName: string,
+    harness: "claude-code" | "codex-cli" | "gemini-cli" | "custom",
+  ): Promise<Participant> {
+    const { data } = await this.request<Participant>(
+      "POST",
+      `/api/orgs/${encodeURIComponent(organizationId)}/participants`,
+      { body: { kind: "agent", displayName, harness } },
+    );
+    return data;
+  }
+
   async inviteMember(input: {
     email: string;
     role: "member" | "admin" | "owner";
@@ -1184,21 +1248,63 @@ export class ApiClient {
    */
   async listMcpConnections(): Promise<McpConnections> {
     const { data } = await this.request<McpConnections>("GET", "/api/mcp/tokens");
-    return { tokens: data.tokens ?? [], tools: data.tools ?? [] };
+    return {
+      tokens: (data.tokens ?? []).map((t) => ({ ...t, scopes: t.scopes ?? [] })),
+      tools: data.tools ?? [],
+      presets: data.presets ?? [],
+      userTokenSunset: data.userTokenSunset ?? null,
+    };
   }
 
-  /** Mint a new MCP token. The `token` field is the plaintext — shown once. */
-  async createMcpToken(name: string): Promise<McpTokenRow & { token: string }> {
+  /**
+   * Mint an agent token (owner/admin; ADR 0003). The `token` field is the
+   * plaintext — shown once. New `user` tokens are refused server-side (410).
+   */
+  async createAgentMcpToken(
+    body: AgentTokenRequest & { expiresInDays?: number },
+  ): Promise<McpTokenRow & { token: string }> {
     const { data } = await this.request<McpTokenRow & { token: string }>(
       "POST",
       "/api/mcp/tokens",
-      { body: { name } },
+      { body: { kind: "agent", ...body } },
     );
     return data;
   }
 
   async revokeMcpToken(id: string): Promise<void> {
     await this.request<unknown>("DELETE", `/api/mcp/tokens/${encodeURIComponent(id)}`);
+  }
+
+  /** Push an agent token's expiry out (server default when `expiresInDays` is omitted). */
+  async renewMcpToken(id: string, expiresInDays?: number): Promise<McpTokenRow> {
+    const { data } = await this.request<McpTokenRow>(
+      "POST",
+      `/api/mcp/tokens/${encodeURIComponent(id)}/renew`,
+      { body: expiresInDays === undefined ? {} : { expiresInDays } },
+    );
+    return data;
+  }
+
+  /** Replace an agent token (same participant + scopes); the old one is revoked. */
+  async rotateMcpToken(id: string): Promise<McpTokenRow & { token: string }> {
+    const { data } = await this.request<McpTokenRow & { token: string }>(
+      "POST",
+      `/api/mcp/tokens/${encodeURIComponent(id)}/rotate`,
+    );
+    return data;
+  }
+
+  /** Turn a user ("acts as you") token into an agent token (owner/admin). */
+  async migrateMcpToken(
+    id: string,
+    body: AgentTokenRequest,
+  ): Promise<McpTokenRow & { token: string; migratedFrom: string }> {
+    const { data } = await this.request<McpTokenRow & { token: string; migratedFrom: string }>(
+      "POST",
+      `/api/mcp/tokens/${encodeURIComponent(id)}/migrate`,
+      { body },
+    );
+    return data;
   }
 
   // ---- Public links ---------------------------------------------------------
@@ -1529,7 +1635,7 @@ export class ApiClient {
       "GET",
       `/api/notes/${encodeURIComponent(docId)}/versions`,
     );
-    return data.versions ?? [];
+    return (data.versions ?? []).map(withParticipantAuthor);
   }
 
   /** One version *with* its markdown — the preview/revert payload. */
@@ -1538,7 +1644,7 @@ export class ApiClient {
       "GET",
       `/api/notes/${encodeURIComponent(docId)}/versions/${encodeURIComponent(String(versionId))}`,
     );
-    return data;
+    return withParticipantAuthor(data);
   }
 
   /**
@@ -1851,7 +1957,15 @@ export function noteLastEdited(n: RegisteredNote): NoteLastEdited | null {
   if (!at) return null;
   return {
     userId: n.lastEditedBy ?? n.last_edited_by ?? null,
-    name: n.lastEditedByName ?? n.last_edited_by_name ?? null,
+    participantId: n.lastEditedParticipant ?? n.last_edited_participant ?? null,
+    // The participant's name wins: an agent's edit carries its MINTER's user id,
+    // so the user name alone would credit the human for the agent's work.
+    name:
+      n.lastEditedParticipantName ??
+      n.last_edited_participant_name ??
+      n.lastEditedByName ??
+      n.last_edited_by_name ??
+      null,
     at,
   };
 }

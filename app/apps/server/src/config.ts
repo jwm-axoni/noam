@@ -54,6 +54,15 @@ function int(name: string, fallback: number): number {
   return n;
 }
 
+/** An ISO-8601 instant, returned as a Date. */
+function isoDate(name: string, fallback: string): Date {
+  const raw = process.env[name];
+  const v = raw === undefined || raw === "" ? fallback : raw;
+  const d = new Date(v);
+  if (Number.isNaN(d.getTime())) throw new Error(`Env var ${name} must be an ISO-8601 date`);
+  return d;
+}
+
 /** `DEEP_LINK_SCHEME`, validated to the shape a URL scheme may take. */
 function deepLinkScheme(): string {
   const v = optional("DEEP_LINK_SCHEME") ?? "noam";
@@ -198,6 +207,24 @@ export const config = {
    *  duplicating content on every bounce (2026-08-25: single updates reached
    *  17 MB and OOM-crash-looped the server). The cap is the circuit breaker. */
   maxNoteMb: int("MAX_NOTE_MB", 10),
+  // ---- MCP agent tokens (ADR 0003) ----
+  /** Lifetime of a newly minted or renewed AGENT token, in days. */
+  mcpAgentTokenDays: int("MCP_AGENT_TOKEN_DAYS", 90),
+  /** A token unused for this many days is reported `stale` to Settings. */
+  mcpTokenStaleDays: int("MCP_TOKEN_STALE_DAYS", 30),
+  /**
+   * The date after which a `user` MCP token ("acts as you") stops
+   * authenticating. Settings shows it on every user-token row from the day
+   * agent tokens ship, and the migrate action (`POST /api/mcp/tokens/:id/
+   * migrate`) turns one into an agent token before then. ISO date.
+   */
+  mcpUserTokenSunset: isoDate("MCP_USER_TOKEN_SUNSET", "2026-12-31T00:00:00Z"),
+  /** Audit rows (`mcp_audit`) older than this are pruned, lazily, by the writer. */
+  mcpAuditRetentionDays: int("MCP_AUDIT_RETENTION_DAYS", 180),
+  /** Per-token read budget shared by `read_note` and `search_notes`: calls per
+   *  rolling minute and result bytes per rolling hour (ADR 0003 item 6). */
+  mcpReadCallsPerMinute: int("MCP_READ_CALLS_PER_MINUTE", 120),
+  mcpReadBytesPerHour: int("MCP_READ_BYTES_PER_HOUR", 50 * 1024 * 1024),
 } as const;
 
 /**

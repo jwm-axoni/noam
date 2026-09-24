@@ -1,8 +1,13 @@
 import { randomUUID } from "node:crypto";
 import { pool } from "../db/pool.js";
 import { orgRole } from "../permissions/lookup.js";
-import { effectivePermission, type Permission } from "../permissions/resolver.js";
-import { listReadableDocsInVault } from "../permissions/vault-docs.js";
+import type { Permission } from "../permissions/resolver.js";
+import {
+  mcpDocPermission,
+  mcpFolderScope,
+  mcpReadableDocsInVault,
+  mcpVisibleFolders,
+} from "../permissions/mcp-access.js";
 import { canEditFolder, vaultRootWritable } from "../permissions/http-gates.js";
 import {
   TreeOpError,
@@ -24,6 +29,7 @@ import {
   type KnowledgeQuery,
 } from "../knowledge/query.js";
 import type { McpAuth } from "./tokens.js";
+import type { McpAuditSink, McpReadBudget } from "../audit/mcp-audit.js";
 import { StaleRevisionError, revisionOf, type DocWriter, type TextOp } from "./doc-writer.js";
 
 /**
@@ -53,10 +59,45 @@ export interface McpContext {
    * edit announces itself.
    */
   onRegistryChanged?: (vaultId: string) => void;
+  /**
+   * Records one `tools/call` (ADR 0003 item 4): every tool, reads included,
+   * with its outcome and result size. Injected by the HTTP route from
+   * `src/audit/mcp-audit.ts`; absent only in focused unit tests. The tool
+   * implementations never touch it — `protocol.ts` calls it around the
+   * dispatch, so no tool can skip or forge its own row.
+   */
+  audit?: McpAuditSink;
+  /**
+   * The per-token read budget shared by `read_note` and `search_notes`
+   * (ADR 0003 item 6). Checked by `protocol.ts` BEFORE the tool runs.
+   */
+  readBudget?: McpReadBudget;
 }
 
-/** A tool tried to touch something it may not, or that doesn't exist. */
-export class McpToolError extends Error {}
+/**
+ * A tool tried to touch something it may not, or that doesn't exist.
+ *
+ * `code` classifies the refusal for the audit row and for clients:
+ *   - `forbidden`    — a permission or scope refusal (audited as `denied`)
+ *   - `not_found`    — unknown id, or outside this token's vault
+ *   - `stale`        — a revision precondition failed
+ *   - `rate_limited` — the read budget is spent (`data` names it and the reset)
+ *   - `invalid`      — bad arguments (the default)
+ * `data`, when set, is returned to the client as `structuredContent`.
+ */
+export type McpToolErrorCode = "forbidden" | "not_found" | "stale" | "rate_limited" | "invalid";
+export class McpToolError extends Error {
+  readonly code: McpToolErrorCode;
+  readonly data?: Record<string, unknown>;
+  constructor(
+    message: string,
+    opts: { code?: McpToolErrorCode; data?: Record<string, unknown> } = {},
+  ) {
+    super(message);
+    this.code = opts.code ?? "invalid";
+    this.data = opts.data;
+  }
+}
 
 function relPathStem(relPath: string): string {
   const base = relPath.split("/").pop() ?? relPath;
@@ -73,9 +114,9 @@ async function requireVaultInScope(auth: McpAuth, vaultId: string): Promise<void
     [vaultId],
   );
   const org = rows[0]?.organization_id;
-  if (!org) throw new McpToolError(`Unknown vault: ${vaultId}`);
+  if (!org) throw new McpToolError(`Unknown vault: ${vaultId}`, { code: "not_found" });
   if (org !== auth.organizationId) {
-    throw new McpToolError("This vault is outside the scope of this token");
+    throw new McpToolError("This vault is outside the scope of this token", { code: "not_found" });
   }
 }
 
@@ -94,8 +135,19 @@ async function isAdmin(auth: McpAuth): Promise<boolean> {
  * to note edits. It is checked before the admin short-circuit so create/delete
  * of notes and subfolders is blocked inside a locked folder, not just edits to
  * existing notes.
+ *
+ * For an agent token the answer is additionally capped by the token's scope on
+ * the folder (ADR 0003 item 2): both must say `edit`. A scope only narrows.
  */
 async function folderWritePermission(
+  auth: McpAuth,
+  folderId: string | null,
+): Promise<Permission> {
+  if ((await mcpFolderScope(auth, folderId)) !== "edit") return "none";
+  return userFolderWritePermission(auth, folderId);
+}
+
+async function userFolderWritePermission(
   auth: McpAuth,
   folderId: string | null,
 ): Promise<Permission> {
@@ -121,6 +173,20 @@ async function folderWritePermission(
   return (await canEditFolder(auth.userId, folderId)) ? "edit" : "none";
 }
 
+/**
+ * A move OUT to the vault root skips `folderWritePermission` for users (see
+ * `moveFolderTool`), but an agent token still needs edit scope on the root:
+ * a folder-scoped agent must not place things outside its scope. A no-op for
+ * non-agent callers (`mcpFolderScope` is `edit` for them).
+ */
+async function requireRootScope(auth: McpAuth): Promise<void> {
+  if ((await mcpFolderScope(auth, null)) !== "edit") {
+    throw new McpToolError("You do not have edit access to the destination folder", {
+      code: "forbidden",
+    });
+  }
+}
+
 // ── vaults / folders ────────────────────────────────────────────────────────
 
 export async function listVaults(ctx: McpContext) {
@@ -142,12 +208,17 @@ export async function listFolders(ctx: McpContext, vaultId: string) {
     "SELECT id, parent_id, name, path FROM folders WHERE vault_id = $1 ORDER BY path",
     [vaultId],
   );
-  return rows.map((r) => ({
-    folderId: r.id,
-    parentId: r.parent_id,
-    name: r.name,
-    path: r.path,
-  }));
+  // The caller's visible folders, and for an agent token only those its
+  // scopes reach as well (none without scopes).
+  const visible = await mcpVisibleFolders(ctx.auth, vaultId);
+  return rows
+    .filter((r) => visible.has(r.id))
+    .map((r) => ({
+      folderId: r.id,
+      parentId: r.parent_id,
+      name: r.name,
+      path: r.path,
+    }));
 }
 
 /**
@@ -193,7 +264,9 @@ export async function createFolder(
     throw err;
   }
   if ((await folderWritePermission(ctx.auth, parentId)) !== "edit") {
-    throw new McpToolError("You do not have edit access to create a folder here");
+    throw new McpToolError("You do not have edit access to create a folder here", {
+      code: "forbidden",
+    });
   }
   // Adopt an existing row at this path instead of inserting a duplicate, exactly
   // as `POST /api/folders` does. Matched case-insensitively and echoing the
@@ -266,10 +339,12 @@ export async function deleteFolder(
     [folderId],
   );
   const vaultId = rows[0]?.vault_id;
-  if (!vaultId) throw new McpToolError(`Unknown folder: ${folderId}`);
+  if (!vaultId) throw new McpToolError(`Unknown folder: ${folderId}`, { code: "not_found" });
   await requireVaultInScope(ctx.auth, vaultId);
   if ((await folderWritePermission(ctx.auth, folderId)) !== "edit") {
-    throw new McpToolError("You do not have edit access to delete this folder");
+    throw new McpToolError("You do not have edit access to delete this folder", {
+      code: "forbidden",
+    });
   }
   if (!opts.recursive) {
     const { rows: files } = await pool.query<{ n: number }>(
@@ -300,10 +375,12 @@ export async function moveFolderTool(
   input: { folderId: string; path?: string; name?: string; parentId?: string | null },
 ) {
   const folder = await findFolder(pool, input.folderId);
-  if (!folder) throw new McpToolError(`Unknown folder: ${input.folderId}`);
+  if (!folder) throw new McpToolError(`Unknown folder: ${input.folderId}`, { code: "not_found" });
   await requireVaultInScope(ctx.auth, folder.vault_id);
   if ((await folderWritePermission(ctx.auth, input.folderId)) !== "edit") {
-    throw new McpToolError("You do not have edit access to move this folder");
+    throw new McpToolError("You do not have edit access to move this folder", {
+      code: "forbidden",
+    });
   }
   // Re-parenting must not be a way to change inherited access, so edit on the
   // destination is required too — but only for a real folder. `parentId: null`
@@ -324,11 +401,14 @@ export async function moveFolderTool(
     plan.parentId !== folder.parent_id &&
     (await folderWritePermission(ctx.auth, plan.parentId)) !== "edit"
   ) {
-    throw new McpToolError("You do not have edit access to the destination folder");
+    throw new McpToolError("You do not have edit access to the destination folder", {
+      code: "forbidden",
+    });
   }
   // Moving a folder OUT to the root is a root creation by another name — the
   // same latch the HTTP registry honours (a rename in place at root is fine).
   if (plan.parentId === null && folder.parent_id !== null) {
+    await requireRootScope(ctx.auth);
     await assertRootNotFrozen(folder.vault_id, null, "move");
   }
   try {
@@ -366,11 +446,14 @@ export async function moveNoteTool(
     plan.folderId !== note.folder_id &&
     (await folderWritePermission(ctx.auth, plan.folderId)) !== "edit"
   ) {
-    throw new McpToolError("You do not have edit access to the destination folder");
+    throw new McpToolError("You do not have edit access to the destination folder", {
+      code: "forbidden",
+    });
   }
   // Same root-freeze latch as HTTP's PATCH /api/notes/:id: dragging a note out
   // to a frozen root is refused; a rename in place at root is allowed.
   if (plan.folderId === null && note.folder_id !== null) {
+    await requireRootScope(ctx.auth);
     await assertRootNotFrozen(note.vault_id, null, "move");
   }
   try {
@@ -417,6 +500,7 @@ export async function listNotes(
   // effectivePermission honours role AND locks, and never returns 'none' for an
   // admin — so this both filters (members see only what's shared) and reports an
   // accurate permission (a locked note shows 'view' even for an owner/admin).
+  // `mcpDocPermission` is exactly that for users, capped by scope for agents.
   const out: Array<{
     docId: string;
     folderId: string | null;
@@ -426,7 +510,7 @@ export async function listNotes(
     updatedAt: string;
   }> = [];
   for (const r of rows) {
-    const permission = await effectivePermission(ctx.auth.userId, r.id);
+    const permission = await mcpDocPermission(ctx.auth, r.id);
     if (permission === "none") continue; // members only see what's shared with them
     out.push({
       docId: r.id,
@@ -455,17 +539,19 @@ async function locateNote(auth: McpAuth, docId: string) {
     [docId],
   );
   const note = rows[0];
-  if (!note) throw new McpToolError(`Unknown note: ${docId}`);
+  if (!note) throw new McpToolError(`Unknown note: ${docId}`, { code: "not_found" });
   if (note.organization_id !== auth.organizationId) {
-    throw new McpToolError("This note is outside the scope of this token");
+    throw new McpToolError("This note is outside the scope of this token", { code: "not_found" });
   }
   return note;
 }
 
 export async function readNote(ctx: McpContext, docId: string) {
   const note = await locateNote(ctx.auth, docId);
-  const perm = await effectivePermission(ctx.auth.userId, docId);
-  if (perm === "none") throw new McpToolError("You do not have access to this note");
+  const perm = await mcpDocPermission(ctx.auth, docId);
+  if (perm === "none") {
+    throw new McpToolError("You do not have access to this note", { code: "forbidden" });
+  }
   const content = await ctx.docWriter.readContent(note.vault_id, docId);
   return {
     docId,
@@ -508,7 +594,9 @@ export async function createNote(
     throw err;
   }
   if ((await folderWritePermission(ctx.auth, folderId)) !== "edit") {
-    throw new McpToolError("You do not have edit access to create a note here");
+    throw new McpToolError("You do not have edit access to create a note here", {
+      code: "forbidden",
+    });
   }
   // Adopt the live note already at this path instead of inserting a second row,
   // exactly as `createFolder` does. A vault-relative path addresses ONE note —
@@ -537,6 +625,7 @@ export async function createNote(
       if (current.trim().length === 0) {
         await ctx.docWriter.setContent(input.vaultId, row.id, input.content, {
           userId: ctx.auth.userId,
+          participantId: ctx.auth.participantId,
         });
         seeded = true;
       }
@@ -565,6 +654,7 @@ export async function createNote(
   if (input.content) {
     await ctx.docWriter.setContent(input.vaultId, docId, input.content, {
       userId: ctx.auth.userId,
+      participantId: ctx.auth.participantId,
     });
   }
   // After the content, so a client that reacts to the announcement by pulling
@@ -583,12 +673,13 @@ export async function createNote(
 
 async function requireEditableNote(auth: McpAuth, docId: string) {
   const note = await locateNote(auth, docId);
-  const perm = await effectivePermission(auth.userId, docId);
+  const perm = await mcpDocPermission(auth, docId);
   if (perm !== "edit") {
     throw new McpToolError(
       perm === "view"
         ? "This note is read-only for you (view access or locked)"
         : "You do not have access to this note",
+      { code: "forbidden" },
     );
   }
   return note;
@@ -626,9 +717,10 @@ async function writeOrToolError<T>(fn: () => Promise<T>): Promise<T> {
   try {
     return await fn();
   } catch (err) {
-    if (err instanceof StaleRevisionError || err instanceof EditError) {
-      throw new McpToolError(err.message);
+    if (err instanceof StaleRevisionError) {
+      throw new McpToolError(err.message, { code: "stale" });
     }
+    if (err instanceof EditError) throw new McpToolError(err.message);
     throw err;
   }
 }
@@ -678,7 +770,7 @@ export async function updateNote(
         requireRevision(current, expectedRevision);
         return replacementOp(current, content);
       },
-      { userId: ctx.auth.userId },
+      { userId: ctx.auth.userId, participantId: ctx.auth.participantId },
     ),
   );
   await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
@@ -741,7 +833,7 @@ export async function appendNote(
         requireRevision(current, opts.expectedRevision);
         return [{ index: current.length, deleteLength: 0, insert: text }];
       },
-      { userId: ctx.auth.userId },
+      { userId: ctx.auth.userId, participantId: ctx.auth.participantId },
     ),
   );
   if (key) rememberAppend(key, { revision });
@@ -848,7 +940,7 @@ export async function editNote(
         requireRevision(current, expectedRevision);
         return planEdits(current, edits);
       },
-      { userId: ctx.auth.userId },
+      { userId: ctx.auth.userId, participantId: ctx.auth.participantId },
     ),
   );
   await pool.query("UPDATE notes SET updated_at = now() WHERE id = $1", [docId]);
@@ -891,7 +983,8 @@ export async function searchNotes(
   //    batches and never pulls note bodies onto the heap. The old version
   //    selected `ni.content` + `ni.vector` for every row in the vault with no
   //    LIMIT and then pinned that whole array across the permission loop.
-  const readable = await listReadableDocsInVault(ctx.auth.userId, vaultId);
+  // For an agent token the set is further intersected with its scopes.
+  const readable = await mcpReadableDocsInVault(ctx.auth, vaultId);
   return searchNoteIndex({ vaultId, query, k: limit, readableDocIds: readable });
 }
 
@@ -908,10 +1001,11 @@ export async function queryKnowledgeTool(
 ) {
   await requireVaultInScope(ctx.auth, vaultId);
   try {
-    return await createKnowledgeQuery({
-      actorId: ctx.auth.userId,
-      vaultId,
-    })(query);
+    return await createKnowledgeQuery(
+      { actorId: ctx.auth.userId, vaultId },
+      // The caller's MCP readable set: an agent's query cannot see past its scopes.
+      { readableDocs: (_actorId, vid, db) => mcpReadableDocsInVault(ctx.auth, vid, db) },
+    )(query);
   } catch (error) {
     if (error instanceof KnowledgeQueryError) {
       throw new McpToolError(`${error.code}: ${error.message}`);

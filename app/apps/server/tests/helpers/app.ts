@@ -84,6 +84,10 @@ export interface RecordingAppDeps {
   disconnected: Array<{ vaultId: string; docId: string }>;
   /** Docs closed AND dropped from the server's memory (see `AppDeps.evictDoc`). */
   evicted: Array<{ vaultId: string; docId: string }>;
+  /** Participants whose doc sockets an agent-token revoke closed. */
+  disconnectedParticipants: string[];
+  /** `gone` presence announcements an agent-token revoke fired. */
+  participantGone: Array<{ organizationId: string; participantId: string }>;
   docWriter: MemoryDocWriter;
   /** Clear all recordings (call from `beforeEach`). */
   reset(): void;
@@ -100,18 +104,24 @@ export function recordingAppDeps(overrides: Partial<AppDeps> = {}): RecordingApp
   const aclBroadcasts: string[] = [];
   const disconnected: RecordingAppDeps["disconnected"] = [];
   const evicted: RecordingAppDeps["evicted"] = [];
+  const disconnectedParticipants: string[] = [];
+  const participantGone: RecordingAppDeps["participantGone"] = [];
   const docWriter = memoryDocWriter();
   return {
     registryBroadcasts,
     aclBroadcasts,
     disconnected,
     evicted,
+    disconnectedParticipants,
+    participantGone,
     docWriter,
     reset() {
       registryBroadcasts.length = 0;
       aclBroadcasts.length = 0;
       disconnected.length = 0;
       evicted.length = 0;
+      disconnectedParticipants.length = 0;
+      participantGone.length = 0;
       docWriter.store.clear();
       docWriter.writes.length = 0;
     },
@@ -121,6 +131,9 @@ export function recordingAppDeps(overrides: Partial<AppDeps> = {}): RecordingApp
       evictDoc: (vaultId, docId) => evicted.push({ vaultId, docId }),
       onRegistryChanged: (vaultId, originId) => registryBroadcasts.push({ vaultId, originId }),
       onAclChanged: (vaultId) => aclBroadcasts.push(vaultId),
+      disconnectParticipant: (participantId) => disconnectedParticipants.push(participantId),
+      onParticipantGone: (organizationId, participantId) =>
+        participantGone.push({ organizationId, participantId }),
       ...overrides,
     },
   };
