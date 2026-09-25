@@ -104,7 +104,7 @@ const URL_RE = /^(?:[a-z][a-z0-9+.-]*:\/\/|mailto:|www\.)\S+$/i;
  * select it, hit ⌘K), `[](url)` with the caret in the empty label, because the
  * one thing still missing is the words.
  */
-const insertLink: Command = (view) => {
+export const insertLink: Command = (view) => {
   if (view.state.readOnly) return false;
   const tr = view.state.changeByRange((range) => {
     const target = wrapTarget(view.state, range);
@@ -172,6 +172,28 @@ export function setHeading(level: number): Command {
     return true;
   };
 }
+
+/** Body text: strip the heading marker from every selected line. */
+export const clearHeading: Command = (view) => {
+  if (view.state.readOnly) return false;
+  const { state } = view;
+  const seen = new Set<number>();
+  const changes: { from: number; to: number }[] = [];
+  for (const range of state.selection.ranges) {
+    const first = state.doc.lineAt(range.from).number;
+    const last = state.doc.lineAt(range.to).number;
+    for (let n = first; n <= last; n++) {
+      if (seen.has(n)) continue;
+      seen.add(n);
+      const line = state.doc.line(n);
+      const existing = HEADING_RE.exec(line.text)?.[0];
+      if (existing) changes.push({ from: line.from, to: line.from + existing.length });
+    }
+  }
+  if (!changes.length) return false;
+  view.dispatch({ changes, userEvent: "input.format" });
+  return true;
+};
 
 export function formattingKeymap() {
   return keymap.of([
