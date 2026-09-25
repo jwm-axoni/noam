@@ -19,6 +19,7 @@ import { initPlatform } from "./lib/platform";
 import { initHeadingColor } from "./lib/prefs";
 import { initTheme } from "./lib/theme";
 import { mirrorConsoleToTerminal } from "./lib/devConsole";
+import { installNativeMenu } from "./menu/nativeMenu";
 import * as perf from "./lib/perf";
 
 // The launch timeline starts here: the first line of our own JS to run.
@@ -42,3 +43,7 @@ ReactDOM.createRoot(document.getElementById("root") as HTMLElement).render(
 // Render is synchronous up to the first commit's paint, so this is the cost of
 // parsing + evaluating the bundle plus React's first render.
 perf.mark("react-mount");
+// The native menu bar (File, Edit, Insert, Format, View …). One async IPC
+// call, after the first paint so it never delays it; its items dispatch to
+// `menu/menuActions.ts`, which App installs on mount.
+void installNativeMenu();
