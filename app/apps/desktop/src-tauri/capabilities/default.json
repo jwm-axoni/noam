@@ -34,6 +34,19 @@
     "core:window:allow-show",
     "core:window:allow-unminimize",
     {
+      "identifier": "core:menu:default",
+      "comment": "The native menu bar (File, Edit, Insert, Format, View, Window, Help) is built in JS from the core menu API (src/menu/nativeMenu.ts) and installed with setAsAppMenu on macOS / setAsWindowMenu elsewhere. Every item only fires a window event that src/menu/menuActions.ts maps to an existing command, so this grants no reach beyond the menu itself."
+    },
+    {
+      "identifier": "core:webview:allow-set-webview-zoom",
+      "comment": "View → Zoom In / Zoom Out / Actual Size (⌘= ⌘- ⌘0) scale the page through the webview's own zoom, so text, layout and CodeMirror's measurements move together instead of through a CSS transform."
+    },
+    {
+      "identifier": "core:window:allow-set-fullscreen",
+      "comment": "View → Toggle Full Screen on Windows/Linux, where the menu has no OS-provided full-screen item (macOS uses the predefined one). Paired with allow-is-fullscreen so the item toggles rather than only entering."
+    },
+    "core:window:allow-is-fullscreen",
+    {
       "identifier": "log:default",
       "comment": "Lets the React layer write to the app log. A `console.log` in a WKWebView reaches only the Web Inspector, so without this the UI cannot report anything to whoever is reading the `tauri dev` terminal. The plugin is registered for debug builds only (src/lib.rs)."
     },
