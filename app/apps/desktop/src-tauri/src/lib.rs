@@ -15,6 +15,7 @@ pub mod oauth;
 pub mod parse;
 mod state;
 pub mod tasks;
+mod terminal;
 pub mod tree;
 pub mod vault;
 mod watcher;
@@ -127,6 +128,7 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(terminal::TerminalManager::default())
         .invoke_handler(tauri::generate_handler![
             commands::pick_vault,
             commands::open_vault,
@@ -209,9 +211,23 @@ pub fn run() {
             keychain::keychain_delete,
             oauth::google_oauth_listen,
             oauth::google_oauth_await,
+            terminal::terminal_status,
+            terminal::terminal_open,
+            terminal::terminal_attach,
+            terminal::terminal_detach,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_kill,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting takes every shell with it: a terminal is part of this
+            // window, not a background service that outlives the app.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<terminal::TerminalManager>().kill_all();
+            }
+        });
 }
 
 #[cfg(test)]

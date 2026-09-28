@@ -110,6 +110,16 @@ Errors: single `AppError(String)` (`error.rs`).
   deliberately ignore); a rename therefore arrives as an unpaired `removed` + `modified` in one batch.
 - `attachments.rs` — path-validated binary I/O under `attachments/`; never enters the note/CRDT pipeline.
 - `keychain.rs` — `keyring` crate, service `com.noam.app`; trait-based so tests use a fake.
+- `terminal.rs` — embedded terminal (plan `docs/PLAN-INTERACTIVE-VIEWS.md` Part 6). `portable-pty`
+  sessions keyed by the terminal PANEL's instance id, owned by Rust so a tab moving between docks
+  re-attaches (scrollback replayed) instead of killing the shell. Output streams over a per-view
+  `tauri::ipc::Channel` (raw bytes + one `{exit}` message), not an event. Unix spawns the user's
+  LOGIN shell (else a GUI app's PATH hides `claude`/`codex`), always in the vault root. Every
+  command refuses any window but `main`; `managed-policy.json` `terminal.enabled: false` (or
+  `NOAM_TERMINAL_POLICY=disabled`) refuses spawns. `terminal_attach` never spawns: the UI spawns
+  only for a panel a user action created (`lib/terminal/lifecycle.ts`), so a restored tab shows
+  "Session ended". A panel leaving `layout.panels` (close, vault switch) kills its shell; app exit
+  kills all.
 
 Tauri events to the UI: **`vault-opened`** and **`files-changed`** (the only two).
 

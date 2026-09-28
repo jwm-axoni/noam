@@ -218,8 +218,9 @@ rather than writing it silently, because it's a visible file in the user's vault
 
 ### Terminal build steps
 
-- **T1:** Rust PTY manager + xterm panel, allowed in the center and right zones. Usable as a full tab
-  from day one, before any layout work.
+- **T1 ✅:** Rust PTY manager + xterm panel, allowed in the center and right zones. Usable as a full tab
+  from day one, before any layout work. Shipped with the main-window check, the managed-policy key,
+  keyboard passthrough (`lib/terminal/keys.ts`) and Ctrl+` / Ctrl+Shift+` pulled forward from T2/T3.
 - **T2:** the bottom zone in the layout system, and the Ctrl+` toggle.
 - **T3:** managed-policy key, keyboard passthrough polish, the `AGENTS.md` offer.
 

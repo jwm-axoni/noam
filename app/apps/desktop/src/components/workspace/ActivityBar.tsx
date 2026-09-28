@@ -3,6 +3,7 @@ import { findPanelTab, isPanelVisible } from "../../layout/operations";
 import { useLayoutStore } from "../../layout/store";
 import type { PanelType } from "../../layout/types";
 import { presenceV1Enabled } from "../../lib/presence/flag";
+import { openOrFocusTerminal } from "../../lib/terminal/open";
 import { requestSearchInputFocus } from "../searchFocus";
 import { VaultFooter } from "./VaultFooter";
 
@@ -99,6 +100,26 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
             </button>
           );
         })}
+        {side === "right" && (() => {
+          // Not a toggle like the rest: a terminal is a center tab, and this
+          // shows the one you had (or starts one), the same as Ctrl+`.
+          const active = Object.values(layout.groups).some((group) => {
+            const tab = group.tabs.find((t) => t.id === group.activeTabId);
+            return tab?.kind === "panel" && layout.panels[tab.panelId]?.type === "terminal";
+          });
+          return (
+            <button
+              type="button"
+              className={`activity-button${active ? " active" : ""}`}
+              title="Terminal (Ctrl+`)"
+              aria-label="Terminal"
+              data-activity-panel="terminal"
+              onClick={() => openOrFocusTerminal()}
+            >
+              {icon("terminal")}
+            </button>
+          );
+        })()}
       </div>
       {side === "left" && <VaultFooter />}
     </nav>

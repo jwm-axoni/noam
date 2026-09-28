@@ -280,7 +280,7 @@ struct ManagedAutoUpdate {
 ///   Linux    `/etc/noam/managed-policy.json`
 ///   Windows  `%ProgramData%\Noam\managed-policy.json`
 /// `None` on a platform without a conventional system config location.
-fn managed_policy_path() -> Option<PathBuf> {
+pub(crate) fn managed_policy_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         Some(PathBuf::from(

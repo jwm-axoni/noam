@@ -21,7 +21,7 @@ export interface PanelRegistration {
   allowedZones: readonly ZoneId[];
   minimumWidth: number;
   minimumHeight: number;
-  multiplicity: 1 | 2;
+  multiplicity: number;
   load: () => Promise<{ default: ComponentType<PanelBodyProps> }>;
   validateState: (state: unknown) => state is Record<string, unknown>;
   persistentState: (state: Record<string, unknown>) => Record<string, unknown>;
@@ -127,6 +127,11 @@ const presencePersistentState = (state: Record<string, unknown>) => {
   );
   return { collapsed };
 };
+
+const terminalLoader: PanelRegistration["load"] = () =>
+  import("../components/terminal/TerminalPanel").then(({ TerminalPanel }) => ({
+    default: TerminalPanel,
+  }));
 
 const outlineLoader: PanelRegistration["load"] = () =>
   import("../components/OutlinePanel").then(({ OutlinePanel }) => ({
@@ -304,6 +309,23 @@ export const panelRegistry = {
     multiplicity: 1,
     load: historyLoader,
     validateState: emptyState,
+    persistentState: noPersistentState,
+  },
+  terminal: {
+    type: "terminal",
+    label: "Terminal",
+    defaultZone: "center",
+    defaultGroup: "primary",
+    // lucide `square-terminal`.
+    icon: icon(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></>),
+    allowedZones: ["center", "right"],
+    minimumWidth: 320,
+    minimumHeight: 180,
+    multiplicity: 4,
+    load: terminalLoader,
+    validateState: emptyState,
+    // The shell lives in Rust and never survives a relaunch, so there is
+    // nothing about it worth saving.
     persistentState: noPersistentState,
   },
 } as const satisfies Record<PanelType, PanelRegistration>;

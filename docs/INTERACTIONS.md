@@ -146,6 +146,9 @@ n/a = synchronous or sub-100ms by construction.
 | Push-to-talk | mic + relay | instant | ✅ existing talk states |
 | Search | local FTS5 | fast | n/a |
 | Graph view | in-memory sim | fast | n/a |
+| Open terminal (Ctrl+` / activity button) | spawn login shell in vault root | 0.1–1s | ✅ tab opens focused; the prompt is the feedback. A restored tab shows "Session ended" + Restart, never a silent respawn |
+| New terminal (Ctrl+Shift+`) | same, new tab (max 4) | 0.1–1s | ✅ tab opens focused; at the limit nothing opens |
+| Shell exits | pty EOF + wait | instant | ✅ "Shell exited with code N" + Restart under the output |
 | Ping a peer | awareness field | instant | ✅ existing ping toast |
 | New tab (`+` / ⌘N) | create + open + reveal | fast | ✅ row pulses in the sidebar, highlight slides to the new tab, cursor waits in the note's title |
 | Switch tab (click / Ctrl-Tab) | same as note open | 0.05–2s | ✅ tab dims while opening, then the highlight slides to it |

@@ -3,7 +3,7 @@
 // `@tauri-apps/api` directly. This keeps later phases (a Yjs sync layer) able to
 // swap the transport without hunting invoke() calls across components.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { decodeStateVectors, decodeYjsState, frame, type YjsState } from "./ipcCodec";
@@ -1021,3 +1021,27 @@ export interface IndexReady {
 }
 export const onIndexReady = (cb: (e: IndexReady) => void): Promise<UnlistenFn> =>
   listen<IndexReady>("index-ready", (event) => cb(event.payload));
+
+// ---- Embedded terminal (src-tauri/src/terminal.rs) --------------------------
+// Rust owns each shell under a key (the terminal panel's instance id). Output
+// streams down a Channel as raw bytes, plus one `{ exit }` message when the
+// shell is gone. `terminalAttach` never starts a process; only `terminalOpen`
+// does, and only for a user action.
+
+export type TerminalMessage = ArrayBuffer | Uint8Array | number[] | { exit: number | null };
+export type TerminalChannel = Channel<TerminalMessage>;
+export const createTerminalChannel = (onMessage: (m: TerminalMessage) => void): TerminalChannel =>
+  new Channel<TerminalMessage>(onMessage);
+
+export const terminalStatus = () => invoke<{ enabled: boolean }>("terminal_status");
+export const terminalOpen = (key: string, cols: number, rows: number, channel: TerminalChannel) =>
+  invoke<void>("terminal_open", { key, cols, rows, channel });
+export const terminalAttach = (key: string, channel: TerminalChannel) =>
+  invoke<boolean>("terminal_attach", { key, channel });
+export const terminalDetach = (key: string, channelId: number) =>
+  invoke<void>("terminal_detach", { key, channelId });
+export const terminalWrite = (key: string, data: string) =>
+  invoke<void>("terminal_write", { key, data });
+export const terminalResize = (key: string, cols: number, rows: number) =>
+  invoke<void>("terminal_resize", { key, cols, rows });
+export const terminalKill = (key: string) => invoke<void>("terminal_kill", { key });

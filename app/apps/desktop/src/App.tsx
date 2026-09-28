@@ -43,6 +43,8 @@ import type { ViewMode } from "./lib/editor/viewMode";
 import { createViewModeShortcutHandler } from "./lib/editor/viewModeShortcut";
 import { matchGlobalShortcut } from "./lib/globalShortcuts";
 import { platformClass } from "./lib/platform";
+import { appKeepsKey, isTerminalTarget, matchTerminalShortcut } from "./lib/terminal/keys";
+import { newTerminal, openOrFocusTerminal } from "./lib/terminal/open";
 import { setSlashWorkflowSource } from "./lib/editor/slash";
 import {
   batchTouchesWorkflows,
@@ -1107,6 +1109,16 @@ export default function App() {
     });
 
     const onKey = async (e: KeyboardEvent) => {
+      // A focused terminal owns the keyboard: vim and coding agents rely on
+      // Ctrl+F/R/W/N and friends. The app keeps only what `appKeepsKey` lists.
+      if (isTerminalTarget(e.target) && !appKeepsKey(e, platformClass() === "macos")) return;
+      const terminalShortcut = matchTerminalShortcut(e);
+      if (terminalShortcut) {
+        e.preventDefault();
+        if (terminalShortcut === "new-terminal") newTerminal();
+        else openOrFocusTerminal();
+        return;
+      }
       const globalShortcut = matchGlobalShortcut(e);
       if (globalShortcut === "action-picker") {
         e.preventDefault();

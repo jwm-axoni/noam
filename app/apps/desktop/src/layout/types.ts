@@ -14,6 +14,7 @@ export const PANEL_TYPES = [
   "calendar",
   "presence",
   "review",
+  "terminal",
 ] as const;
 export type PanelType = (typeof PANEL_TYPES)[number];
 
@@ -91,6 +92,9 @@ export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>>
   // Who is here: a standing roster beside the note, never a document surface.
   presence: ["left", "right"],
   review: ["left", "right", "center"],
+  // A shell is a work surface: a full center tab, or beside the note. T2 adds
+  // the bottom zone; the left dock stays the navigation column.
+  terminal: ["center", "right"],
 };
 
 export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
@@ -106,6 +110,8 @@ export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
   calendar: 1,
   presence: 1,
   review: 1,
+  // Each terminal is its own process; a few side by side, not unbounded.
+  terminal: 4,
 };
 
 export function isZoneId(value: unknown): value is ZoneId {

@@ -47,6 +47,7 @@ const PANEL_COMPONENTS = {
   calendar: lazyPanel("calendar"),
   presence: lazyPanel("presence"),
   review: lazyPanel("review"),
+  terminal: lazyPanel("terminal"),
 };
 
 interface WorkspaceShellProps {
