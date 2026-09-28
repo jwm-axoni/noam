@@ -119,7 +119,10 @@ Errors: single `AppError(String)` (`error.rs`).
   `NOAM_TERMINAL_POLICY=disabled`) refuses spawns. `terminal_attach` never spawns: the UI spawns
   only for a panel a user action created (`lib/terminal/lifecycle.ts`), so a restored tab shows
   "Session ended". A panel leaving `layout.panels` (close, vault switch) kills its shell; app exit
-  kills all.
+  kills all. Its home is the `"bottom"` layout zone (`layout/types.ts`): under the CENTER column
+  only (`.workspace-center-column`), x-splits only, always mounted even collapsed (a hidden
+  terminal keeps running), and persisted layouts without a `bottom` key still load. The xterm view
+  refits only while really on screen (`canFit`), or hiding the dock would resize the shell to one row.
 
 Tauri events to the UI: **`vault-opened`** and **`files-changed`** (the only two).
 

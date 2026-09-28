@@ -9,7 +9,7 @@ import {
   stackGroupSizes,
 } from "../../layout/geometry";
 import { useLayoutStore } from "../../layout/store";
-import { CENTER_NOTE_GROUP_ID } from "../../layout/types";
+import { CENTER_NOTE_GROUP_ID, type ZoneId } from "../../layout/types";
 import { getDockDragSnapshot, subscribeDockDrag } from "../../layout/dragSession";
 import { PaneSeparator } from "./PaneSeparator";
 
@@ -18,7 +18,7 @@ export function DockZone({
   children,
   className = "",
 }: {
-  zoneId: "left" | "center" | "right";
+  zoneId: ZoneId;
   children: ReactNode;
   className?: string;
 }) {
@@ -174,7 +174,7 @@ function DockMarker({
   groupId,
 }: {
   drag: ReturnType<typeof getDockDragSnapshot>;
-  zoneId: "left" | "center" | "right";
+  zoneId: ZoneId;
   groupId: string | undefined;
 }) {
   const target = drag.target;

@@ -1,5 +1,5 @@
-// The `terminal` panel type through the layout machinery: it opens as a full
-// center tab, can move to the right dock without changing its instance id (the
+// The `terminal` panel type through the layout machinery: it can sit as a full
+// center tab (the bottom dock is covered in bottomDock.test.ts), move to the right dock without changing its instance id (the
 // key Rust holds its shell under), several can coexist, and a saved layout
 // restores the tabs — the shells themselves never come back on their own.
 
@@ -37,10 +37,10 @@ function tabOf(layout: LayoutV1, panelId: string) {
 }
 
 describe("terminal panel registration", () => {
-  it("lives in the center or the right dock, never the navigation column", () => {
-    expect(PANEL_ALLOWED_ZONES.terminal).toEqual(["center", "right"]);
-    expect(panelRegistry.terminal.allowedZones).toEqual(["center", "right"]);
-    expect(panelRegistry.terminal.defaultZone).toBe("center");
+  it("lives in the bottom panel, the center or the right dock, never the navigation column", () => {
+    expect(PANEL_ALLOWED_ZONES.terminal).toEqual(["bottom", "center", "right"]);
+    expect(panelRegistry.terminal.allowedZones).toEqual(["bottom", "center", "right"]);
+    expect(panelRegistry.terminal.defaultZone).toBe("bottom");
     expect(PANEL_MULTIPLICITY.terminal).toBe(panelRegistry.terminal.multiplicity);
   });
 

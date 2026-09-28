@@ -5,6 +5,7 @@ import { panelRegistry } from "./panelRegistry";
 import {
   CENTER_NOTE_GROUP_ID,
   ZONE_IDS,
+  createBottomZone,
   createDefaultLayout,
   isPanelType,
   type LayoutGroup,
@@ -15,7 +16,7 @@ import {
   type PanelInstance,
 } from "./types";
 import { useLayoutStore } from "./store";
-import { clampPreferredDockWidth } from "./geometry";
+import { clampPreferredBottomHeight, clampPreferredDockWidth } from "./geometry";
 import { applyLayoutOperation } from "./operations";
 
 export const LAYOUT_STORAGE_PREFIX = "noam.workspace.layout.v1:";
@@ -84,6 +85,7 @@ function parseZone(value: unknown, zoneId: ZoneId): LayoutZone | null {
     typeof preferredWidth !== "number" || !Number.isFinite(preferredWidth) ||
     typeof userCollapsed !== "boolean"
   ) return null;
+  if (zoneId === "bottom" && axis !== "x") return null;
   return {
     groupIds: [...new Set(groupIds)],
     ...(record(value.groupSizes) ? { groupSizes: Object.fromEntries(
@@ -93,6 +95,9 @@ function parseZone(value: unknown, zoneId: ZoneId): LayoutZone | null {
     axis,
     ratio,
     preferredWidth,
+    ...(zoneId === "bottom" ? { preferredHeight: clampPreferredBottomHeight(
+      typeof value.preferredHeight === "number" ? value.preferredHeight : Number.NaN,
+    ) } : {}),
     userCollapsed,
   };
 }
@@ -137,6 +142,12 @@ export function validatePersistedLayout(value: unknown): LayoutV1 | null {
   }
   const zones = {} as LayoutV1["zones"];
   for (const zoneId of ZONE_IDS) {
+    // Layouts saved before the bottom dock existed have no `bottom` key; they
+    // are still valid and get an empty one rather than being thrown away.
+    if (zoneId === "bottom" && value.zones.bottom === undefined) {
+      zones.bottom = createBottomZone();
+      continue;
+    }
     const zone = parseZone(value.zones[zoneId], zoneId);
     if (!zone) return null;
     zones[zoneId] = zone;
@@ -200,7 +211,7 @@ export function validatePersistedLayout(value: unknown): LayoutV1 | null {
   };
   zones.center.groupIds = [CENTER_NOTE_GROUP_ID, ...existingCenterTools].slice(0, 2);
   zones.center.userCollapsed = false;
-  for (const zoneId of ["left", "right"] as const) {
+  for (const zoneId of ["left", "right", "bottom"] as const) {
     if (zones[zoneId].groupIds.length === 0) zones[zoneId].userCollapsed = true;
   }
   for (const id of Object.keys(panels)) if (!placedPanels.has(id)) delete panels[id];

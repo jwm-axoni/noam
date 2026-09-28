@@ -12,6 +12,8 @@ export function PanelFrame({
   panelType,
   onClose,
   resetKeys,
+  windowDrag = true,
+  onCollapse,
   children,
 }: {
   title: string;
@@ -21,6 +23,11 @@ export function PanelFrame({
   panelType: PanelType;
   onClose: () => void;
   resetKeys?: ReadonlyArray<unknown>;
+  /** Empty header space moves the native window — right for the side docks at
+   *  the window's top edge, wrong for the bottom dock in the middle of it. */
+  windowDrag?: boolean;
+  /** Hide the dock without closing anything (the bottom dock's chevron). */
+  onCollapse?: () => void;
   children: ReactNode;
 }) {
   const drag = useDockDrag({ groupId, tabId, label: title });
@@ -28,7 +35,7 @@ export function PanelFrame({
     <section className="workspace-panel-frame">
       <header
         className="workspace-panel-header"
-        data-tauri-drag-region
+        data-tauri-drag-region={windowDrag ? true : undefined}
         onPointerDown={(event) => {
           // Tab buttons arm their own drag; don't let the press bubble into
           // the header's probe or two drags fight over the same pointer.
@@ -41,6 +48,20 @@ export function PanelFrame({
       >
         <DockTabBar groupId={groupId} />
         <PanelMoveMenu groupId={groupId} tabId={tabId} panelType={panelType} />
+        {onCollapse && (
+          <button
+            type="button"
+            className="icon-btn workspace-panel-collapse"
+            onClick={onCollapse}
+            aria-label="Hide panel"
+            title="Hide panel (Ctrl+`) — keeps it running"
+            data-no-dock-drag
+          >
+            <svg viewBox="0 0 24 24" aria-hidden="true">
+              <path d="m6 9 6 6 6-6" />
+            </svg>
+          </button>
+        )}
         <button
           type="button"
           className="icon-btn workspace-panel-close"

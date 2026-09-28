@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { useLayoutStore } from "../../layout/store";
-import { PANEL_ALLOWED_ZONES, canSplitZone, type PanelType, type ZoneId } from "../../layout/types";
+import { PANEL_ALLOWED_ZONES, ZONE_IDS, canSplitZone, type PanelType, type ZoneId } from "../../layout/types";
 import { ViewportMenu } from "../ViewportMenu";
 
-const ZONES: readonly ZoneId[] = ["left", "center", "right"];
+const ZONES: readonly ZoneId[] = ZONE_IDS;
 
 function zoneLabel(zone: ZoneId): string {
-  return zone === "center" ? "center" : `${zone} dock`;
+  if (zone === "center") return "center";
+  return zone === "bottom" ? "bottom panel" : `${zone} dock`;
 }
 
 function zoneSize(zone: ZoneId, axis: "x" | "y"): number {

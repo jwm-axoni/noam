@@ -44,7 +44,7 @@ import { createViewModeShortcutHandler } from "./lib/editor/viewModeShortcut";
 import { matchGlobalShortcut } from "./lib/globalShortcuts";
 import { platformClass } from "./lib/platform";
 import { appKeepsKey, isTerminalTarget, matchTerminalShortcut } from "./lib/terminal/keys";
-import { newTerminal, openOrFocusTerminal } from "./lib/terminal/open";
+import { newTerminal, toggleTerminal } from "./lib/terminal/open";
 import { setSlashWorkflowSource } from "./lib/editor/slash";
 import {
   batchTouchesWorkflows,
@@ -1116,7 +1116,7 @@ export default function App() {
       if (terminalShortcut) {
         e.preventDefault();
         if (terminalShortcut === "new-terminal") newTerminal();
-        else openOrFocusTerminal();
+        else toggleTerminal(e.target);
         return;
       }
       const globalShortcut = matchGlobalShortcut(e);

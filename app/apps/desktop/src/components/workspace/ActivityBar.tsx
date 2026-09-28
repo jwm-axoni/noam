@@ -1,5 +1,5 @@
 import { panelRegistry } from "../../layout/panelRegistry";
-import { findPanelTab, isPanelVisible } from "../../layout/operations";
+import { findPanelTab, isPanelVisible, zoneForGroup } from "../../layout/operations";
 import { useLayoutStore } from "../../layout/store";
 import type { PanelType } from "../../layout/types";
 import { presenceV1Enabled } from "../../lib/presence/flag";
@@ -28,16 +28,15 @@ export function togglePanel(
   const current = useLayoutStore.getState().layout;
   const found = findPanelTab(current, type);
   if (found) {
-    const zone = (["left", "center", "right"] as const).find((id) =>
-      current.zones[id].groupIds.includes(found.groupId));
+    const zone = zoneForGroup(current, found.groupId);
     const active = isPanelVisible(current, type);
-    if ((zone === "left" || zone === "right") && active && !current.zones[zone].userCollapsed) {
+    if (zone && zone !== "center" && active && !current.zones[zone].userCollapsed) {
       useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: true });
       opts.button?.focus();
       return;
     }
     useLayoutStore.getState().dispatch({ type: "activate-tab", groupId: found.groupId, tabId: found.tab.id });
-    if (zone === "left" || zone === "right") {
+    if (zone && zone !== "center") {
       useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: false });
     }
   } else {
@@ -82,7 +81,7 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
         )}
         {types.map((type) => {
           const found = findPanelTab(layout, type);
-          const zone = found && (["left", "center", "right"] as const).find((id) => layout.zones[id].groupIds.includes(found.groupId));
+          const zone = found && zoneForGroup(layout, found.groupId);
           const active = isPanelVisible(layout, type) &&
             (zone === "center" || (zone != null && !layout.zones[zone].userCollapsed));
           return (
@@ -101,11 +100,13 @@ export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanel
           );
         })}
         {side === "right" && (() => {
-          // Not a toggle like the rest: a terminal is a center tab, and this
-          // shows the one you had (or starts one), the same as Ctrl+`.
-          const active = Object.values(layout.groups).some((group) => {
+          // Shows the terminal you had (or starts one) rather than toggling:
+          // hiding the bottom dock is its own chevron and Ctrl+`.
+          const active = Object.entries(layout.groups).some(([groupId, group]) => {
             const tab = group.tabs.find((t) => t.id === group.activeTabId);
-            return tab?.kind === "panel" && layout.panels[tab.panelId]?.type === "terminal";
+            if (tab?.kind !== "panel" || layout.panels[tab.panelId]?.type !== "terminal") return false;
+            const zone = zoneForGroup(layout, groupId);
+            return zone === "center" || (zone != null && !layout.zones[zone].userCollapsed);
           });
           return (
             <button

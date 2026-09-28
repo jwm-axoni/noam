@@ -1,4 +1,4 @@
-export const ZONE_IDS = ["left", "center", "right"] as const;
+export const ZONE_IDS = ["left", "center", "right", "bottom"] as const;
 export type ZoneId = (typeof ZONE_IDS)[number];
 
 export const PANEL_TYPES = [
@@ -50,6 +50,8 @@ export interface LayoutZone {
   groupSizes?: Record<string, number>;
   /** The user's choice. Viewport fitting never writes its temporary result here. */
   preferredWidth: number;
+  /** The bottom dock's user-chosen height; other zones never set it. */
+  preferredHeight?: number;
   userCollapsed: boolean;
 }
 
@@ -74,6 +76,7 @@ export const FILES_PANEL_ID = "panel:files";
 
 export const DEFAULT_LEFT_WIDTH = 264;
 export const DEFAULT_RIGHT_WIDTH = 320;
+export const DEFAULT_BOTTOM_HEIGHT = 280;
 export const WORKSPACE_RESIZE_EVENT = "noam:workspace-resize";
 
 export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>> = {
@@ -92,9 +95,9 @@ export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>>
   // Who is here: a standing roster beside the note, never a document surface.
   presence: ["left", "right"],
   review: ["left", "right", "center"],
-  // A shell is a work surface: a full center tab, or beside the note. T2 adds
-  // the bottom zone; the left dock stays the navigation column.
-  terminal: ["center", "right"],
+  // A shell is a work surface: the bottom panel under the note (its home), a
+  // full center tab, or beside the note. The left dock stays navigation.
+  terminal: ["bottom", "center", "right"],
 };
 
 export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
@@ -150,6 +153,7 @@ export function createDefaultLayout(legacyLeftWidth = DEFAULT_LEFT_WIDTH): Layou
         preferredWidth: DEFAULT_RIGHT_WIDTH,
         userCollapsed: true,
       },
+      bottom: createBottomZone(),
     },
     groups: {
       [LEFT_FILES_GROUP_ID]: {
@@ -176,8 +180,22 @@ export function createDefaultLayout(legacyLeftWidth = DEFAULT_LEFT_WIDTH): Layou
   };
 }
 
-/** Right-side vertical stacks can hold every available tool; other zones retain one split. */
+/** The bottom dock under the center column: empty and collapsed until used. */
+export function createBottomZone(preferredHeight = DEFAULT_BOTTOM_HEIGHT): LayoutZone {
+  return {
+    groupIds: [],
+    axis: "x",
+    ratio: 0.5,
+    preferredWidth: 0,
+    preferredHeight,
+    userCollapsed: true,
+  };
+}
+
+/** Right-side vertical stacks can hold every available tool; other zones retain one split.
+ *  The bottom dock is a short strip, so it only splits side by side. */
 export function canSplitZone(zoneId: ZoneId, zone: LayoutZone, axis: SplitAxis): boolean {
+  if (zoneId === "bottom" && axis !== "x") return false;
   return zone.groupIds.length < 2 ||
     (zoneId === "right" && axis === "y" && zone.axis === "y" && zone.groupIds.length < 12);
 }

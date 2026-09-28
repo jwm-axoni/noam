@@ -54,6 +54,17 @@ async function readClipboardForPaste(): Promise<string | null> {
   }
 }
 
+/**
+ * Is the host showing at a usable size? A hidden tab or a collapsed bottom dock
+ * measures (near) zero, and fitting to that would shrink the shell to one row:
+ * every TUI in it (Claude Code, vim) would redraw at that size, and again on
+ * the way back. So a terminal that is not really on screen keeps its last size.
+ */
+function canFit(host: HTMLElement): boolean {
+  return host.clientWidth >= 60 && host.clientHeight >= 40 &&
+    getComputedStyle(host).visibility !== "hidden";
+}
+
 function cssVar(style: CSSStyleDeclaration, name: string, fallback: string): string {
   return style.getPropertyValue(name).trim() || fallback;
 }
@@ -149,10 +160,10 @@ export function TerminalPanel({ instanceId, visible }: PanelBodyProps) {
       attributeFilter: ["data-theme", "data-theme-preset", "data-accent", "class", "style"],
     });
 
-    // Fit whenever the panel's box changes. A hidden panel measures 0×0 and
-    // `proposeDimensions` returns nothing, so hidden tabs keep their size.
+    // Fit whenever the panel's box changes — but only while it is really on
+    // screen (see `canFit`), so hiding the bottom dock never resizes the shell.
     const observer = new ResizeObserver(() => {
-      if (fit.proposeDimensions()) fit.fit();
+      if (canFit(host) && fit.proposeDimensions()) fit.fit();
     });
     observer.observe(host);
 
@@ -199,8 +210,8 @@ export function TerminalPanel({ instanceId, visible }: PanelBodyProps) {
           return;
         }
       }
-      const dims = fitRef.current?.proposeDimensions();
-      if (dims) fitRef.current?.fit();
+      const host = hostRef.current;
+      if (host && canFit(host) && fitRef.current?.proposeDimensions()) fitRef.current.fit();
       trackSession(instanceId);
       await terminalOpen(instanceId, term.cols, term.rows, channel);
       if (cancelled) {
@@ -226,7 +237,8 @@ export function TerminalPanel({ instanceId, visible }: PanelBodyProps) {
   useEffect(() => {
     if (!visible) return;
     const fit = fitRef.current;
-    if (fit?.proposeDimensions()) fit.fit();
+    const host = hostRef.current;
+    if (fit && host && canFit(host) && fit.proposeDimensions()) fit.fit();
   }, [visible]);
 
   const restart = () => {

@@ -314,13 +314,13 @@ export const panelRegistry = {
   terminal: {
     type: "terminal",
     label: "Terminal",
-    defaultZone: "center",
+    defaultZone: "bottom",
     defaultGroup: "primary",
     // lucide `square-terminal`.
     icon: icon(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></>),
-    allowedZones: ["center", "right"],
+    allowedZones: ["bottom", "center", "right"],
     minimumWidth: 320,
-    minimumHeight: 180,
+    minimumHeight: 120,
     multiplicity: 4,
     load: terminalLoader,
     validateState: emptyState,

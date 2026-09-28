@@ -221,7 +221,13 @@ rather than writing it silently, because it's a visible file in the user's vault
 - **T1 ✅:** Rust PTY manager + xterm panel, allowed in the center and right zones. Usable as a full tab
   from day one, before any layout work. Shipped with the main-window check, the managed-policy key,
   keyboard passthrough (`lib/terminal/keys.ts`) and Ctrl+` / Ctrl+Shift+` pulled forward from T2/T3.
-- **T2:** the bottom zone in the layout system, and the Ctrl+` toggle.
+- **T2 ✅:** the bottom zone in the layout system, and the Ctrl+` toggle. `"bottom"` is a fourth
+  `ZoneId` under the center column only (side docks keep full height), splits side by side only,
+  and stays mounted while collapsed so a hidden terminal keeps running. Layouts saved before it
+  existed still load (an empty bottom zone is filled in). New terminals open there; Ctrl+` from
+  inside the bottom terminal hides the dock, anywhere else it shows one. The header's chevron hides
+  without closing. A terminal only refits while really on screen, so hiding the dock never resizes
+  the shell.
 - **T3:** managed-policy key, keyboard passthrough polish, the `AGENTS.md` offer.
 
 ---

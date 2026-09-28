@@ -19,7 +19,7 @@ export type DockDropTarget =
       edge: "top" | "right" | "bottom" | "left";
       availableSize: number;
     }
-  | { kind: "zone"; zone: "left" | "right" };
+  | { kind: "zone"; zone: "left" | "right" | "bottom" };
 
 export interface DockDragSnapshot {
   source: DockDragSource | null;
