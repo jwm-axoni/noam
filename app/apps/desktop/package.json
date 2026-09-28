@@ -12,7 +12,6 @@
     "tauri": "tauri"
   },
   "dependencies": {
-    "@noam/contracts": "workspace:*",
     "@codemirror/autocomplete": "^6.20.3",
     "@codemirror/commands": "^6.10.4",
     "@codemirror/lang-cpp": "^6.0.3",
@@ -32,7 +31,7 @@
     "@codemirror/search": "^6.7.1",
     "@codemirror/state": "^6.7.1",
     "@codemirror/view": "^6.43.6",
-    "@dicebear/collection": "^9.4.2",
+    "@dicebear/collection": "^9.4.3",
     "@dicebear/core": "^9.4.3",
     "@fontsource/jetbrains-mono": "^5.2.8",
     "@fontsource/radio-canada-big": "^5.2.7",
@@ -40,6 +39,7 @@
     "@lezer/common": "^1.5.2",
     "@lezer/highlight": "^1.2.3",
     "@lezer/markdown": "^1.7.1",
+    "@noam/contracts": "workspace:*",
     "@tauri-apps/api": "^2",
     "@tauri-apps/plugin-clipboard-manager": "^2.3.2",
     "@tauri-apps/plugin-deep-link": "^2.4.9",
