@@ -17,6 +17,7 @@ import { vaultTokenRoutes } from "./routes/vault-token.js";
 import { desktopOauthRoutes } from "./routes/desktop-oauth.js";
 import { createShareRoutes, type ShareDeps } from "./routes/shares.js";
 import { createOrgRoutes } from "./routes/orgs.js";
+import { createParticipantRoutes } from "./routes/participants.js";
 import { graphRoutes } from "./routes/graph.js";
 import { createMcpRoutes } from "./routes/mcp.js";
 import { createRepairRoutes } from "./routes/repair.js";
@@ -25,6 +26,7 @@ import { createBillingRoutes } from "./routes/billing.js";
 import { PolarBillingProvider } from "../billing/polar.js";
 import type { BillingProvider } from "../billing/provider.js";
 import type { DocWriter } from "../mcp/doc-writer.js";
+import { createMcpAudit, type McpAudit } from "../audit/mcp-audit.js";
 
 export interface AppDeps extends ShareDeps {
   /** Server-side note writer for the MCP tools (backed by the sync server). */
@@ -63,6 +65,23 @@ export interface AppDeps extends ShareDeps {
    * token expires. Inner routers keep it optional for focused unit tests.
    */
   onAclChanged: (vaultId: string) => void;
+  /**
+   * Agent-token revocation (ADR 0003 item 5). Both fire from
+   * `DELETE /api/mcp/tokens/:id` when the token was an agent token:
+   * `disconnectParticipant` closes every doc socket whose connection context
+   * carries that participant (`sync/hocuspocus.ts`), and `onParticipantGone`
+   * publishes a `gone` presence frame for the participant on every collection
+   * of the organization (`sync/vault-channel.ts publishParticipantGone`) so
+   * the chip retracts without waiting for decay. Optional here so focused
+   * tests can omit them; `src/index.ts` always wires both.
+   */
+  disconnectParticipant?: (participantId: string) => void;
+  onParticipantGone?: (organizationId: string, participantId: string) => void;
+  /**
+   * The MCP audit sink + read budget (ADR 0003 items 4 and 6). Defaults to the
+   * Postgres-backed `createMcpAudit()`; tests inject a fake or a tighter budget.
+   */
+  mcpAudit?: McpAudit;
 }
 
 /**
@@ -101,6 +120,7 @@ function allowedOrigins(): string[] {
  *  - /api/notes/:docId/public-link → mint/inspect/revoke a public note link
  *  - /p/:token → public read-only note page (no auth; token is the capability)
  *  - /api/orgs/join-code, /api/orgs/join → vault join codes
+ *  - /api/orgs/:orgId/participants[/:id] → participant registry (roster, agent rows)
  *  - /api/invitations/mine, /api/invitations/:id/{preview,send} → invitation inbox/preview/email
  *  - /api/password-reset/request → emailed reset link (reports the outcome)
  *  - /forgot-password, /reset-password, /email-verified, /invite/:id → account pages
@@ -226,6 +246,7 @@ export function createApp(deps: AppDeps): Hono {
       billingProvider,
     }),
   );
+  app.route("/api", createParticipantRoutes({ onAclChanged: deps.onAclChanged }));
   app.route("/api", createBillingRoutes({ provider: billingProvider }));
   app.route("/api", graphRoutes);
   app.route(
@@ -234,6 +255,9 @@ export function createApp(deps: AppDeps): Hono {
       docWriter: deps.docWriter,
       disconnectDoc: deps.disconnectDoc,
       onRegistryChanged: deps.onRegistryChanged,
+      disconnectParticipant: deps.disconnectParticipant,
+      onParticipantGone: deps.onParticipantGone,
+      audit: deps.mcpAudit ?? createMcpAudit(),
     }),
   );
 

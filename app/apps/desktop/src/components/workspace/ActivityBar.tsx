@@ -2,6 +2,7 @@ import { panelRegistry } from "../../layout/panelRegistry";
 import { findPanelTab, isPanelVisible } from "../../layout/operations";
 import { useLayoutStore } from "../../layout/store";
 import type { PanelType } from "../../layout/types";
+import { presenceV1Enabled } from "../../lib/presence/flag";
 import { requestSearchInputFocus } from "../searchFocus";
 import { VaultFooter } from "./VaultFooter";
 
@@ -14,41 +15,56 @@ interface ActivityBarProps {
 
 const icon = (type: PanelType) => panelRegistry[type].icon;
 
+/**
+ * Toggle a dock panel the way its activity button does: collapse its dock when
+ * it is already showing there, otherwise reveal (or open) it and focus it.
+ * Shared with keyboard shortcuts, which have no button to hand focus back to.
+ */
+export function togglePanel(
+  type: PanelType,
+  opts: { button?: HTMLElement | null; onPanelOpen?: (type: PanelType) => void } = {},
+): void {
+  const current = useLayoutStore.getState().layout;
+  const found = findPanelTab(current, type);
+  if (found) {
+    const zone = (["left", "center", "right"] as const).find((id) =>
+      current.zones[id].groupIds.includes(found.groupId));
+    const active = isPanelVisible(current, type);
+    if ((zone === "left" || zone === "right") && active && !current.zones[zone].userCollapsed) {
+      useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: true });
+      opts.button?.focus();
+      return;
+    }
+    useLayoutStore.getState().dispatch({ type: "activate-tab", groupId: found.groupId, tabId: found.tab.id });
+    if (zone === "left" || zone === "right") {
+      useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: false });
+    }
+  } else {
+    const registration = panelRegistry[type];
+    useLayoutStore.getState().dispatch({ type: "open-panel", panelType: type, zone: registration.defaultZone });
+  }
+  opts.onPanelOpen?.(type);
+  if (type === "search") requestSearchInputFocus();
+  window.requestAnimationFrame(() => {
+    const selector = type === "search"
+      ? '[data-panel-type="search"] .search-box'
+      : `[data-panel-type="${type}"][data-panel-visible="true"]`;
+    document.querySelector<HTMLElement>(selector)?.focus();
+  });
+}
+
 export function ActivityBar({ side, historyAvailable = false, onNewNote, onPanelOpen }: ActivityBarProps) {
   const layout = useLayoutStore((state) => state.layout);
   const types: PanelType[] = side === "left"
     ? ["files", "search", "workflows", "tasks", "calendar"]
-    : ["properties", "backlinks", "outline", "graph", ...(historyAvailable ? ["history" as const] : [])];
+    : [
+        "properties", "backlinks", "outline", "graph",
+        ...(presenceV1Enabled() ? ["presence" as const] : []),
+        ...(historyAvailable ? ["history" as const] : []),
+      ];
 
-  const activate = (type: PanelType, button: HTMLButtonElement) => {
-    const current = useLayoutStore.getState().layout;
-    const found = findPanelTab(current, type);
-    if (found) {
-      const zone = (["left", "center", "right"] as const).find((id) =>
-        current.zones[id].groupIds.includes(found.groupId));
-      const active = isPanelVisible(current, type);
-      if ((zone === "left" || zone === "right") && active && !current.zones[zone].userCollapsed) {
-        useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: true });
-        button.focus();
-        return;
-      }
-      useLayoutStore.getState().dispatch({ type: "activate-tab", groupId: found.groupId, tabId: found.tab.id });
-      if (zone === "left" || zone === "right") {
-        useLayoutStore.getState().dispatch({ type: "set-zone-collapsed", zone, collapsed: false });
-      }
-    } else {
-      const registration = panelRegistry[type];
-      useLayoutStore.getState().dispatch({ type: "open-panel", panelType: type, zone: registration.defaultZone });
-    }
-    onPanelOpen?.(type);
-    if (type === "search") requestSearchInputFocus();
-    window.requestAnimationFrame(() => {
-      const selector = type === "search"
-        ? '[data-panel-type="search"] .search-box'
-        : `[data-panel-type="${type}"][data-panel-visible="true"]`;
-      document.querySelector<HTMLElement>(selector)?.focus();
-    });
-  };
+  const activate = (type: PanelType, button: HTMLButtonElement) =>
+    togglePanel(type, { button, onPanelOpen });
 
   return (
     <nav

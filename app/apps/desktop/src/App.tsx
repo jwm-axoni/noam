@@ -63,9 +63,12 @@ import { currentEditorContext } from "./components/workflows/editorContext";
 import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
 import { findPanelTab } from "./layout/operations";
 import { useLayoutStore } from "./layout/store";
+import { togglePanel } from "./components/workspace/ActivityBar";
+import { presenceV1Enabled } from "./lib/presence/flag";
 import { navigationHistory } from "./layout/navigationHistory";
 import { CENTER_NOTE_GROUP_ID, type PanelType } from "./layout/types";
 import { closePanelTab } from "./layout/workspaceActions";
+import { installMenuActions } from "./menu/menuActions";
 
 /* Lazy chunks. Each of these is either a rare deliberate action (the graph),
    a modal (settings, auth), or big enough that the first paint should not wait
@@ -1074,6 +1077,19 @@ export default function App() {
       window.location.reload();
     };
 
+    // Shared by ⌘W and the File → Close Tab menu item.
+    const closeActiveTab = async () => {
+      const layout = useLayoutStore.getState().layout;
+      const group = layout.groups[layout.focusedGroupId];
+      const active = group?.tabs.find((tab) => tab.id === group.activeTabId);
+      if (active?.kind === "note") useStore.getState().closeTab(active.path);
+      else if (active?.kind === "panel") {
+        const panel = layout.panels[active.panelId];
+        await closePanelTab(group.id, active.id);
+        if (panel) onPanelClose(panel.type);
+      }
+    };
+
     const onViewModeKey = createViewModeShortcutHandler(() => {
       const state = useStore.getState();
       const layout = useLayoutStore.getState().layout;
@@ -1095,6 +1111,11 @@ export default function App() {
       if (globalShortcut === "action-picker") {
         e.preventDefault();
         setActionPickerOpen((open) => !open);
+        return;
+      }
+      if (globalShortcut === "presence") {
+        e.preventDefault();
+        if (presenceV1Enabled()) togglePanel("presence");
         return;
       }
       // A workflow's own `shortcut`. Built-ins are matched FIRST and reserved
@@ -1125,15 +1146,7 @@ export default function App() {
       // ⌘W closes the active tab in the focused workspace group.
       if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "w") {
         e.preventDefault();
-        const layout = useLayoutStore.getState().layout;
-        const group = layout.groups[layout.focusedGroupId];
-        const active = group?.tabs.find((tab) => tab.id === group.activeTabId);
-        if (active?.kind === "note") useStore.getState().closeTab(active.path);
-        else if (active?.kind === "panel") {
-          const panel = layout.panels[active.panelId];
-          await closePanelTab(group.id, active.id);
-          if (panel) onPanelClose(panel.type);
-        }
+        await closeActiveTab();
         return;
       }
       // Ctrl-Tab / Ctrl-Shift-Tab walk the strip in its visible order (tabs
@@ -1225,9 +1238,13 @@ export default function App() {
     // app's shortcuts keep their existing ordering.
     window.addEventListener("keydown", onViewModeKey, true);
     window.addEventListener("keydown", onKey);
+    // The native menu bar's items land here too (`menu/menuActions.ts`), plus
+    // the ⌘= / ⌘- / ⌘0 zoom keys as a backup for the menu accelerators.
+    const uninstallMenuActions = installMenuActions({ closeActiveTab, reload: reloadApp });
     return () => {
       window.removeEventListener("keydown", onViewModeKey, true);
       window.removeEventListener("keydown", onKey);
+      uninstallMenuActions();
     };
   }, []);
 

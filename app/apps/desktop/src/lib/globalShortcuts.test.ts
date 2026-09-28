@@ -34,4 +34,23 @@ describe("matchGlobalShortcut", () => {
     expect(matchGlobalShortcut(press("P", { shiftKey: true }))).toBeNull();
     expect(matchGlobalShortcut(press("p", { metaKey: true, ctrlKey: true, shiftKey: true }))).toBeNull();
   });
+
+  it("matches the People panel toggle on ⌘⇧U / Ctrl+Shift+U", () => {
+    expect(matchGlobalShortcut(press("U", { metaKey: true, shiftKey: true }))).toBe("presence");
+    expect(matchGlobalShortcut(press("u", { ctrlKey: true, shiftKey: true }))).toBe("presence");
+  });
+
+  it("does not claim ⌘U, ⌥⌘⇧U, a bare ⇧U or both primaries", () => {
+    expect(matchGlobalShortcut(press("u", { metaKey: true }))).toBeNull();
+    expect(matchGlobalShortcut(press("u", { metaKey: true, shiftKey: true, altKey: true }))).toBeNull();
+    expect(matchGlobalShortcut(press("U", { shiftKey: true }))).toBeNull();
+    expect(matchGlobalShortcut(press("u", { metaKey: true, ctrlKey: true, shiftKey: true }))).toBeNull();
+  });
+
+  it("leaves the plain-letter primaries and the action picker as they were", () => {
+    expect(matchGlobalShortcut(press("n", { metaKey: true }))).toBe("new-note");
+    expect(matchGlobalShortcut(press("g", { ctrlKey: true }))).toBe("graph");
+    expect(matchGlobalShortcut(press("p", { metaKey: true, shiftKey: true }))).toBe("action-picker");
+    expect(matchGlobalShortcut(press("u", { metaKey: true }))).toBeNull();
+  });
 });

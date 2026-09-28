@@ -80,7 +80,7 @@ describe("VaultRegistry — note last-edit metadata", () => {
 
     expect(seen).toHaveLength(1);
     // Keyed by doc_id — never by path, which renames and collides across vaults.
-    expect(seen[0]).toEqual({ "doc-a": { userId: "u1", name: "Ada", at: AT } });
+    expect(seen[0]).toEqual({ "doc-a": { userId: "u1", participantId: null, name: "Ada", at: AT } });
   });
 
   it("omits notes the server has no stamp for, rather than inventing one", async () => {
@@ -117,7 +117,36 @@ describe("VaultRegistry — note last-edit metadata", () => {
     await reg.pull();
 
     expect(seen).toHaveLength(2);
-    expect(seen[1]).toEqual({ "doc-a": { userId: "u2", name: "Grace", at: AT } });
+    expect(seen[1]).toEqual({ "doc-a": { userId: "u2", participantId: null, name: "Grace", at: AT } });
+  });
+
+  it("names the agent, not its minter, when the server stamped a participant", async () => {
+    const api = fakeApi([
+      {
+        id: "doc-a",
+        title: "A",
+        rel_path: "A.md",
+        last_edited_by: "u1",
+        last_edited_by_name: "Ada",
+        last_edited_participant: "p-agent",
+        last_edited_participant_name: "Claude",
+        last_edited_at: AT,
+      },
+    ]);
+    const reg = new VaultRegistry(api);
+    let meta: Record<string, NoteLastEdited> = {};
+    reg.setNoteMetaListener((m) => {
+      meta = m;
+    });
+
+    await reg.reconcile({ organizationId: ORG, vaultName: "V" });
+
+    expect(meta["doc-a"]).toEqual({
+      userId: "u1",
+      participantId: "p-agent",
+      name: "Claude",
+      at: AT,
+    });
   });
 
   it("survives having no listener at all (unit tests, teardown)", async () => {

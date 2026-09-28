@@ -14,6 +14,17 @@ import { EditorView, layer, ViewPlugin, type LayerMarker } from "@codemirror/vie
 import type { Awareness } from "y-protocols/awareness";
 import * as Y from "yjs";
 import { insideFold } from "./folding";
+import { textOn } from "../presence/color";
+
+/** The awareness `user` fields a resolver may consult. */
+export interface RemoteUserFields {
+  participantId?: string;
+  name?: string;
+  color?: string;
+}
+
+/** Maps a peer's asserted awareness identity to what we display. */
+export type RemoteUserResolver = (user: RemoteUserFields) => { name: string; color: string };
 
 /** Dispatched to nudge the layer into recomputing when awareness changes. */
 const remoteCursorsSync = Annotation.define<boolean>();
@@ -44,7 +55,12 @@ function layerBase(view: EditorView): { left: number; top: number } {
 }
 
 /** Resolve every remote peer's caret to on-screen coordinates. */
-function readCursors(view: EditorView, ytext: Y.Text, awareness: Awareness): RemoteCursor[] {
+function readCursors(
+  view: EditorView,
+  ytext: Y.Text,
+  awareness: Awareness,
+  resolve?: RemoteUserResolver,
+): RemoteCursor[] {
   const ydoc = ytext.doc;
   if (!ydoc) return [];
   const base = layerBase(view);
@@ -64,13 +80,23 @@ function readCursors(view: EditorView, ytext: Y.Text, awareness: Awareness): Rem
     if (!pos) return; // off-screen (outside the rendered viewport) — skip
     const top = pos.top - base.top;
     const user = state.user ?? {};
+    const shown = resolve
+      ? resolve({
+          participantId: typeof user.participantId === "string" ? user.participantId : undefined,
+          name: typeof user.name === "string" ? user.name : undefined,
+          color: typeof user.color === "string" ? user.color : undefined,
+        })
+      : {
+          color: typeof user.color === "string" ? user.color : "#30bced",
+          name: typeof user.name === "string" && user.name ? user.name : "Someone",
+        };
     cursors.push({
       clientId,
       left: pos.left - base.left,
       top,
       height: pos.bottom - pos.top,
-      color: typeof user.color === "string" ? user.color : "#30bced",
-      name: typeof user.name === "string" && user.name ? user.name : "Someone",
+      color: shown.color,
+      name: shown.name,
       flip: top < 20, // too close to the top edge to fit the flag above
     });
   });
@@ -130,6 +156,7 @@ class RemoteCaretMarker implements LayerMarker {
   private adjust(el: HTMLElement): void {
     const c = this.c;
     el.style.setProperty("--rc", c.color);
+    el.style.setProperty("--rc-text", textOn(c.color));
     el.style.height = `${c.height}px`;
     el.style.transform = `translate(${c.left}px, ${c.top}px)`;
     el.classList.toggle("flip", c.flip);
@@ -140,7 +167,11 @@ class RemoteCaretMarker implements LayerMarker {
  * Build the animated remote-cursor extension for a note's `Y.Text` + awareness.
  * Returns a ViewPlugin (redraws on awareness change) plus the drawing layer.
  */
-export function remoteCursors(ytext: Y.Text, awareness: Awareness): Extension {
+export function remoteCursors(
+  ytext: Y.Text,
+  awareness: Awareness,
+  resolve?: RemoteUserResolver,
+): Extension {
   const nudge = ViewPlugin.fromClass(
     class {
       private readonly onChange: (arg: {
@@ -173,8 +204,11 @@ export function remoteCursors(ytext: Y.Text, awareness: Awareness): Extension {
       update.viewportChanged ||
       update.geometryChanged ||
       update.transactions.some((tr) => tr.annotation(remoteCursorsSync) !== undefined),
-    markers: (view) => readCursors(view, ytext, awareness).map((c) => new RemoteCaretMarker(c)),
+    markers: (view) =>
+      readCursors(view, ytext, awareness, resolve).map((c) => new RemoteCaretMarker(c)),
     mount: (dom, view) => {
+      // Purely visual: screen readers get presence from the polite live region.
+      dom.setAttribute("aria-hidden", "true");
       // Freeze the glide while scrolling so carets stay pinned to their text.
       const onScroll = () => {
         dom.classList.add("is-scrolling");

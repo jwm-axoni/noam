@@ -50,6 +50,7 @@ export const RESERVED_SHORTCUTS: ReadonlySet<string> = new Set([
   "mod+r", // reload
   "mod+e", // cycle view mode
   "mod+shift+p", // the action picker itself
+  "mod+shift+u", // People (presence) panel
   "ctrl+tab",
   "ctrl+shift+tab",
 ]);

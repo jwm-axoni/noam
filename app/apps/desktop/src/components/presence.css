@@ -1,0 +1,119 @@
+/* People panel (Phase 1 presence). Tokens only. */
+
+.presence-panel {
+  flex: 1;
+  min-height: 0;
+  /* Never force the dock (or at 390 px, the window) wider than it is. */
+  min-width: 0;
+  max-width: 100%;
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+}
+
+.presence-section-header {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  width: 100%;
+  padding: 4px var(--sp-2);
+  background: transparent;
+  border: none;
+  border-radius: var(--radius-md);
+  color: var(--text-secondary);
+  font-size: var(--fs-xs);
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+.presence-section-header:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+.presence-section-header:focus-visible,
+.presence-link:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+.presence-chevron {
+  width: 10px;
+  color: var(--text-tertiary);
+}
+.presence-section-title {
+  flex: 1;
+  min-width: 0;
+}
+.presence-count {
+  color: var(--text-tertiary);
+  font-variant-numeric: tabular-nums;
+}
+
+.presence-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.presence-peer {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  min-width: 0;
+  padding: 4px var(--sp-2);
+  font-size: var(--fs-sm);
+  color: var(--text-primary);
+}
+.presence-chip {
+  flex-shrink: 0;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  background: var(--peer-color);
+  box-shadow: 0 0 0 2px color-mix(in srgb, var(--peer-color) 30%, transparent);
+}
+.presence-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+/* Stale: the UI admits uncertainty rather than pretending. */
+.presence-peer.stale {
+  opacity: 0.5;
+}
+.presence-hint {
+  flex-shrink: 0;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.presence-empty,
+.presence-leave-note {
+  margin: 0;
+  padding: 2px var(--sp-2) 4px;
+  font-size: var(--fs-xs);
+  color: var(--text-tertiary);
+}
+
+.presence-link {
+  margin: 0 var(--sp-2);
+  padding: 0;
+  background: none;
+  border: none;
+  border-radius: var(--radius-sm);
+  color: var(--accent);
+  font-size: var(--fs-xs);
+  cursor: pointer;
+}
+.presence-link:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 699px) {
+  .presence-panel {
+    display: none;
+  }
+}

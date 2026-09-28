@@ -136,6 +136,26 @@ describe("layout persistence", () => {
     expect(repaired.panels["panel:bad"]).toBeUndefined();
   });
 
+  it("drops a persisted People panel while the presenceV1 kill switch is off", () => {
+    // Saved while the flag was on (the panel auto-opens for multi-member orgs).
+    const withPanel = applyLayoutOperation(createDefaultLayout(), {
+      type: "open-panel", panelType: "presence", zone: "right",
+    });
+    const raw = JSON.parse(JSON.stringify(serializableLayout(withPanel)));
+    expect(findPanelTab(withPanel, "presence")).not.toBeNull();
+
+    vi.stubGlobal("localStorage", { getItem: (k: string) => (k === "noam.flags.presenceV1" ? "off" : null) });
+    try {
+      const hydrated = validatePersistedLayout(raw)!;
+      expect(findPanelTab(hydrated, "presence")).toBeNull();
+      expect(Object.values(hydrated.panels).some((p) => p.type === "presence")).toBe(false);
+    } finally {
+      vi.unstubAllGlobals();
+    }
+    // Flag on (or unset): the same value restores the panel.
+    expect(findPanelTab(validatePersistedLayout(raw)!, "presence")).not.toBeNull();
+  });
+
   it("debounces writes and flushes the latest committed layout", () => {
     vi.useFakeTimers();
     const storage = new MemoryStorage();

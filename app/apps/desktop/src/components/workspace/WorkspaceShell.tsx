@@ -31,6 +31,7 @@ import { DockZone } from "./DockZone";
 import { DocumentHost } from "./DocumentHost";
 import { PaneSeparator } from "./PaneSeparator";
 import { PanelFrame } from "./PanelFrame";
+import { PresenceLiveRegion, usePresenceAutoOpen } from "../PresenceLiveRegion";
 import "../../styles/workspace.css";
 
 const PANEL_COMPONENTS = {
@@ -44,6 +45,8 @@ const PANEL_COMPONENTS = {
   workflows: lazyPanel("workflows"),
   tasks: lazyPanel("tasks"),
   calendar: lazyPanel("calendar"),
+  presence: lazyPanel("presence"),
+  review: lazyPanel("review"),
 };
 
 interface WorkspaceShellProps {
@@ -178,6 +181,7 @@ export function WorkspaceShell({
 }: WorkspaceShellProps) {
   const shellRef = useRef<HTMLDivElement | null>(null);
   const hydrated = useLayoutPersistence(vaultKey);
+  usePresenceAutoOpen(vaultKey, hydrated);
   const layout = useLayoutStore((state) => state.layout);
   const drag = useSyncExternalStore(subscribeDockDrag, getDockDragSnapshot, getDockDragSnapshot);
   const [viewportWidth, setViewportWidth] = useState(() =>
@@ -270,6 +274,7 @@ export function WorkspaceShell({
         ))}
       </DockZone>
       <ActivityBar side="right" historyAvailable={historyAvailable} onPanelOpen={onPanelOpen} />
+      <PresenceLiveRegion />
       {drag.source && (
         <div className="dock-drag-label" style={{ left: drag.clientX + 12, top: drag.clientY + 14 }} aria-hidden="true">
           {drag.source.label}

@@ -41,6 +41,7 @@ const sync = vi.hoisted(() => ({
   setInboundListeners: vi.fn(),
   setMemberJoinedListener: vi.fn(),
   setVaultPresenceListener: vi.fn(),
+  setParticipantIdentity: vi.fn(),
   setVoiceListener: vi.fn(),
   setSyncProgressListener: vi.fn(),
   setDocStateListener: vi.fn(),
@@ -291,7 +292,7 @@ describe("vault scoping", () => {
   it("closing the vault clears every versioning field", () => {
     synced();
     useStore.setState({
-      noteLastEdited: { "doc-a": { userId: "u1", name: "Ada", at: "2026-08-11T10:00:00.000Z" } },
+      noteLastEdited: { "doc-a": { userId: "u1", participantId: null, name: "Ada", at: "2026-08-11T10:00:00.000Z" } },
       versionPanelDocId: "doc-a",
       noteVersions: [VERSION],
       versionPreview: { versionId: 7, content: "# old" },
@@ -313,7 +314,7 @@ describe("vault scoping", () => {
   it("hands out a fresh noteLastEdited object per reset (no shared mutable map)", () => {
     useStore.getState().closeLocalVault();
     const first = useStore.getState().noteLastEdited;
-    first["leaked"] = { userId: "u1", name: "Ada", at: "2026-08-11T10:00:00.000Z" };
+    first["leaked"] = { userId: "u1", participantId: null, name: "Ada", at: "2026-08-11T10:00:00.000Z" };
     useStore.getState().closeLocalVault();
     expect(useStore.getState().noteLastEdited).toEqual({});
   });

@@ -5,25 +5,25 @@
 import type { ActivityStatus } from "../prefs";
 
 /**
- * A curated palette of bright, cheerful hues harmonized with the violet accent.
- * Deliberately excludes red/orange tones — a red ring reads as an error, not a
- * person, so presence stays in happy blues/greens/purples/pinks. Every color is
- * saturated enough to read on both light and dark surfaces.
+ * The eight participant identity colors. Designed and verified colorblind-safe,
+ * and deliberately free of reds/oranges (a red ring reads as an error, not a
+ * person). The server assigns registry colors with the same FNV-1a hash onto
+ * this same ordered list, so the offline fallback below agrees with the
+ * registry. Reordering or editing it breaks that agreement.
  */
 export const PRESENCE_PALETTE = [
-  "#6366f1", // indigo
-  "#3b82f6", // blue
-  "#0ea5e9", // sky
-  "#06b6d4", // cyan
-  "#14b8a6", // teal
-  "#10b981", // emerald
-  "#22c55e", // green
-  "#84cc16", // lime
-  "#a855f7", // purple
-  "#8b5cf6", // violet
-  "#d946ef", // fuchsia
-  "#ec4899", // pink
+  "#696713",
+  "#b4bf2c",
+  "#789c5b",
+  "#047e67",
+  "#2fc5fa",
+  "#2981fb",
+  "#982f93",
+  "#b976a0",
 ] as const;
+
+/** Reserved for Noam's own actions. Never assigned to a participant. */
+export const NOAM_VIOLET = "#7f73ff";
 
 /** Neutral gray used for a peer's ring when they're offline / not live. */
 export const PRESENCE_OFFLINE = "#94a3b8";
@@ -46,9 +46,34 @@ export function colorForUser(userId: string): string {
   return PRESENCE_PALETTE[idx];
 }
 
+/** WCAG relative luminance of a `#rrggbb` color. */
+function relativeLuminance(hex: string): number {
+  const n = parseInt(hex.replace(/^#/, ""), 16);
+  const channel = (c: number) => {
+    const v = c / 255;
+    return v <= 0.03928 ? v / 12.92 : ((v + 0.055) / 1.055) ** 2.4;
+  };
+  return (
+    0.2126 * channel((n >> 16) & 0xff) +
+    0.7152 * channel((n >> 8) & 0xff) +
+    0.0722 * channel(n & 0xff)
+  );
+}
+
+/**
+ * The label color for text drawn ON a participant color: white when it reaches
+ * WCAG AA (4.5:1) against the fill, near-black otherwise.
+ */
+export function textOn(hex: string): "#111111" | "#ffffff" {
+  const contrastWithWhite = 1.05 / (relativeLuminance(hex) + 0.05);
+  return contrastWithWhite >= 4.5 ? "#ffffff" : "#111111";
+}
+
 /** The awareness `user` field every client publishes for cursors + avatars. */
 export interface PresenceUser {
   id: string;
+  /** Registry participant id, when this client knows its own row. */
+  participantId?: string;
   name: string;
   color: string;
   /** The user's chosen activity status, so peers can show it beside cursors. */

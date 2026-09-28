@@ -94,6 +94,7 @@ round-trip lossless. Full detail: [[03-sync-engine]].
 | [[03-sync-engine]] | Yjs + Hocuspocus, the Yjs sync protocol, the file↔CRDT bridge algorithm + loop-avoidance |
 | [[04-team-collaboration]] | Better Auth org model, folder ACL, how permissions gate the sync engine, presence |
 | [[05-vault-sync-engine]] | Vault-wide always-on background sync; stateless relay + pluggable PubSub (Redis for HA); bridge tiering |
+| [[07-participants-and-presence]] | Participant registry (humans + inert agent rows, migration 027), server-stamped presence identity, the People panel, heartbeat/decay, the colorblind-safe palette, and the spec-vs-code drift list. ADRs: `adr/0002-local-byoh-enforcement.md`, `adr/0003-agent-token-identity.md` |
 
 ---
 
@@ -103,10 +104,13 @@ Self-hosting and production deployment (Docker, Railway, env vars, the single-po
 topology) are covered in [[DEPLOY]]. Noam is free and self-hosted only; there is no managed
 backend. The desktop app points at whichever server you deploy via the server URL in Settings.
 
-The current local Developer ID signing, notarization, artifact verification, and
-clean-publication process is covered in [[RELEASE]]. Release automation and
-auto-update remain disabled until the neutral repository and fresh updater key
-are ready.
+The release workflow (manual dispatch → protected `release` environment → draft
+GitHub Release), Developer ID signing, notarization, artifact verification, the
+auto-update controls and the clean-publication process are covered in [[RELEASE]].
+
+Connecting an AI client over MCP — agent tokens, scopes and presets, the audit
+log, read budgets, revocation timing, and migrating an old "acts as you" token
+— is covered in [[AGENT-TOKENS]].
 
 ---
 

@@ -59,7 +59,7 @@ import { SyncManager } from "../sync/docSession";
 import { vaultScopes } from "../sync/vaultScope";
 
 const AT = "2026-08-11T10:00:00.000Z";
-const META: Record<string, NoteLastEdited> = { "doc-a": { userId: "u1", name: "Ada", at: AT } };
+const META: Record<string, NoteLastEdited> = { "doc-a": { userId: "u1", participantId: null, name: "Ada", at: AT } };
 
 function session(orgId = "org-a"): SessionInfo {
   return {

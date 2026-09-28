@@ -18,7 +18,8 @@ import type { NoteLastEdited, SessionInfo } from "../api";
 import * as ipc from "../ipc";
 import { markOnce } from "../perf";
 import { api } from "../auth/authManager";
-import { colorForUser, presenceUser } from "../presence/color";
+import { colorForUser, presenceUser, type PresenceUser } from "../presence/color";
+import { PresenceRoster, hasEvents, type PresenceFrame, type RosterEvents } from "../presence/roster";
 import type { ActivityStatus } from "../prefs";
 import { toast } from "../toast";
 import { AttachmentSync } from "./attachments";
@@ -260,6 +261,9 @@ export function shouldReportOpenDocState(state: DocSyncState, confirmed: boolean
 /** How long a drop out of a settled state must persist before it is painted. */
 const STATUS_HOLD_MS = 400;
 
+/** How often the vault roster re-checks for silent (stale / gone) peers. */
+const ROSTER_TICK_MS = 5_000;
+
 /** The states worth protecting from a blink — see `emitStatus`. */
 const STATUS_IS_GOOD: ReadonlySet<SyncStatus> = new Set<SyncStatus>(["synced", "read-only"]);
 
@@ -323,6 +327,12 @@ export class SyncManager implements InboundHost {
    */
   private primed = false;
   private presence: { id: string; name: string } | null = null;
+  /**
+   * This user's registry row, set by the store once the participants fetch
+   * lands. Deliberately NOT cleared by `teardown`: `enable` tears down, and the
+   * fetch races it, so the store owns the lifecycle (null on leaving a vault).
+   */
+  private participantIdentity: { participantId: string; name: string; color: string } | null = null;
   /** The local user's chosen activity status, broadcast via awareness. */
   private status: ActivityStatus = "online";
   private onStatus?: (status: SyncStatus) => void;
@@ -551,10 +561,12 @@ export class SyncManager implements InboundHost {
 
   // Vault-wide presence: which teammate is viewing which note. Keyed by userId
   // (last-write-wins across a user's devices), fed by the engine's presence
-  // frames, surfaced to the sidebar. `viewingDocId` is our own current note.
-  private vaultPresence = new Map<string, VaultPeer>();
+  // frames, decayed by a 5 s tick (30 s stale / 90 s removed), surfaced to the
+  // UI. `viewingDocId` is our own current note.
+  private roster = new PresenceRoster();
+  private rosterTick: ReturnType<typeof setInterval> | null = null;
   private viewingDocId: string | null = null;
-  private onVaultPresence?: (peers: VaultPeer[]) => void;
+  private onVaultPresence?: (peers: VaultPeer[], events?: RosterEvents) => void;
 
   /** UI subscribes here to render the connection indicator. */
   setStatusListener(cb: ((status: SyncStatus) => void) | undefined): void {
@@ -2740,7 +2752,9 @@ export class SyncManager implements InboundHost {
    * UI subscribes here for the live "who's viewing what" roster that drives the
    * sidebar presence dots. Fires with the full peer list on every change.
    */
-  setVaultPresenceListener(cb: ((peers: VaultPeer[]) => void) | undefined): void {
+  setVaultPresenceListener(
+    cb: ((peers: VaultPeer[], events?: RosterEvents) => void) | undefined,
+  ): void {
     this.onVaultPresence = cb;
   }
 
@@ -2833,29 +2847,73 @@ export class SyncManager implements InboundHost {
   /** Send our current viewing state over the vault channel. Invisible users
    *  broadcast a null doc so they don't appear on teammates' sidebars. */
   private pushLocalPresence(): void {
-    if (!this.vaultEngine || !this.presence) return;
+    if (!this.vaultEngine) return;
+    const user = this.localPresenceUser();
+    if (!user) return;
     const docId = this.status === "invisible" ? null : this.viewingDocId;
     this.vaultEngine.setPresence({
       docId,
-      name: this.presence.name,
-      color: colorForUser(this.presence.id),
+      name: user.name,
+      color: user.color,
       status: this.status,
     });
   }
 
+  /**
+   * Adopt this user's registry identity (null = fall back to the account name
+   * and the local hash color) and re-publish it everywhere at once.
+   */
+  setParticipantIdentity(
+    identity: { participantId: string; name: string; color: string } | null,
+  ): void {
+    this.participantIdentity = identity;
+    if (this.current) this.applyPresence(this.current.awareness);
+    if (this.currentLocalAwareness) this.applyPresence(this.currentLocalAwareness);
+    this.pushLocalPresence();
+  }
+
+  /** The awareness `user` this client publishes; null while signed out. */
+  private localPresenceUser(): PresenceUser | null {
+    if (!this.presence) return null;
+    const base = presenceUser(this.presence.id, this.presence.name, this.status);
+    const identity = this.participantIdentity;
+    if (!identity) return base;
+    return {
+      ...base,
+      participantId: identity.participantId,
+      name: identity.name,
+      color: identity.color,
+    };
+  }
+
   /** Fold an incoming teammate presence update into the roster and notify the UI. */
-  private handleVaultPresence(peer: VaultPeer): void {
+  private handleVaultPresence(frame: PresenceFrame): void {
     // Never show ourselves in the sidebar — you know where you are.
-    if (this.presence && peer.userId === this.presence.id) return;
-    if (peer.docId === null) this.vaultPresence.delete(peer.userId);
-    else this.vaultPresence.set(peer.userId, peer);
-    this.onVaultPresence?.([...this.vaultPresence.values()]);
+    if (this.presence && frame.userId === this.presence.id) return;
+    const events = this.roster.apply(frame, Date.now());
+    this.syncRosterTick();
+    this.onVaultPresence?.(this.roster.list(), events);
+  }
+
+  /** Decay runs only while someone is on the roster. */
+  private syncRosterTick(): void {
+    if (this.roster.size > 0 && !this.rosterTick) {
+      this.rosterTick = setInterval(() => {
+        const events = this.roster.tick(Date.now());
+        this.syncRosterTick();
+        if (hasEvents(events)) this.onVaultPresence?.(this.roster.list(), events);
+      }, ROSTER_TICK_MS);
+    } else if (this.roster.size === 0 && this.rosterTick) {
+      clearInterval(this.rosterTick);
+      this.rosterTick = null;
+    }
   }
 
   /** Drop the whole roster (on disconnect/disable) so no stale dots linger. */
   private clearVaultPresence(): void {
-    if (this.vaultPresence.size === 0) return;
-    this.vaultPresence.clear();
+    if (this.roster.size === 0) return;
+    this.roster.clear();
+    this.syncRosterTick();
     this.onVaultPresence?.([]);
   }
 
@@ -3189,11 +3247,9 @@ export class SyncManager implements InboundHost {
   }
 
   private applyPresence(awareness: Awareness): void {
-    if (!this.presence) return;
-    awareness.setLocalStateField(
-      "user",
-      presenceUser(this.presence.id, this.presence.name, this.status),
-    );
+    const user = this.localPresenceUser();
+    if (!user) return;
+    awareness.setLocalStateField("user", user);
   }
 }
 

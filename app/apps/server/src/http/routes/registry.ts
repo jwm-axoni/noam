@@ -807,9 +807,11 @@ export function createRegistryRoutes(deps: RegistryDeps = {}): Hono {
     const { rows } = await pool.query(
       `SELECT n.id, n.vault_id, n.folder_id, n.title, n.rel_path, n.doc_id, n.created_by,
               n.created_at, n.updated_at, n.color,
-              n.last_edited_by, u.name AS last_edited_by_name, n.last_edited_at
+              n.last_edited_by, u.name AS last_edited_by_name, n.last_edited_at,
+              n.last_edited_participant, p.display_name AS last_edited_participant_name
          FROM notes n
          LEFT JOIN "user" u ON u.id = n.last_edited_by
+         LEFT JOIN participants p ON p.id = n.last_edited_participant
         WHERE n.vault_id = $1 AND n.deleted_at IS NULL
         ORDER BY n.rel_path`,
       [vaultId],

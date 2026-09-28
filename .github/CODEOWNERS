@@ -1,0 +1,15 @@
+# CODEOWNERS — GitHub auto-requests these owners to review a PR when it changes
+# matching files. https://docs.github.com/articles/about-code-owners
+#
+# NOTE: owners must be users or teams WITH ACCESS to this repository. GitHub
+# *team* owners (e.g. @axonius/security) only resolve once this repo lives in
+# that organization; until then use individual collaborator usernames.
+
+# Default owner for everything:
+*                     @jwm-axoni
+
+# --- Fill in once the repo is in the Axonius org (replace the placeholders) ---
+# *                   @axonius/<review-team>
+# /app/apps/server/   @axonius/<backend-team>
+# /app/apps/desktop/  @axonius/<desktop-team>
+# /.github/           @axonius/<security-or-devops-team>

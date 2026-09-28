@@ -1,0 +1,594 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Noam AI Plan v2: Tuned Architecture &amp; Roadmap</title>
+<style>
+  *, *::before, *::after { box-sizing: border-box; }
+  :root{
+    --char:#2b2724; --char2:#211e1b; --cream:#f8f3ea; --cream2:#efe8d8;
+    --violet:#7f73ff; --violet-soft:#e4e1ff; --ink:#221e19; --muted:#7d766a;
+    --cap:#6a6355; --line:rgba(34,30,25,.14); --line-d:rgba(248,243,234,.16);
+    --green:#3fa46a; --amber:#c98a1b; --red:#d05555;
+  }
+  html{ -webkit-text-size-adjust:100%; }
+  body{ margin:0; background:var(--cream); color:var(--ink);
+    font-family:-apple-system,BlinkMacSystemFont,"SF Pro Text",Inter,"Segoe UI",Roboto,sans-serif;
+    line-height:1.55; }
+  .wrap{ max-width:1080px; margin:0 auto; padding:0 22px; }
+  section.block{ padding:56px 0; }
+  .kicker{ text-transform:uppercase; letter-spacing:.14em; font-size:12px; font-weight:700; color:var(--violet); margin:0 0 10px; }
+  h1{ font-size:clamp(30px,5vw,46px); line-height:1.12; letter-spacing:-.02em; margin:0 0 14px; }
+  h2{ font-size:clamp(22px,3.4vw,30px); letter-spacing:-.015em; margin:0 0 8px; }
+  h3{ font-size:17px; margin:0 0 6px; }
+  p.lede{ font-size:18px; color:var(--muted); max-width:62ch; margin:0; }
+  .dark{ background:var(--char); color:var(--cream); }
+  .dark p.lede{ color:#b9b2a4; }
+  .card{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; min-width:0; }
+  .dark .card{ background:var(--char2); border-color:var(--line-d); }
+  .grid2{ display:grid; grid-template-columns:1fr; gap:16px; }
+  @media(min-width:820px){ .grid2{ grid-template-columns:1fr 1fr; } }
+  .grid3{ display:grid; grid-template-columns:1fr; gap:16px; }
+  @media(min-width:820px){ .grid3{ grid-template-columns:repeat(3,1fr); } }
+  .grid4{ display:grid; grid-template-columns:1fr; gap:16px; }
+  @media(min-width:820px){ .grid4{ grid-template-columns:repeat(4,1fr); } }
+  .tag{ display:inline-block; font-size:11.5px; font-weight:700; letter-spacing:.06em; text-transform:uppercase;
+    padding:3px 10px; border-radius:999px; background:var(--violet-soft); color:#3d3699; margin-bottom:8px; }
+  .dark .tag{ background:rgba(127,115,255,.18); color:#c9c4ff; }
+  .tag.green{ background:#dff0e4; color:#1e6b3c; } .dark .tag.green{ background:rgba(63,164,106,.18); color:#9fe0b8; }
+  .tag.amber{ background:#f7ead0; color:#8a5c0e; } .dark .tag.amber{ background:rgba(201,138,27,.18); color:#f0c979; }
+  .tag.red{ background:#f6dede; color:#963232; } .dark .tag.red{ background:rgba(208,85,85,.18); color:#f2a8a8; }
+  .tag.grey{ background:#e8e2d4; color:#5c5546; } .dark .tag.grey{ background:rgba(248,243,234,.1); color:#b9b2a4; }
+  ul.tight{ margin:8px 0 0; padding-left:20px; } ul.tight li{ margin:4px 0; }
+  figure{ margin:24px 0 8px; } figcaption{ font-size:13px; color:var(--cap); margin-top:10px; max-width:70ch; }
+  .dark figcaption{ color:#a89f8e; }
+  svg text{ font-family:inherit; }
+  @media(max-width:600px){ figure:has(> svg){ overflow-x:auto; } figure > svg{ min-width:600px; } }
+  .phase{ border-left:3px solid var(--violet); padding:4px 0 4px 18px; margin:26px 0; }
+  .phase h3{ font-size:19px; }
+  .phase .meta{ font-size:13px; color:var(--muted); margin-bottom:8px; }
+  .cols{ display:grid; grid-template-columns:1fr; gap:14px; margin-top:12px; }
+  @media(min-width:760px){ .cols{ grid-template-columns:1fr 1fr; } }
+  .do,.dont{ border-radius:12px; padding:14px 16px; font-size:14.5px; }
+  .do{ background:#eef7f0; border:1px solid #cfe6d6; } .dont{ background:#faf0f0; border:1px solid #e8caca; }
+  .do strong{ color:#1e6b3c; } .dont strong{ color:#963232; }
+  .verdicts{ display:grid; grid-template-columns:1fr; gap:12px; margin-top:22px; }
+  @media(min-width:760px){ .verdicts{ grid-template-columns:repeat(4,1fr); } }
+  .vcard{ background:var(--char2); border:1px solid var(--line-d); border-radius:12px; padding:14px 16px; }
+  .vcard .score{ font-size:26px; font-weight:800; color:#fff; }
+  .vcard p{ font-size:13px; color:#b9b2a4; margin:6px 0 0; }
+  .adr{ background:#fff; border:1px solid var(--line); border-radius:14px; padding:20px; margin-bottom:16px; }
+  .adr h3{ font-size:18px; }
+  .adr .status{ font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:#8a5c0e; }
+  .adr table{ width:100%; border-collapse:collapse; font-size:14px; margin-top:10px; }
+  .adr th,.adr td{ text-align:left; padding:8px 10px; border-top:1px solid var(--line); vertical-align:top; }
+  .adr th{ font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); border-top:0; }
+  @media(max-width:600px){
+    .adr table, .adr tbody, .adr tr, .adr td{ display:block; }
+    .adr tr:first-child{ display:none; }
+    .adr tr{ border-top:1px solid var(--line); padding:10px 0; }
+    .adr td{ border-top:0; padding:3px 0; }
+    .adr td:first-child{ font-weight:700; }
+    .adr td:nth-child(n+2)::before{ display:block; font-size:12px; font-weight:700; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); }
+    .adr table:has(th:nth-child(3)) td:nth-child(2)::before{ content:"How it works"; }
+    .adr table:has(th:nth-child(3)) td:nth-child(3)::before{ content:"Tradeoff"; }
+    .adr table:not(:has(th:nth-child(3))) td:nth-child(2)::before{ content:"Recommendation"; }
+  }
+  code{ font-family:ui-monospace,SFMono-Regular,Menlo,Consolas,monospace; font-size:.88em; background:rgba(34,30,25,.06);
+    padding:1px 6px; border-radius:6px; }
+  .dark code{ background:rgba(248,243,234,.1); }
+  pre{ background:var(--char2); color:#e8e2d4; border-radius:12px; padding:16px 18px; font-size:13px; overflow-x:auto; line-height:1.5; }
+  .kbd{ display:inline-block; min-width:26px; text-align:center; font-family:ui-monospace,Menlo,Consolas,monospace;
+    font-size:12.5px; font-weight:700; background:#fff; border:1px solid var(--line); border-bottom-width:2px;
+    border-radius:6px; padding:2px 7px; }
+  .q{ background:#fff; border:1px solid var(--line); border-radius:12px; padding:16px 18px; margin-bottom:12px; }
+  .q strong{ display:block; margin-bottom:4px; }
+  .q p{ margin:0; font-size:14.5px; color:#4c463c; }
+  .swatch{ display:inline-block; width:14px; height:14px; border-radius:4px; vertical-align:-2px; margin-right:6px; border:1px solid rgba(0,0,0,.15); }
+  footer{ padding:34px 0 60px; color:var(--muted); font-size:13px; }
+  /* settings mock */
+  .win{ border-radius:14px; overflow:hidden; border:1px solid var(--line-d); background:#191613; color:#ece5d8;
+    box-shadow:0 24px 60px rgba(0,0,0,.35); }
+  .win-bar{ display:flex; align-items:center; gap:8px; padding:12px 16px; background:#221e1a; border-bottom:1px solid var(--line-d); }
+  .dot{ width:11px; height:11px; border-radius:50%; }
+  .win-body{ display:grid; grid-template-columns:200px 1fr; min-height:420px; }
+  @media(max-width:700px){ .win-body{ grid-template-columns:minmax(0,1fr); } .win-side{ display:none; } .win-main{ padding:18px 16px; }
+    .agent-row{ flex-wrap:wrap; } .agent-row > div:nth-child(2){ flex:1 1 160px; min-width:0; }
+    .keyrow{ flex-wrap:wrap; } .keyrow > :first-child{ min-width:120px; } }
+  @media(max-width:480px){ .keyrow > :first-child{ min-width:100%; } }
+  .win-side{ background:#201c18; border-right:1px solid var(--line-d); padding:14px 10px; font-size:14px; }
+  .win-side .mi{ padding:8px 12px; border-radius:8px; color:#b7ae9e; }
+  .win-side .mi.on{ background:rgba(127,115,255,.16); color:#fff; font-weight:600; }
+  .win-main{ padding:22px 24px; }
+  .win-main h4{ margin:0 0 4px; font-size:17px; }
+  .win-main .sub{ font-size:13px; color:#a89f8e; margin:0 0 18px; }
+  .agent-row{ display:flex; align-items:center; gap:12px; background:#242019; border:1px solid var(--line-d);
+    border-radius:10px; padding:12px 14px; margin-bottom:10px; }
+  .avatar{ width:34px; height:34px; border-radius:50%; display:flex; align-items:center; justify-content:center;
+    font-weight:700; font-size:14px; flex:none; }
+  .scope{ font-size:12px; color:#a89f8e; }
+  .pill{ font-size:11px; font-weight:700; padding:2px 9px; border-radius:999px; background:rgba(127,115,255,.16); color:#c9c4ff; white-space:nowrap; }
+  .pill.ask{ background:rgba(201,138,27,.18); color:#f0c979; }
+  .switch{ margin-left:auto; width:44px; height:24px; border-radius:999px; background:var(--violet); position:relative; flex:none; }
+  .switch::after{ content:""; position:absolute; top:3px; right:3px; width:18px; height:18px; border-radius:50%; background:#fff; }
+  .switch.off{ background:#4a443b; } .switch.off::after{ left:3px; right:auto; }
+  .btnrow{ display:flex; gap:10px; margin:16px 0 22px; flex-wrap:wrap; }
+  .mbtn{ font-size:13.5px; font-weight:600; padding:9px 16px; border-radius:9px; border:1px solid var(--line-d);
+    background:transparent; color:#ece5d8; min-height:44px; display:inline-flex; align-items:center; justify-content:center; }
+  .mbtn.primary{ background:var(--violet); border-color:var(--violet); color:#fff; }
+  .fieldset{ border:1px solid var(--line-d); border-radius:10px; padding:14px 16px; margin-bottom:14px; }
+  .fieldset legend{ font-size:12px; text-transform:uppercase; letter-spacing:.08em; color:#a89f8e; padding:0 6px; }
+  .radio{ display:flex; gap:10px; align-items:flex-start; font-size:14px; padding:7px 0; }
+  .radio .rc{ width:16px; height:16px; border-radius:50%; border:2px solid #6b6357; margin-top:3px; flex:none; }
+  .radio .rc.on{ border-color:var(--violet); background:radial-gradient(circle,var(--violet) 0 5px,transparent 6px); }
+  .radio small{ display:block; color:#a89f8e; font-size:12.5px; }
+  .keyrow{ display:flex; align-items:center; gap:10px; font-size:14px; padding:8px 0; border-bottom:1px solid rgba(248,243,234,.07); }
+  .keyrow:last-child{ border-bottom:0; }
+  .lock{ font-size:12px; color:#9fe0b8; }
+  .delta{ font-size:12px; font-weight:700; color:#f0c979; text-transform:uppercase; letter-spacing:.06em; }
+</style>
+</head>
+<body>
+
+<header class="dark">
+  <div class="wrap" style="padding-top:64px; padding-bottom:56px;">
+    <p class="kicker">Noam &middot; AI strategy &middot; v2 tuned</p>
+    <h1>People and agents, editing the same plain-text files together. Live.</h1>
+    <p class="lede">Version 2 of the plan, tuned through four gstack review rounds (CEO, design, eng, devex) plus a repo audit of <code>jwm-axoni/noam</code> at <code>development</code>, v0.1.59. The audit changed the picture: the plan's "new" column contained shipped components. This version corrects the record, adds the architecture decisions the reviewers demanded, designs the diff loop for real, and specs the builder experience. No em dashes were harmed.</p>
+    <div class="verdicts">
+      <div class="vcard"><span class="tag amber">CEO review</span><div class="score">Selective expansion</div><p>Right mountain, missing gear. Keep the registry, add identity, answer the money question, prove mediation.</p></div>
+      <div class="vcard"><span class="tag amber">Design review</span><div class="score">3/10</div><p>Strategy strong, but the diff loop was a paragraph, not a design. Now specified: keyboard, states, decay, conflicts.</p></div>
+      <div class="vcard"><span class="tag green">Eng review</span><div class="score">Conditional go</div><p>Phase 1 greenlit. The repo audit found the MCP server, ACL, and compaction already shipped. Four decisions gate Phase 2/3.</p></div>
+      <div class="vcard"><span class="tag red">DevEx review</span><div class="score">3.0/10</div><p>The socket was a button with no flow behind it. Now: wizard spec, tool inventory, error contract, docs exit criteria.</p></div>
+    </div>
+  </div>
+</header>
+
+<section class="block">
+  <div class="wrap">
+    <p class="kicker">01 &middot; Positioning</p>
+    <h2>The open lane is empty</h2>
+    <p class="lede">Two axes decide this market: how well a tool does real-time collaboration, and how open its AI story is (bring your own key, harness, and model, with scoped permissions). Everyone clusters in three corners. Nobody owns the fourth. One clock is ticking: a public obsidian-multiplayer spec explicitly targets "the obvious self-hosted solution for enterprises with real IT requirements." That is this lane, described in someone else's roadmap.</p>
+    <figure>
+      <svg viewBox="0 0 700 500" width="100%" role="img" aria-label="Positioning map of note apps">
+        <title>Positioning: collaboration vs AI openness</title>
+        <g stroke="#d8d0bd" stroke-width="1" stroke-dasharray="5 5">
+          <line x1="90" y1="150" x2="630" y2="150" /><line x1="90" y1="260" x2="630" y2="260" /><line x1="90" y1="370" x2="630" y2="370" />
+          <line x1="225" y1="60" x2="225" y2="440" /><line x1="360" y1="60" x2="360" y2="440" /><line x1="495" y1="60" x2="495" y2="440" />
+        </g>
+        <rect x="360" y="60" width="270" height="200" rx="12" fill="#7f73ff" opacity="0.08" />
+        <line x1="90" y1="440" x2="630" y2="440" stroke="#221e19" stroke-width="2" />
+        <line x1="90" y1="440" x2="90" y2="60" stroke="#221e19" stroke-width="2" />
+        <polygon points="630,440 618,434 618,446" fill="#221e19" /><polygon points="90,60 84,72 96,72" fill="#221e19" />
+        <text x="95" y="462" font-size="13" fill="#7d766a">Single-user notes</text>
+        <text x="470" y="462" font-size="13" fill="#7d766a" font-weight="600">Real-time team collaboration &#8594;</text>
+        <text x="80" y="428" font-size="13" fill="#7d766a" text-anchor="end">Closed</text>
+        <text x="80" y="445" font-size="13" fill="#7d766a" text-anchor="end">vendor AI</text>
+        <text x="80" y="80" font-size="13" fill="#7d766a" font-weight="600" text-anchor="end">Open BYOH</text>
+        <text x="80" y="97" font-size="13" fill="#7d766a" text-anchor="end">+ scoped &#8593;</text>
+        <g font-size="13" font-weight="600">
+          <circle cx="170" cy="350" r="9" fill="#b9b2a4" /><text x="188" y="355" fill="#221e19">Obsidian</text>
+          <text x="188" y="372" font-size="11" font-weight="400" fill="#7d766a">fragmented AI plugins</text>
+          <circle cx="170" cy="140" r="9" fill="#b9b2a4" /><text x="188" y="145" fill="#221e19">Tolaria</text>
+          <text x="188" y="162" font-size="11" font-weight="400" fill="#7d766a">BYOH, single-user, git-first</text>
+          <circle cx="520" cy="350" r="9" fill="#b9b2a4" /><text x="538" y="355" fill="#221e19">Notion</text>
+          <text x="538" y="372" font-size="11" font-weight="400" fill="#7d766a">closed AI, $/seat</text>
+          <circle cx="480" cy="230" r="9" fill="#b9b2a4" /><text x="498" y="235" fill="#221e19">AFFiNE</text>
+          <text x="498" y="252" font-size="11" font-weight="400" fill="#7d766a">BYOK, block-based</text>
+          <circle cx="540" cy="110" r="13" fill="#7f73ff" stroke="#2b2724" stroke-width="3" />
+          <text x="562" y="106" fill="#221e19" font-size="15">Noam</text>
+          <text x="562" y="126" font-size="11" font-weight="400" fill="#4c463c">live collab + open BYOH</text>
+          <text x="562" y="141" font-size="11" font-weight="400" fill="#4c463c">+ scoped permissions</text>
+        </g>
+      </svg>
+      <figcaption>Read: Obsidian owns single-user files but has no collab and fragmented AI. Notion owns team collab but with closed, per-seat AI. Tolaria proved bring-your-own-harness works, but stays single-user and git-first. Noam's target is the empty quadrant: real-time collaboration on plain Markdown, with open AI that carries scoped permissions.</figcaption>
+    </figure>
+    <div class="grid3" style="margin-top:18px;">
+      <div class="card"><span class="tag">Guardrail</span><h3>Notion drift test</h3><p style="font-size:14.5px; margin:0;">Every feature must answer: does this work on plain .md files I control? Block databases, wikis-as-product, and per-seat rent fail the test on sight.</p></div>
+      <div class="card"><span class="tag">Moat</span><h3>What competitors can't copy cheaply</h3><p style="font-size:14.5px; margin:0;">The Rust bridge (Markdown to CRDT) plus the permission engine that evaluates before data moves. Presence, diffs, and agents all ride on these two. The audit also found a third: a shipped MCP server and ACL most plans would still be designing.</p></div>
+      <div class="card"><span class="tag">Boundary</span><h3>What you never maintain</h3><p style="font-size:14.5px; margin:0;">Inference bills, API keys server-side, agent implementations, a plugin registry, a hosted playground. BYOK plus community-owned vault files keep the maintenance surface yours. Agents are file-only through Noam: harnesses bring their own shells, and that is stated loudly, not hidden.</p></div>
+    </div>
+  </div>
+</section>
+
+<section class="block dark">
+  <div class="wrap">
+    <p class="kicker">02 &middot; Architecture, corrected</p>
+    <h2>One identity type for humans and agents</h2>
+    <p class="lede">The core architectural bet is unchanged: a participant registry where humans and agents are the same kind of thing. What changed in v2 is the honesty of the diagram. A repo audit of <code>jwm-axoni/noam</code> at <code>development</code> (v0.1.59) found the v1 plan labeled shipped components as new. The tags below are verified: SHIPPED means it is in the repo today, HALF means the mechanism exists and the surface is missing, NEW means it still has to be built.</p>
+    <figure>
+      <svg viewBox="0 0 720 660" width="100%" role="img" aria-label="Noam AI architecture layers, corrected">
+        <title>Layered architecture with verified build status</title>
+        <defs>
+          <marker id="arr2" markerWidth="8" markerHeight="8" refX="7" refY="4" orient="auto"><polygon points="0,0 8,4 0,8" fill="#7f73ff" /></marker>
+        </defs>
+        <g font-size="13">
+          <rect x="40" y="20" width="640" height="92" rx="12" fill="#f8f3ea" />
+          <text x="60" y="44" font-weight="700" fill="#2b2724">EXPERIENCE <tspan font-size="10" fill="#8a5c0e">[NEW]</tspan></text>
+          <text x="60" y="66" fill="#4c463c">Editor &#183; Presence panel &#183; Suggest-mode diffs &#183; History timeline &#183; Settings</text>
+          <text x="60" y="88" font-size="11" fill="#7d766a">Humans and agents appear side by side. Every edit is attributed. Section 05 specs this fully.</text>
+
+          <rect x="40" y="128" width="640" height="92" rx="12" fill="#35302b" />
+          <text x="60" y="152" font-weight="700" fill="#f8f3ea">PARTICIPANTS <tspan font-size="10" fill="#f0c979">[NEW, build in Phase 1]</tspan></text>
+          <text x="60" y="174" fill="#cfc8b8">Participant registry: id, kind (human/agent), display, scope grant, approval mode, protocol version</text>
+          <text x="60" y="196" font-size="11" fill="#a89f8e">Agents register here like teammates. Build it in Phase 1 with agent kinds, so Phase 3 adds rows, not migrations.</text>
+
+          <rect x="40" y="236" width="640" height="92" rx="12" fill="#7f73ff" />
+          <text x="60" y="260" font-weight="700" fill="#ffffff">POLICY &#183; permission engine <tspan font-size="10" fill="#e4e1ff">[HALF: ACL shipped, agent grants new]</tspan></text>
+          <text x="60" y="280" fill="#ffffff"><tspan x="60">Folder/file ACL shipped (/api/shares, instant revoke).</tspan><tspan x="60" dy="17">NEW: agent-scoped token kinds, read instrumentation.</tspan></text>
+          <text x="60" y="316" font-size="11" fill="#e4e1ff">Evaluated BEFORE data moves, inside the MCP path. Local-path enforcement is ADR-2.</text>
+
+          <rect x="40" y="344" width="640" height="92" rx="12" fill="#f8f3ea" />
+          <text x="60" y="368" font-weight="700" fill="#2b2724">SYNC CORE <tspan font-size="10" fill="#1e6b3c">[SHIPPED]</tspan></text>
+          <text x="60" y="390" fill="#4c463c">Rust bridge: Markdown to Yjs ops &#183; Yjs CRDT doc &#183; Hocuspocus &#183; SQLite FTS5</text>
+          <text x="60" y="410" font-size="11" fill="#7d766a"><tspan x="60">Presence lib + animated remote cursors shipped; the panel is new. Binary store + snapshot/compact at 50 updates.</tspan><tspan x="60" dy="14">Server: Hono + Redis + Postgres 16, Dockerized.</tspan></text>
+
+          <rect x="40" y="452" width="640" height="92" rx="12" fill="#35302b" />
+          <text x="60" y="476" font-weight="700" fill="#f8f3ea">AGENT SOCKET <tspan font-size="10" fill="#9fe0b8">[SHIPPED transport, NEW surface]</tspan></text>
+          <text x="60" y="498" fill="#cfc8b8">POST /api/mcp: JSON-RPC, 15 tools, scoped tokens. Writes mutate the live Y.Doc like human edits.</text>
+          <text x="60" y="520" font-size="11" fill="#a89f8e">NEW: wizard, error contract, tool inventory docs, AGENTS.md schema, lint, dry-run. The server is built; the DX is not.</text>
+
+          <rect x="40" y="560" width="640" height="52" rx="12" fill="none" stroke="#7f73ff" stroke-width="2" stroke-dasharray="7 5" />
+          <text x="60" y="582" font-weight="700" fill="#c9c4ff" font-size="13"><tspan x="60">TRUTH: .md files on disk &#183; OS keychain holds keys (server stores only sha256 of MCP tokens)</tspan><tspan x="60" dy="17">&#183; Polar billing server-side</tspan></text>
+        </g>
+        <g font-size="11" fill="#c9c4ff">
+          <line x1="18" y1="60" x2="18" y2="280" stroke="#7f73ff" stroke-width="2" marker-end="url(#arr2)" />
+          <text x="8" y="170" transform="rotate(-90 8 170)" text-anchor="middle">policy gates the MCP path</text>
+        </g>
+      </svg>
+      <figcaption>The v1 caption said "every edit passes through policy." The honest version: every edit through the MCP path passes through policy. A BYOH harness pointed at local files writes through the OS, and nothing evaluates a scope grant there. ADR-2 decides what happens about that. Nothing else in the architecture changed, because the bet was right; only the build status did.</figcaption>
+    </figure>
+    <div class="grid2" style="margin-top:18px;">
+      <div class="card"><span class="tag green">Verified</span><h3>What already exists (repo audit, Sept 23 2026)</h3><ul class="tight" style="font-size:14.5px;"><li>Rust bridge: file changes to Yjs ops, atomic write-back (<code>notify</code> crate watch)</li><li>Yjs CRDT doc + <code>y-codemirror.next</code> cursor binding, Hocuspocus provider</li><li><code>POST /api/mcp</code>: JSON-RPC, 15 tools (<code>list_vaults</code>, <code>list_folders</code>, <code>list_notes</code>, <code>read_note</code>, <code>search_notes</code>, <code>query_knowledge</code>, <code>create_note</code>, <code>update_note</code>, <code>append_note</code>, <code>edit_note</code>, <code>delete_note</code>, <code>create_folder</code>, <code>delete_folder</code>, <code>move_note</code>, <code>move_folder</code>), scoped tokens minted from desktop Vault settings, MCP tab</li><li>Folder/file ACL (<code>/api/shares</code>), revoke kills connections instantly</li><li>Binary Y.Doc store: <code>doc_updates</code> append log + <code>doc_snapshots</code>, compaction at 50 updates</li><li>Presence lib: <code>color.ts</code>, <code>ping.ts</code>, <code>viewingDocId.ts</code>, with tests; remote cursors already wired into the editor (<code>remoteCursors.ts</code>, imported by <code>Editor.tsx</code>)</li><li>OS keychain via <code>keyring</code> crate; server holds only sha256 of MCP tokens; Polar SDK billing server-side</li><li>Test framework: vitest, in both apps</li></ul></div>
+      <div class="card"><span class="tag amber">New</span><h3>What actually gets built</h3><ul class="tight" style="font-size:14.5px;"><li>Participant registry schema (Phase 1, with agent kinds) + presence panel UI</li><li>Suggest-mode diff layer: proposal staging primitive, review bar, keyboard grammar, state tables</li><li>Agent-scoped token kinds (today tokens act <em>as the user</em>), read instrumentation in the audit log, registry-signed agent identity</li><li>Local-write enforcement point (ADR-2) + loopback-plus-token auth on the MCP socket</li><li>Setup wizard: "Add agent participant" flow, per-harness config, <code>noam agent verify</code> probe</li><li>Error contract (shape + three failure paths with before/after text), <code>noam agent lint</code>, <code>noam workflow dry-run</code></li><li>AGENTS.md + workflow file schemas, <code>noam-agent: v1</code> versioning, deprecation policy</li><li>Docs as exit criteria: quickstart, tool reference, authoring guides, error catalog</li></ul></div>
+    </div>
+    <div class="card" style="margin-top:16px;"><span class="tag grey">Net effect</span><h3>Phase 3 is about 40% of what v1 implied</h3><p style="font-size:14.5px; margin:0;">The socket, the ACL, and compaction are shipped. What remains is identity-shaped (token kinds, registry), surface-shaped (wizard, errors, docs), and decision-shaped (the ADR below). The eng review's verdict stands: greenlight Phase 1 now, require the ADR before Phase 2 or 3 code.</p></div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap">
+    <p class="kicker">03 &middot; Architecture decision record</p>
+    <h2>Four decisions gate everything</h2>
+    <p class="lede">The eng review refused to greenlight Phase 2 or 3 code until these are recorded. Each ADR below carries options, a recommendation, and what happens if you pick otherwise. Status on all four: proposed, awaiting John's call. Nothing here is irreversible except deferring E2E encryption, which is flagged where it bites.</p>
+
+    <div class="adr">
+      <span class="status">ADR-1 &middot; Proposed &middot; gates Phase 2</span>
+      <h3>Suggest-mode staging semantics in Yjs</h3>
+      <p style="font-size:14.5px;">Yjs has no "proposal" concept. "One linear suggest/accept loop" contradicts CRDT concurrency: two overlapping proposals need a defined conflict rule, and reject must compute inverses across concurrent edits. Pick the primitive before a line of Phase 2 code.</p>
+      <table>
+        <tr><th>Option</th><th>How it works</th><th>Tradeoff</th></tr>
+        <tr><td><strong>A. Sandbox Y.Doc per proposal (recommended)</strong></td><td>Each proposal lives in its own Y.Doc branched from the note. Accept replays its ops onto the live doc; reject drops the doc. If the base region changed underneath, accept raises a conflict card instead of merging.</td><td>Cleanest conflict semantics, heaviest primitive. Merge-time conflict UI must be designed (it is, in section 05).</td></tr>
+        <tr><td>B. Op-metadata flags</td><td>Proposals are ops in the shared doc flagged as unaccepted, hidden by the renderer.</td><td>Lighter, but proposal state pollutes the shared doc and syncs to clients that do not understand the flag.</td></tr>
+        <tr><td>C. Apply-and-undo</td><td>Apply the edit, keep the inverse, undo on reject.</td><td>Simplest, but reject-after-concurrent-edits can clobber. Unsafe under real collaboration.</td></tr>
+      </table>
+      <p style="font-size:14.5px;"><strong>Recommendation: A.</strong> It is the only option where "reject" is always safe and "accept" has a defined conflict moment. Cost: the conflict card at merge time, which section 05 designs.</p>
+    </div>
+
+    <div class="adr">
+      <span class="status">ADR-2 &middot; Proposed &middot; gates Phase 3</span>
+      <h3>Local-write enforcement point for BYOH</h3>
+      <p style="font-size:14.5px;">A BYOH harness (Claude Code, Codex CLI) pointed at a personal vault's local files writes through the OS. The Rust bridge egests via filesystem watch. Nothing evaluates a scope grant on that path, so "scoped permissions" are advisory there unless something changes.</p>
+      <table>
+        <tr><th>Option</th><th>How it works</th><th>Tradeoff</th></tr>
+        <tr><td><strong>A. Gated local socket + honest flagging (recommended)</strong></td><td>Agent writes to vault files go through the bundled local MCP socket (stdio transport). The filesystem watch detects writes that bypassed the socket and marks them <em>unmediated</em> in the audit log, visible in the timeline.</td><td>Real mediation on the happy path, honest labeling off it. Requires the socket to be the documented and easiest path, or nobody uses it.</td></tr>
+        <tr><td>B. Noam spawns and sandboxes the harness</td><td>Noam launches the agent process itself inside an OS sandbox with the vault mounted read/write per the grant.</td><td>Strongest guarantee, biggest scope. A process manager is a new product surface.</td></tr>
+        <tr><td>C. Audit-only for local vaults</td><td>Declare local-vault agent access unmediated by design; permissions apply only to the server path.</td><td>Honest, but guts the trust story for personal vaults, which is where most agents will run first.</td></tr>
+      </table>
+      <p style="font-size:14.5px;"><strong>Recommendation: A.</strong> It keeps the trust story true on the path you control and labels the path you do not, instead of pretending. The MCP socket also needs loopback-plus-token auth, or the permission engine is theater on every path.</p>
+    </div>
+
+    <div class="adr">
+      <span class="status">ADR-3 &middot; Proposed &middot; gates Phase 3</span>
+      <h3>Agent-scoped token kinds and registry location</h3>
+      <p style="font-size:14.5px;">MCP tokens today are scoped to (user, vault) and act <em>as the user</em>. That is user impersonation: every audit line and every error says "you" when the agent did it. The plan's reader/drafter/editor presets need a new token kind, and the registry needs a home.</p>
+      <table>
+        <tr><th>Decision</th><th>Recommendation</th></tr>
+        <tr><td>Token kind</td><td><strong>New agent-scoped token kind</strong> carrying (agent participant id, vault, folder/file scopes, approval mode). Minted from the registry, revocable per agent, and every error and audit line carries the participant id.</td></tr>
+        <tr><td>Registry location</td><td><strong>Server-side Postgres, next to vaults/folders/notes.</strong> Team presence cannot work from a per-vault file. Builder-visible state is documented once, in the tool reference.</td></tr>
+        <tr><td>Agent display identity</td><td><strong>Registry-signed.</strong> No agent named "John". Display names render from the registry row, never from agent-supplied strings.</td></tr>
+        <tr><td>Read instrumentation</td><td><strong>Log reads, not just writes.</strong> <code>read_note</code> / <code>search_notes</code> log token id, doc id, timestamp. Without this, the prompt-injection mitigation is theater.</td></tr>
+      </table>
+    </div>
+
+    <div class="adr">
+      <span class="status">ADR-4 &middot; Proposed &middot; gates Phase 4</span>
+      <h3>Who runs the jobs</h3>
+      <p style="font-size:14.5px;">No scheduler exists anywhere: not in the Tauri desktop, not on the server. A morning digest needs a cron owner, and "jobs as vault files" needs someone to wake up and run them.</p>
+      <table>
+        <tr><th>Option</th><th>How it works</th><th>Tradeoff</th></tr>
+        <tr><td><strong>A. Desktop scheduler for personal, server cron for team (recommended)</strong></td><td>Tauri-side scheduler runs vault-file jobs for personal vaults; the sync server runs them for team spaces.</td><td>Two implementations, but each is small and each matches where the vault lives.</td></tr>
+        <tr><td>B. Desktop only</td><td>Jobs run only when your machine is awake.</td><td>Simple, but team-space jobs silently stop when laptops close.</td></tr>
+        <tr><td>C. Server only</td><td>Personal vaults need the sync server to get jobs.</td><td>Couples a local-first product to a server for its headline feature.</td></tr>
+      </table>
+      <p style="font-size:14.5px;"><strong>Recommendation: A.</strong> And Phase 4 is cut to one reference job (morning digest) until the scheduler proves itself. Jobs produce diffs, never silent writes; job failure is loud, never a partial apply.</p>
+    </div>
+
+    <div class="adr">
+      <span class="status">Phase 0 &middot; Proposed prerequisite &middot; gates Phase 1</span>
+      <h3>Identity and team membership</h3>
+      <p style="font-size:14.5px;">Presence, attribution, permission badges, and "visible to everyone in the team space" all assume you know who everyone is. The plan had no identity story. Phase 1 without Phase 0 is a demo, not a product.</p>
+      <p style="font-size:14.5px;"><strong>Recommendation: piggyback, don't build.</strong> Team spaces ride existing identity (Tailscale identity for the self-hosted lane) instead of a new auth system. One paragraph in the trust story, not a quarter of engineering. If team spaces ever need real SSO, that is a separate decision with a separate budget.</p>
+    </div>
+
+    <div class="adr">
+      <span class="status">Flagged &middot; needs John's call before any public launch</span>
+      <h3>The revenue and messaging contradiction</h3>
+      <p style="font-size:14.5px;">Internal STATUS.md says per-vault Pro billing via Polar shipped (the Polar SDK is in the server, verified). Public messaging says free and self-hosted only, no managed tier. Both cannot be the story. Options: managed team-space hosting, per-vault Pro as the paid tier, or a compliance tier for the managed-device lane this product was born into. "Community-owned everything" is a growth strategy, not a business. Reconcile the two documents first, then pick one. No recommendation here: this is a founder call, not an architecture call.</p>
+    </div>
+  </div>
+</section>
+
+<section class="block dark">
+  <div class="wrap">
+    <p class="kicker">04 &middot; Phased plan</p>
+    <h2>Five phases, each shippable alone</h2>
+    <p class="lede">Order is deliberate: identity first because everything assumes it, presence second because everything hangs off it, diffs third because they are the trust mechanism, the agent socket fourth because it needs all three, and one reference job last because it needs the socket. Phase 1 is greenlit now. Phases 2 and 3 wait on the ADR.</p>
+
+    <div class="phase">
+      <span class="tag grey">Phase 0</span>
+      <h3>Identity and team membership</h3>
+      <div class="meta">The prerequisite. Small on purpose.</div>
+      <div class="cols">
+        <div class="do"><strong>Ships:</strong> team spaces bound to existing identity (Tailscale identity in the self-hosted lane). A human is a participant row; a team space is a set of participant rows. Nothing more.</div>
+        <div class="dont"><strong>Not building:</strong> a Noam auth system, SSO, or device management. If those ever come, they are a separate decision with a separate budget.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <span class="tag green">Phase 1 &middot; greenlit</span>
+      <h3>Presence for humans</h3>
+      <div class="meta">The visible foundation. No AI yet. Mostly UI over existing infra.</div>
+      <div class="cols">
+        <div class="do"><strong>Ships:</strong> participant registry schema with <code>kind</code> in {human, agent} from day one, so Phase 3 adds rows, not migrations. Toggleable right sidebar: Online now, Agents active, In this note. Live cursors already ship (animated carets with name flags); Phase 1 gives them registry colors. Per-note presence chips. Heartbeat every 10s; cursor fades after 30s without one, removed after 90s with a quiet panel note. Stale presence is loud, never a ghost. Desktop-only declared explicitly for Phase 1; mobile responsive lands in 1.x.</div>
+        <div class="dont"><strong>Not building:</strong> follow mode (deferred to 1.1, viewport sync is the expensive piece), comments, @mentions, notifications. Agent identity colors are defined now anyway: a fixed 8-color colorblind-safe palette designed for Noam (no reds or oranges, violet reserved for Noam's own actions), never colliding with text-selection color. Retrofitting this later would break muscle memory.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <span class="tag amber">Phase 2 &middot; needs ADR-1 sign-off</span>
+      <h3>Diffs as the interaction model</h3>
+      <div class="meta">The trust mechanism. Still no AI. The riskiest build in the plan.</div>
+      <div class="cols">
+        <div class="do"><strong>Ships:</strong> suggest mode for all edits (propose to accept or reject), built on the ADR-1 sandbox-doc primitive. Op-coalescing rules: keystrokes coalesce per paragraph within a 2s window, a proposal is a set of coalesced regions, 47 keystrokes are never 47 diffs. Per-note history timeline from the op log with a retention SLO: op-level detail 90 days, snapshots beyond, timeline query under 200ms on a year-old note, measured on a real 10k-note vault as a Phase 2 acceptance criterion. "What changed while you were away" digest. The full interaction spec is section 05.</div>
+        <div class="dont"><strong>Not building:</strong> branching, PR-style review flows. Git stays the power tool underneath. Do not start Phase 2 code until ADR-1 is signed.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <span class="tag amber">Phase 3 &middot; needs ADR-2 and ADR-3 sign-off</span>
+      <h3>Agent participant protocol</h3>
+      <div class="meta">The socket. Smaller than v1 implied: the transport is shipped, the surface is not.</div>
+      <div class="cols">
+        <div class="do"><strong>Ships:</strong> agent rows in the registry, agent presence chips with visible permission badges, agent-scoped token kinds (ADR-3), MCP socket with loopback-plus-token auth, setup wizard ending in <code>noam agent verify</code> (section 06), error contract and <code>noam agent lint</code>, AGENTS.md schema and starter template, <code>noam workflow dry-run</code>, per-agent approval modes with always-ask default plus the fatigue answer (batch review, per-agent and per-note trust tiers). Tools default to read-only scopes; every agent mutation returns a suggestion id. Harness setup paths for Claude Code, Codex CLI, and Gemini CLI. BYOK in the system keychain, MCP tokens server-minted and shown separately (section 07).</div>
+        <div class="dont"><strong>Not building:</strong> a Noam model, hosted inference, a model gallery, server-side key storage, shell execution through Noam (agents are file-only; harnesses bring their own shells, stated loudly), a hosted playground, multi-language SDKs, a workflow package manager. Split suggestion from v1 stands: registry plus presence chips first, MCP tools second.</div>
+      </div>
+    </div>
+
+    <div class="phase">
+      <span class="tag grey">Phase 4 &middot; needs ADR-4 sign-off &middot; cut to one</span>
+      <h3>One reference job as a vault file</h3>
+      <div class="meta">Sell outcomes, not "AI". One exemplary file beats three mediocre ones.</div>
+      <div class="cols">
+        <div class="do"><strong>Ships:</strong> the morning digest as a vault file: what changed, rendered as diffs, written in a teammate's voice, not a changelog. Passes <code>noam agent lint</code> and <code>noam workflow dry-run</code> in CI. Starter template repo with one-click fork and a lint action. Folder convention plus a README that renders somewhere users browse. Workflow files use YAML frontmatter plus markdown body, carry <code>noam-agent: v1</code>, and may include one other workflow file by vault-relative path (cycles rejected by lint). Exit criteria: lint plus dry-run green in CI, docs shipped with the file.</div>
+        <div class="dont"><strong>Not building:</strong> a marketplace, ratings, a hosted workflow runner, or the other two reference jobs yet. Let the gallery grow or not on its own. Interrupted agent work is explicitly out of scope for v1: pending proposals stay as pending diffs, no auto-resume. Named and cut, not forgotten.</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap">
+    <p class="kicker">05 &middot; The diff loop, designed</p>
+    <h2>Nobody builds Phase 2 by inventing this</h2>
+    <p class="lede">The design review's core finding: the make-or-break interaction was a paragraph. This section is the spec. Rendering, keyboard, states, decay, conflicts, fatigue, accessibility, and the three authored moments that make it feel alive.</p>
+
+    <div class="grid2">
+      <div class="card"><span class="tag">Rendering</span><h3>Where diffs live</h3><ul class="tight" style="font-size:14.5px;"><li>Inline in the editor with gutter markers, plus a persistent review bar: count, prev/next, accept, reject.</li><li>Approval requests live in the review bar. <strong>Never toasts.</strong> Toasts are for things you can ignore; approvals are the product.</li><li>Agent badges in three places: presence chip, settings row, inline next to that agent's diffs.</li><li>One principle: agents are teammates, so every place a human's name appears, an agent's name appears in the same slot.</li></ul></div>
+      <div class="card"><span class="tag">Keyboard</span><h3>The highest-frequency interaction</h3><ul class="tight" style="font-size:14.5px;"><li><span class="kbd">]</span> / <span class="kbd">[</span> move between suggestions, <span class="kbd">A</span> accepts, <span class="kbd">R</span> rejects.</li><li>Keys are hinted in the review bar itself. Five diffs clear without touching the mouse.</li><li>This grammar is a proposal for John's taste check. It cannot ship unspecified; the keys can change, the existence of keys cannot.</li></ul></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;"><span class="tag">State tables</span><h3>The states that will actually bite</h3>
+      <table style="width:100%; border-collapse:collapse; font-size:14px; margin-top:8px;">
+        <tr><th style="text-align:left; padding:8px 10px; border-top:0; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);">State</th><th style="text-align:left; padding:8px 10px; border-top:0; font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted);">Rule</th></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>Stale presence</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">Heartbeat every 10s. Cursor fades after 30s silent, removed after 90s with a quiet panel note ("Claude disconnected mid-edit"). A ghost cursor is worse than no presence.</td></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>Diff conflict</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">A human edit under a pending suggestion turns it into a conflict card showing both versions, side by side, with keep-mine / keep-theirs / keep-both. No silent merge, no silent clobber.</td></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>Grant revoked mid-session</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">The agent's presence chip retracts immediately, in-flight proposals freeze as pending, and the audit log records the revocation with a timestamp.</td></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>MCP server unreachable</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">The verify probe prints the attempted endpoint, the failure class (connection refused vs auth vs protocol), and the exact command to fix it. No spinner of doom.</td></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>Key add failure</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">Names the keychain operation that failed and the OS permission to check. Keys are never retried silently.</td></tr>
+        <tr><td style="padding:8px 10px; border-top:1px solid var(--line);"><strong>Empty states</strong></td><td style="padding:8px 10px; border-top:1px solid var(--line);">No proposals: "Nothing to review. You are caught up." No agents: the existing copy stands ("Bring your own harness. Noam never sees your keys.").</td></tr>
+      </table>
+    </div>
+
+    <div class="grid2" style="margin-top:16px;">
+      <div class="card"><span class="tag">Fatigue</span><h3>The interaction answer to always-ask</h3><p style="font-size:14.5px; margin:0 0 8px;">Always-ask is the right default on day one and a click ritual by day thirty. Policy alone does not fix that; interaction does:</p><ul class="tight" style="font-size:14.5px;"><li><strong>Batch review:</strong> clear a queue of low-risk proposals in one pass, each still individually visible.</li><li><strong>Per-agent trust tiers:</strong> "always ask" per agent, relaxable to "auto-accept in drafts" or "auto-accept in this note."</li><li><strong>"Accept all from Claude in this note":</strong> the pressure valve for long sessions.</li><li>Risk-tiered approvals underneath: low-risk proposals batch, high-risk ones interrupt. The audit log scores proposals, not just records them.</li></ul></div>
+      <div class="card"><span class="tag">Access</span><h3>Screen readers, touch, motion</h3><ul class="tight" style="font-size:14.5px;"><li>Live cursors are <code>aria-hidden</code> with a polite text alternative ("Claude is editing paragraph 3"). Diffs announce linearized changes. Presence changes never spam live regions.</li><li>44px minimum touch targets. The v1 mock's 40x22 switch is redrawn at 44x24 in section 07.</li><li>Reduced-motion path: follow mode and cursors use jump cuts, not smooth tracking.</li><li>Presence panel: toggleable right sidebar (Online now / Agents active / In this note), shortcut-toggleable, collapsed by default in personal vaults, on in team spaces.</li></ul></div>
+    </div>
+
+    <div class="card" style="margin-top:16px;"><span class="tag">Delight</span><h3>Three authored moments</h3><ul class="tight" style="font-size:14.5px;"><li><strong>First-agent welcome:</strong> the first time an agent cursor appears, a small inline introduction states its scope in plain words. It should never feel like surveillance.</li><li><strong>Accept celebration:</strong> a suggestion accepted feels crisp, one satisfying micro-transition, not a checkbox dying.</li><li><strong>Digest voice:</strong> "while you were away" reads like a teammate's summary, not a changelog. This is the feature that justifies the product to a skeptic.</li><li><strong>Reversibility copy, explicit:</strong> "Every accept is reversible for 30 days." Reversibility is the feature that lets people trust the scary part, so it gets a sentence, not a footnote.</li></ul></div>
+
+    <div class="card" style="margin-top:16px;"><span class="tag">Identity color</span><h3>Agent palette, fixed before Phase 1</h3><p style="font-size:14.5px; margin:0 0 8px;">Eight agents with presence chips, cursors, and diff highlights need a fixed, colorblind-safe palette. The set below is a fixed 8-color colorblind-safe palette designed for Noam (no reds or oranges, violet reserved for Noam's own actions), assigned in registry order:</p><p style="font-size:14.5px; margin:0;"><span class="swatch" style="background:#696713;"></span><code>#696713</code> <span class="swatch" style="background:#b4bf2c;"></span><code>#b4bf2c</code> <span class="swatch" style="background:#789c5b;"></span><code>#789c5b</code> <span class="swatch" style="background:#047e67;"></span><code>#047e67</code> <span class="swatch" style="background:#2fc5fa;"></span><code>#2fc5fa</code> <span class="swatch" style="background:#2981fb;"></span><code>#2981fb</code> <span class="swatch" style="background:#982f93;"></span><code>#982f93</code> <span class="swatch" style="background:#b976a0;"></span><code>#b976a0</code></p></div>
+  </div>
+</section>
+
+<section class="block dark">
+  <div class="wrap">
+    <p class="kicker">06 &middot; Builder experience</p>
+    <h2>The socket was a button. Now it has a flow.</h2>
+    <p class="lede">The devex review's verdict: the MCP server already exists, so Phase 3's work is documentation and error quality, not construction. This section specs the wizard, the tool inventory, the error contract, and the exit criteria that make builders succeed. Target: 2 to 5 minutes from "Add agent participant" to a verified connection with the harness installed, 10 to 15 end to end.</p>
+
+    <div class="card" style="margin-bottom:16px;"><span class="tag">Wizard</span><h3>"Add agent participant", specified</h3>
+      <ol class="tight" style="font-size:14.5px;">
+        <li><strong>Pick harness:</strong> Claude Code, Codex CLI, Gemini CLI, or local. One screen, one choice.</li>
+        <li><strong>Config block:</strong> Noam shows the exact config snippet for that harness (copy-paste default; auto-write into the harness config is opt-in later, because it touches files outside the vault). Transport: <strong>stdio is primary</strong>, the harness-native pattern. One primary, documented.</li>
+        <li><strong>Scope the grant:</strong> folder picker plus the three preset roles (reader, drafter, editor), per-note override only when asked.</li>
+        <li><strong>Mint the token:</strong> agent-scoped token (ADR-3), shown once, stored where the harness expects it.</li>
+        <li><strong>Write AGENTS.md:</strong> generated from a real schema-backed template, then validated by <code>noam agent lint</code> before it is saved.</li>
+        <li><strong>Verify:</strong> <code>noam agent verify</code> calls <code>tools/list</code> over the bundled server and prints green: the agent's presence chip appears live in the panel. This is the magical moment, designed as the payoff: you watch "Claude is editing Q3 Planning" appear, then approve its first proposed diff from inside Noam.</li>
+      </ol>
+      <p style="font-size:14.5px; margin:8px 0 0;">Measured from day one of Phase 3: time from the "Add agent participant" click to verify-green, plus drop-off per wizard step. One recorded fresh-machine friction audit before Phase 3 sign-off.</p>
+    </div>
+
+    <div class="grid2">
+      <div class="card"><span class="tag">Tool inventory</span><h3>The 15 tools, published</h3><p style="font-size:14.5px;">Verified in the repo at <code>POST /api/mcp</code>: all 15 tools, listed here: <code>list_vaults</code>, <code>list_folders</code>, <code>list_notes</code>, <code>read_note</code>, <code>search_notes</code>, <code>query_knowledge</code>, <code>create_note</code>, <code>update_note</code>, <code>append_note</code>, <code>edit_note</code>, <code>delete_note</code>, <code>create_folder</code>, <code>delete_folder</code>, <code>move_note</code>, <code>move_folder</code>. The plan appendix (a Phase 3 deliverable) publishes all 15 with names, parameters, defaults, and scope requirements. Rules:</p><ul class="tight" style="font-size:14.5px;"><li>Tools default to <strong>read-only scopes</strong>; write grants are explicit.</li><li><strong>Every agent mutation returns a suggestion id</strong> the UI can render. No silent applies.</li><li>Errors carry the <strong>participant id</strong>, so the message names the agent, not "you."</li><li>Naming grammar is guessable (<code>noam.read_note</code> style) and <code>tools/list</code> reads clean without the docs open.</li></ul></div>
+      <div class="card"><span class="tag">Error contract</span><h3>What happened, why, how to fix</h3><p style="font-size:14.5px;">Every error follows the formula: what happened, why, how to fix, where to learn more, the actual values. The three paths that must ship with before/after message text:</p><ul class="tight" style="font-size:14.5px;"><li><strong>Permission denied</strong> (the most common event in a scoped system): structured error with the denied path, the scope the agent holds, the grant it needs, plus a user-side one-click "approve this scope" affordance.</li><li><strong>Malformed AGENTS.md or workflow file:</strong> <code>noam agent lint</code> with Elm-style output: file, line, what was expected, the fix.</li><li><strong>Harness cannot reach the server:</strong> the probe prints the attempted endpoint, the failure class (connection refused vs auth vs protocol), and the exact command to fix it.</li><li>Plus a debug/verbose mode for the MCP server. Every error links to its docs page.</li></ul></div>
+    </div>
+
+    <div class="grid2" style="margin-top:16px;">
+      <div class="card"><span class="tag">Authoring</span><h3>Files you can trust</h3><ul class="tight" style="font-size:14.5px;"><li><strong>AGENTS.md schema</strong> plus starter template plus validator. The most-copied artifact in the Tolaria pattern is currently a string in a plan; it becomes a real file with a real schema.</li><li><strong>Workflow format:</strong> YAML frontmatter plus markdown body, carrying <code>noam-agent: v1</code>. Parseable, versionable, familiar.</li><li><strong><code>noam workflow dry-run &lt;file&gt;</code></strong> renders the proposed diffs without applying anything. Authors iterate safely. CI-usable non-interactive mode for lint.</li><li><strong>Versioning:</strong> the registry pins the protocol version per agent. Renames ship with in-app deprecation warnings one release before removal. <code>noam workflow migrate</code> rewrites files forward. One paragraph in the architecture, multi-year consequences.</li><li><strong>Offline-first, stated:</strong> everything here works with the network off. That is a selling point, say it.</li></ul></div>
+      <div class="card"><span class="tag">Docs</span><h3>Exit criteria, not aspirations</h3><p style="font-size:14.5px;">Docs ship with the feature or the feature does not ship. Phase 3 is not done until all five exist:</p><ul class="tight" style="font-size:14.5px;"><li>Quickstart: copy-paste to a verified connection in under 5 minutes, with real shown output.</li><li>Tool reference: one real example per tool.</li><li>AGENTS.md authoring guide and workflow-file authoring guide.</li><li>Error catalog, with every message linking back.</li><li>Docs versioned with the app, so v0.2's protocol docs never describe v0.1's tools.</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<section class="block dark">
+  <div class="wrap">
+    <p class="kicker">07 &middot; Updated settings</p>
+    <h2>Settings mock: AI &amp; Agents, revised</h2>
+    <p class="lede">What the user actually touches. v2 changes, marked in the mock: the credentials section is split in two, because the eng review caught the v1 mock conflating keychain BYOK (inference keys) with server-minted MCP tokens. Showing them in one list confuses users about what an agent can actually do with each. Touch targets are 44px, and the plan specifies real controls with focus rings, not divs.</p>
+    <figure>
+      <div class="win">
+        <div class="win-bar"><span class="dot" style="background:#e06c5b;"></span><span class="dot" style="background:#e8b93e;"></span><span class="dot" style="background:#6fce7f;"></span><span style="margin-left:8px; font-size:13px; color:#a89f8e;">Noam &middot; Settings</span></div>
+        <div class="win-body">
+          <div class="win-side">
+            <div class="mi">General</div><div class="mi">Editor</div><div class="mi">Sync</div>
+            <div class="mi on">AI &amp; Agents</div><div class="mi">Privacy</div><div class="mi">Workflows</div>
+          </div>
+          <div class="win-main">
+            <h4>AI &amp; Agents</h4>
+            <p class="sub">Agents are participants in your workspace, like teammates. They only see what you scope, and every edit arrives as a diff.</p>
+
+            <div class="agent-row">
+              <div class="avatar" style="background:#789c5b; color:#111;">C</div>
+              <div><div style="font-weight:600; font-size:14.5px;">Claude <span class="scope">&middot; via Claude Code &middot; registry-signed</span></div>
+              <div class="scope">Can read <b>/notes</b> &middot; can write <b>/drafts</b> &middot; token: agent-scoped</div></div>
+              <span class="pill ask">always ask</span><div class="switch"></div>
+            </div>
+            <div class="agent-row">
+              <div class="avatar" style="background:#2fc5fa; color:#111;">O</div>
+              <div><div style="font-weight:600; font-size:14.5px;">Ollama <span class="scope">&middot; local model &middot; registry-signed</span></div>
+              <div class="scope">Can read <b>/notes</b> &middot; no write access &middot; token: agent-scoped</div></div>
+              <span class="pill">auto in drafts</span><div class="switch"></div>
+            </div>
+            <div class="agent-row" style="opacity:.55;">
+              <div class="avatar" style="background:#4a443b; color:#b7ae9e;">+</div>
+              <div><div style="font-weight:600; font-size:14.5px; color:#b7ae9e;">No other agents connected</div>
+              <div class="scope">Bring your own harness. Noam never sees your keys.</div></div>
+            </div>
+
+            <div class="btnrow">
+              <button class="mbtn primary">Add agent participant</button>
+              <button class="mbtn">Write AGENTS.md for this vault</button>
+            </div>
+            <p class="delta">Changed in v2: agent rows show registry-signed identity and token kind. Avatars use the fixed agent palette (section 05).</p>
+
+            <fieldset class="fieldset">
+              <legend>Approval mode for agent edits</legend>
+              <label class="radio"><span class="rc on"></span><span>Always ask first<small>Every agent edit lands as a proposed diff. Nothing applies silently. Recommended for week one.</small></span></label>
+              <label class="radio"><span class="rc"></span><span>Relax per agent or per note<small>Batch review, "accept all from Claude in this note", auto-accept in /drafts. The pressure valves from section 05.</small></span></label>
+              <label class="radio"><span class="rc"></span><span>Manual only<small>Agents can read and propose, but you apply every change yourself.</small></span></label>
+            </fieldset>
+            <p class="delta">Changed in v2: the third option now names the fatigue answer instead of pretending always-ask scales alone.</p>
+
+            <fieldset class="fieldset">
+              <legend>Model keys &middot; system keychain (BYOK)</legend>
+              <div class="keyrow"><span style="flex:1;">Anthropic</span><span class="lock">key stored locally</span><span class="pill">connected</span></div>
+              <div class="keyrow"><span style="flex:1;">OpenAI</span><span class="scope">not added</span><span class="mbtn" style="padding:5px 12px;">Add</span></div>
+              <div class="keyrow"><span style="flex:1;">Ollama (local)</span><span class="lock">no key needed</span><div class="switch"></div></div>
+              <div class="scope" style="margin-top:8px;">Inference keys. They never leave this device and Noam's server can never see them.</div>
+            </fieldset>
+
+            <fieldset class="fieldset">
+              <legend>MCP tokens &middot; minted by the sync server</legend>
+              <div class="keyrow"><span style="flex:1;">Claude &middot; agent token</span><span class="scope">read /notes, write /drafts</span><span class="mbtn" style="padding:5px 12px;">Revoke</span></div>
+              <div class="keyrow"><span style="flex:1;">Ollama &middot; agent token</span><span class="scope">read /notes</span><span class="mbtn" style="padding:5px 12px;">Revoke</span></div>
+              <div class="scope" style="margin-top:8px;">Server-minted, revocable per agent. The server stores only their hashes. Revoke kills the connection instantly.</div>
+            </fieldset>
+            <p class="delta">Changed in v2: split from one "keys" list into two. Inference keys and agent tokens are different credentials with different powers; the UI says so.</p>
+
+            <fieldset class="fieldset">
+              <legend>Presence</legend>
+              <label class="radio"><span class="rc on"></span><span>Show my online status in team spaces</span></label>
+              <label class="radio"><span class="rc on"></span><span>Show agent activity<small>Agents appear in the presence panel with their permission badge.</small></span></label>
+              <label class="radio"><span class="rc"></span><span>Appear offline in personal vault</span></label>
+            </fieldset>
+          </div>
+        </div>
+      </div>
+      <figcaption>Revised mock of Settings to AI &amp; Agents. The v2 deltas: split credentials, registry-signed agent identity with token kind on each row, approval options that admit the fatigue problem, agent-palette avatars. Below 700px the sidebar hides; v2 declares Phase 1 desktop-only and designs the mobile presence panel and review bar in 1.x rather than shipping a stranded mock.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap">
+    <p class="kicker">08 &middot; Decisions &amp; risks, updated</p>
+    <h2>What needs your call</h2>
+    <div class="grid2">
+      <div>
+        <div class="q"><strong>D1 &middot; Default approval mode</strong><p>Proposal: "always ask" stays the default, with the fatigue answer built in from day one: batch review, per-agent and per-note trust tiers, "accept all from Claude in this note." Rationale: trust is the pitch, but a default that becomes a click ritual by week two is a security hole, not a UX nicety.</p></div>
+        <div class="q"><strong>D2 &middot; Agent visibility</strong><p>Proposal: agent presence is visible to everyone in the team space, with its permission badge. No invisible agents. Rationale: invisible automation is how trust dies. This is a privacy call worth making deliberately, not by default.</p></div>
+        <div class="q"><strong>D3 &middot; Sequencing vs E2E encryption</strong><p>Proposal: ship presence and diffs before end-to-end encrypted sync, and say plainly in the trust story that the server sees presence and note titles until E2E lands. Rationale: E2E complicates the presence channel and server-side digests; get the interaction model right first on trusted servers. Hard-to-reverse call, flagged as such.</p></div>
+        <div class="q"><strong>D4 &middot; Human suggest mode</strong><p>Proposal: human collaborators get suggest/accept/reject too, on by default in team spaces. Rationale: one interaction model for all edits is the plan's thesis; it should apply to people, not just agents.</p></div>
+        <div class="q"><strong>D5 &middot; Mobile scope</strong><p>Proposal: Phase 1 is desktop-only, declared explicitly. The presence panel and review bar get a real mobile design in 1.x. Rationale: desktop assumptions calcify into layout; better to declare the boundary than ship a stranded mock.</p></div>
+      </div>
+      <div>
+        <div class="q"><strong>R1 &middot; Prompt injection via vault, modeled</strong><p>An agent reading a malicious note can be steered by its contents. Mitigations, all specified now: scope grants plus always-ask diffs bound the blast radius to one proposed edit; the audit log instruments <em>reads</em> (token id, doc id, timestamp), not just writes; agent display identity is registry-signed, so no agent can wear your name; exfiltration is named as an open problem, because the permission engine governs what agents touch, not what a networked agent sends home.</p></div>
+        <div class="q"><strong>R2 &middot; Permission UX complexity</strong><p>Per-file grants can become a chore. Mitigation: folder-level defaults, three preset roles (reader / drafter / editor), per-note override only when asked, and a denial UX that names the fix instead of a dead end.</p></div>
+        <div class="q"><strong>R3 &middot; History storage growth, with a number</strong><p>CRDT op logs grow with every keystroke. Mitigation: snapshot plus compact already ships server-side (50-update threshold). v2 adds the SLO: op-level detail 90 days, snapshots beyond, timeline query under 200ms on a year-old note, measured on a real 10k-note vault as a Phase 2 acceptance criterion, not a footnote.</p></div>
+        <div class="q"><strong>R4 &middot; Notion drift</strong><p>Guardrail from section 01: every feature must work on plain .md files the user controls. Block databases and per-seat rent on sight. Unchanged, still load-bearing.</p></div>
+        <div class="q"><strong>R5 &middot; Bulk-write reindex bottleneck</strong><p>New from the audit: MCP writes trigger reindex, so an agent doing bulk <code>append_note</code> loops could make FTS reindex the bottleneck. Mitigation: a bulk-write benchmark is a Phase 3 acceptance criterion.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block dark">
+  <div class="wrap">
+    <p class="kicker">09 &middot; Open questions for John</p>
+    <h2>Genuine product calls, deduplicated</h2>
+    <p class="lede">Everything the four reviews could not decide alone. The ADRs in section 03 carry the technical ones; these are the product ones.</p>
+    <div class="grid2">
+      <div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q1 &middot; Mediation (ADR-2)</strong><p style="color:#cfc8b8;">Does Noam gate local agent writes through its own socket, sandbox the harness itself, or accept advisory permissions with unmediated use flagged? This decides whether the trust story is real on personal vaults.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q2 &middot; Money</strong><p style="color:#cfc8b8;">Managed hosting, per-vault Pro, a compliance tier, or no revenue story? Reconcile STATUS.md against the public free-only messaging first.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q3 &middot; Identity (Phase 0)</strong><p style="color:#cfc8b8;">Piggyback existing identity (Tailscale) for team spaces, or build team identity? The recommendation is piggyback; confirm.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q4 &middot; Staging primitive (ADR-1)</strong><p style="color:#cfc8b8;">Sandbox Y.Doc per proposal is recommended. Confirm before Phase 2 code, since it is the highest-uncertainty item in the plan.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q5 &middot; Scheduler (ADR-4)</strong><p style="color:#cfc8b8;">Desktop scheduler for personal vaults plus server cron for team spaces, or a single owner? This decides whether the morning digest is real.</p></div>
+      </div>
+      <div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q6 &middot; Config: auto-write or copy-paste</strong><p style="color:#cfc8b8;">Should Noam write harness config files for the user, or show copy-paste snippets? Auto-write is magical but touches files outside the vault; snippets are honest but slower. This single call shapes the setup-time number.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q7 &middot; Keyboard grammar</strong><p style="color:#cfc8b8;"><span class="kbd">]</span>/<span class="kbd">[</span> to move, <span class="kbd">A</span> to accept, <span class="kbd">R</span> to reject, hinted in the review bar. Your taste check: keep, or your own keys?</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q8 &middot; Phase 4 scope</strong><p style="color:#cfc8b8;">One reference job (morning digest) or the original three? The CEO review says cut; the gallery can grow on its own.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q9 &middot; Agent shell access</strong><p style="color:#cfc8b8;">File-only through Noam is the recommendation (harnesses bring their own shells). Confirm it is stated loudly as a feature, not discovered as a limitation.</p></div>
+        <div class="q" style="background:var(--char2); border-color:var(--line-d);"><strong>Q10 &middot; Friction-audit cadence</strong><p style="color:#cfc8b8;">One fresh-machine setup audit per phase, or only before Phase 3 sign-off? The minimum is one; the cadence is your call.</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<section class="block">
+  <div class="wrap">
+    <p class="kicker">10 &middot; Recommendation</p>
+    <h2>Greenlight Phase 1. Decide the ADR. Then build.</h2>
+    <div class="card" style="margin-top:18px;">
+      <span class="tag green">The tuned call</span>
+      <h3>Start with Phase 0 + 1, decide the ADR, then Phase 2</h3>
+      <p style="font-size:14.5px; margin:0;">Presence and diffs are valuable for human teams with zero AI involved, and they are the foundation the agent socket needs. Phase 1 is mostly UI over shipped infra, so it can start now, with the participant registry built right the first time (agent kinds included). Nothing in Phase 2 or 3 starts until the four ADRs are signed, because the staging primitive, the enforcement point, the token kinds, and the scheduler are load-bearing for everything above them. Phase 4 stays one reference job until the scheduler proves itself. The empty quadrant has a clock; this sequencing is the fastest honest path into it.</p>
+    </div>
+    <div class="grid3" style="margin-top:16px;">
+      <div class="card"><span class="tag green">Kept</span><h3>What survived all four reviews</h3><ul class="tight" style="font-size:14.5px;"><li>The participant registry: one table for humans and agents</li><li>Phases 1+2 before agents: presence and diffs first</li><li>Diffs as the interaction model, not chat</li><li>Boundary discipline: no inference bills, no server-side keys</li><li>Forkable vault files, no central registry, gists as distribution</li></ul></div>
+      <div class="card"><span class="tag amber">Changed</span><h3>What the tune rewrote</h3><ul class="tight" style="font-size:14.5px;"><li>Build status corrected against the repo: MCP server, ACL, compaction shipped</li><li>Phase 3 rescoped to about 40% of v1: identity, surface, decisions</li><li>Diff loop fully specified: keyboard, states, decay, conflicts, fatigue answer</li><li>Builder experience specified: wizard, error contract, tool inventory, docs criteria</li><li>Settings mock: credentials split, registry-signed identity, token kinds</li></ul></div>
+      <div class="card"><span class="tag red">Cut</span><h3>What got smaller</h3><ul class="tight" style="font-size:14.5px;"><li>Phase 4: three reference jobs down to one (morning digest)</li><li>Follow mode: deferred to 1.1</li><li>Auto-resume of interrupted agent work: explicitly out of v1 scope</li><li>Hosted playground, multi-language SDKs, workflow package manager: considered, declined</li><li>"Every edit passes through policy": qualified to the MCP path until ADR-2</li></ul></div>
+    </div>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    Noam AI plan v2, tuned Sept 23, 2026. Sources: four gstack review rounds (plan-ceo-review, plan-design-review, plan-eng-review, plan-devex-review) plus a repo audit of jwm-axoni/noam at development, v0.1.59. Original v1 plan and strategy doc preserved alongside this file. Annotate anything you want changed.
+  </div>
+</footer>
+</body>
+</html>

@@ -62,6 +62,19 @@ describe("ApiClient — per-note versions", () => {
     expect(calls[0].method).toBe("GET");
   });
 
+  it("labels a version with its author participant's name when present", async () => {
+    const byAgent = { ...VERSION, authorParticipant: "p-agent", authorParticipantName: "Claude" };
+    const { api } = client(() => ({ json: { versions: [byAgent, VERSION] } }));
+    const [agentRow, humanRow] = await api.listNoteVersions("d1");
+    expect(agentRow.authorName).toBe("Claude");
+    expect(agentRow.authorId).toBe("u1");
+    // No participant stamped (pre-ADR-0003 row): the user's name stays.
+    expect(humanRow.authorName).toBe("Ada");
+
+    const { api: api2 } = client(() => ({ json: { ...byAgent, content: "x" } }));
+    expect((await api2.getNoteVersion("d1", 7)).authorName).toBe("Claude");
+  });
+
   it("returns [] when the server omits the versions array", async () => {
     const { api } = client(() => ({ json: {} }));
     expect(await api.listNoteVersions("d1")).toEqual([]);
@@ -162,7 +175,7 @@ describe("noteLastEdited — dual-casing normalization", () => {
         last_edited_by_name: "Ada",
         last_edited_at: "2026-08-11T10:00:00.000Z",
       }),
-    ).toEqual({ userId: "u1", name: "Ada", at: "2026-08-11T10:00:00.000Z" });
+    ).toEqual({ userId: "u1", participantId: null, name: "Ada", at: "2026-08-11T10:00:00.000Z" });
   });
 
   it("reads camelCase too, and prefers it when both are present", () => {
@@ -177,6 +190,24 @@ describe("noteLastEdited — dual-casing normalization", () => {
     ).toBe("u2");
   });
 
+  it("prefers the participant's name over the user's (an agent edits as its minter)", () => {
+    expect(
+      noteLastEdited({
+        ...base,
+        last_edited_by: "u1",
+        last_edited_by_name: "Ada",
+        last_edited_participant: "p-agent",
+        last_edited_participant_name: "Claude",
+        last_edited_at: "2026-08-11T10:00:00.000Z",
+      }),
+    ).toEqual({
+      userId: "u1",
+      participantId: "p-agent",
+      name: "Claude",
+      at: "2026-08-11T10:00:00.000Z",
+    });
+  });
+
   it("is null for a note that has never been edited (no timestamp)", () => {
     // The absence of `last_edited_at` is what the whole UI branches on — a note
     // with an author but no time is not a stamp, it's a half-written row.
@@ -187,6 +218,7 @@ describe("noteLastEdited — dual-casing normalization", () => {
   it("keeps a stamp whose author has been deleted (name/id null, time real)", () => {
     expect(noteLastEdited({ ...base, last_edited_at: "2026-08-11T10:00:00.000Z" })).toEqual({
       userId: null,
+      participantId: null,
       name: null,
       at: "2026-08-11T10:00:00.000Z",
     });

@@ -1,4 +1,4 @@
-export type GlobalShortcut = "new-note" | "graph" | "action-picker";
+export type GlobalShortcut = "new-note" | "graph" | "action-picker" | "presence";
 
 type ShortcutEvent = Pick<
   KeyboardEvent,
@@ -11,15 +11,16 @@ type ShortcutEvent = Pick<
  * exact shortcut either.
  */
 export function matchGlobalShortcut(event: ShortcutEvent): GlobalShortcut | null {
-  // ⌘⇧P / Ctrl+Shift+P opens the workflow action picker. It is the one built-in
-  // that WANTS Shift, so it is matched ahead of the no-modified-variants guard.
-  if (
-    event.metaKey !== event.ctrlKey &&
-    !event.altKey &&
-    event.shiftKey &&
-    event.key.toLowerCase() === "p"
-  ) {
-    return "action-picker";
+  // ⌘⇧P / Ctrl+Shift+P opens the workflow action picker and ⌘⇧U / Ctrl+Shift+U
+  // toggles the People panel. They WANT Shift, so they are matched ahead of the
+  // no-modified-variants guard.
+  if (event.metaKey !== event.ctrlKey && !event.altKey && event.shiftKey) {
+    switch (event.key.toLowerCase()) {
+      case "p":
+        return "action-picker";
+      case "u":
+        return "presence";
+    }
   }
   if (event.metaKey === event.ctrlKey || event.altKey || event.shiftKey) {
     return null;

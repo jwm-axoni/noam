@@ -35,10 +35,19 @@ export const CLIENT_CAPS = ["voice"];
  *  `docId` null means the user isn't viewing anything (or left) — clear them. */
 export interface PresenceState {
   userId: string;
+  /** Registry participant id — server-stamped (the server also overwrites
+   *  name/color with the registry's values). Absent from older servers. */
+  participantId?: string;
   docId: string | null;
   name: string;
   color: string;
   status: string;
+  /** The server-side connection (one per socket) this frame describes, so
+   *  one user's several devices can be told apart. Absent from older servers. */
+  connId?: string;
+  /** The server saw THIS connection (`connId`) close — not "the user left":
+   *  they may still be online from another device. Absent from older servers. */
+  gone?: boolean;
 }
 
 export type ServerControl =
@@ -166,6 +175,9 @@ export function parseServerControl(text: string): ServerControl | null {
         name: o.name,
         color: o.color,
         status: o.status,
+        ...(typeof o.participantId === "string" ? { participantId: o.participantId } : {}),
+        ...(typeof o.connId === "string" ? { connId: o.connId } : {}),
+        ...(o.gone === true ? { gone: true } : {}),
       };
     }
     return null;
