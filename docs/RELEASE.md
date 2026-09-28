@@ -32,8 +32,10 @@ persistent access through security-scoped bookmarks.
 
 ## Version
 
-Before a release, keep these values equal (the workflow refuses to build when
-they differ):
+The workflow bumps the version automatically when it runs: patch by default, or
+the minor/major bump chosen at dispatch time. The bump is applied with
+`node scripts/bump-version.mjs` to all four version sources, which must stay
+equal (the workflow refuses to build when they differ):
 
 - `app/apps/desktop/package.json`
 - `app/apps/desktop/src-tauri/tauri.conf.json`
@@ -43,7 +45,8 @@ they differ):
 The workflow reads the version from `tauri.conf.json`, tags the release
 `v<version>` and names it `Noam v<version>`. The tag is created when the draft
 is published, so a re-run of a failed release for the same version needs the
-draft deleted first.
+draft deleted first. The draft's notes are generated from the commit subjects
+since the previous tag.
 
 ## Local release gate
 
@@ -125,9 +128,9 @@ For a later Mac App Store submission, treat these as separate release gates:
 
 ## Cut a release
 
-1. Land the version bump on `development` (all four version values equal) and
-   pass the local release gate above.
-2. Open Actions → **Release** → **Run workflow**, choose the branch, run it.
+1. Pass the local release gate above on the code you want to ship.
+2. Open Actions → **Release** → **Run workflow**, pick the version bump
+   (patch/minor/major), run it. The workflow commits the bump to `main` itself.
 3. Wait for `publication-readiness` to pass; the `build-macos` job then waits
    for a `release` environment approval. Review the commit being released and
    approve.
@@ -241,3 +244,4 @@ install it on a clean account, open a synthetic vault, and confirm the
 `latest.json` asset and archive URL respond over HTTPS. The first
 updater-enabled version cannot be tested against 0.1.59, which never checks
 for updates.
+

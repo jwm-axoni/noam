@@ -1,23 +1,70 @@
 name: Release
 
-# Manual-only for now (docs/RELEASE.md): a human dispatches a release, reviews the
-# resulting DRAFT GitHub Release, then publishes it. No automatic tag/push trigger
-# yet. The version comes from app/apps/desktop/src-tauri/tauri.conf.json.
+# Manual-only for now (docs/RELEASE.md): a human dispatches a release, the
+# workflow bumps the version, and the human reviews the resulting DRAFT GitHub
+# Release, then publishes it. No automatic tag/push trigger yet. Every dispatch
+# ships a new version: patch by default, or the bump chosen at dispatch time.
+# The version sources are app/apps/desktop/package.json,
+# src-tauri/tauri.conf.json, src-tauri/Cargo.toml, and the `desktop` entry in
+# src-tauri/Cargo.lock (kept equal by scripts/bump-version.mjs).
 on:
   workflow_dispatch:
+    inputs:
+      bump:
+        description: "Version bump for this release"
+        type: choice
+        options: [patch, minor, major]
+        default: patch
 
 permissions:
-  contents: write # create the GitHub Release + upload assets
+  contents: write # push the version bump, create the GitHub Release + upload assets
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  # Every dispatch ships a new version. The bump commits straight to main with
+  # [skip ci] so the push does not re-trigger the repo's own workflows; the
+  # publication-readiness job below re-scans the bumped tree anyway, and the
+  # build job re-verifies the four version sources agree.
+  bump-version:
+    name: bump-version
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.bump.outputs.version }}
+    steps:
+      - name: Check out main
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
+        with:
+          ref: main
+      - name: Set up Node.js
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
+        with:
+          node-version: 22
+      - name: Bump version
+        id: bump
+        run: |
+          node scripts/bump-version.mjs --bump "${{ inputs.bump }}"
+          ver=$(node -p "require('./app/apps/desktop/src-tauri/tauri.conf.json').version")
+          echo "Bumped to $ver"
+          echo "version=$ver" >> "$GITHUB_OUTPUT"
+      - name: Commit and push the bump
+        run: |
+          git config user.name "noam-release"
+          git config user.email "noreply@noam.invalid"
+          git add app/apps/desktop/package.json \
+            app/apps/desktop/src-tauri/tauri.conf.json \
+            app/apps/desktop/src-tauri/Cargo.toml \
+            app/apps/desktop/src-tauri/Cargo.lock
+          git commit -m "chore(release): bump to v${{ steps.bump.outputs.version }} [skip ci]"
+          git push origin HEAD:main
+
   # Gate a release on the same publication checks that guard main, so a release
   # can never ship from a tree that would fail the guardrails.
   publication-readiness:
     name: publication-readiness
+    needs: [bump-version]
     runs-on: ubuntu-latest
     steps:
       - name: Check out complete history
@@ -48,7 +95,7 @@ jobs:
 
   build-macos:
     name: build-macos (Developer ID + notarized + updater-signed)
-    needs: publication-readiness
+    needs: [publication-readiness, bump-version]
     runs-on: macos-latest
     # Signing/notarization/updater private keys are exposed to this job, so it
     # runs in a protected environment: create a `release` environment in repo
@@ -59,30 +106,26 @@ jobs:
       - name: Check out
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
-          persist-credentials: false
-
+          # Full history: the release notes are generated from the commits
+          # since the previous tag.
+          fetch-depth: 0
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:
           node-version: 22
-
       - name: Enable pnpm (pinned via packageManager)
         run: corepack enable
-
       - name: Set up Rust
         # TODO: pin to a commit SHA to match the checkout/node/gitleaks steps above.
         uses: dtolnay/rust-toolchain@stable
-
       - name: Rust cache
         # TODO: pin to a commit SHA.
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: app/apps/desktop/src-tauri
-
       - name: Install dependencies
         working-directory: app
         run: pnpm install --frozen-lockfile
-
       - name: Verify version consistency
         working-directory: app/apps/desktop
         run: |
@@ -94,7 +137,22 @@ jobs:
             echo "::error::Version mismatch — tauri.conf.json, package.json and Cargo.toml must agree before a release."
             exit 1
           fi
-
+      - name: Generate release notes
+        id: notes
+        run: |
+          prev_tag=$(git describe --tags --abbrev=0 2>/dev/null || true)
+          {
+            echo 'body<<NOAM_NOTES_EOF'
+            echo "## What's new in v${{ needs.bump-version.outputs.version }}"
+            echo ""
+            if [ -n "$prev_tag" ]; then
+              git log "$prev_tag"..HEAD --pretty=format:'- %s (%h)' --reverse | grep -v 'chore(release): bump' || true
+            else
+              git log --pretty=format:'- %s (%h)' --reverse -20 | grep -v 'chore(release): bump' || true
+            fi
+            echo ""
+            echo 'NOAM_NOTES_EOF'
+          } >> "$GITHUB_OUTPUT"
       - name: Build, sign, notarize, and draft the release
         # TODO: pin to a commit SHA.
         uses: tauri-apps/tauri-action@v0
@@ -114,6 +172,7 @@ jobs:
           projectPath: app/apps/desktop
           tagName: v__VERSION__
           releaseName: "Noam v__VERSION__"
+          releaseBody: ${{ steps.notes.outputs.body }}
           releaseDraft: true
           prerelease: false
           # tauri-action uploads the .dmg, the .app.tar.gz + .sig, and generates
