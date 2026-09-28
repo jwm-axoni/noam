@@ -7,6 +7,11 @@ name: Release
 # The version sources are app/apps/desktop/package.json,
 # src-tauri/tauri.conf.json, src-tauri/Cargo.toml, and the `desktop` entry in
 # src-tauri/Cargo.lock (kept equal by scripts/bump-version.mjs).
+#
+# The bump-version job commits straight to main, which branch protection would
+# otherwise reject for the default GITHUB_TOKEN. It checks out with the
+# RELEASE_PUSH_TOKEN secret (a fine-grained PAT with Contents read+write on
+# this repo); admins bypass the PR requirement, so the push succeeds.
 on:
   workflow_dispatch:
     inputs:
@@ -34,10 +39,19 @@ jobs:
     outputs:
       version: ${{ steps.bump.outputs.version }}
     steps:
+      - name: Check release push token
+        run: |
+          if [ -z "${{ secrets.RELEASE_PUSH_TOKEN }}" ]; then
+            echo "::error::RELEASE_PUSH_TOKEN secret is not set. Create a fine-grained PAT with Contents read+write on this repo and add it as a repository secret. See docs/RELEASE.md."
+            exit 1
+          fi
       - name: Check out main
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803
         with:
           ref: main
+          # PAT with Contents read+write: the default token cannot push to
+          # branch-protected main.
+          token: ${{ secrets.RELEASE_PUSH_TOKEN }}
       - name: Set up Node.js
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38
         with:

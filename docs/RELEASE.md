@@ -48,6 +48,13 @@ is published, so a re-run of a failed release for the same version needs the
 draft deleted first. The draft's notes are generated from the commit subjects
 since the previous tag.
 
+The `bump-version` job pushes its commit to branch-protected `main`, which the
+default `GITHUB_TOKEN` cannot do. It uses the `RELEASE_PUSH_TOKEN` repository
+secret instead: a fine-grained personal access token with Contents read+write
+on this repo. Create it under GitHub Settings → Developer settings → Personal
+access tokens → Fine-grained tokens, then add it under the repo's Settings →
+Secrets and variables → Actions.
+
 ## Local release gate
 
 From the repository root, before dispatching:
