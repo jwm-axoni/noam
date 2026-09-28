@@ -145,6 +145,13 @@ reduced-motion answers). Add a control, add a row.
 
 ---
 
+## Plans
+
+[[PLAN-INTERACTIVE-VIEWS]] is the draft plan for sorting, find/replace, folder galleries,
+dashboards on top of NoteKnowledge, and an embedded terminal. Not yet approved for build.
+
+---
+
 ## Status
 
 See [[STATUS]] for the live build checklist.
