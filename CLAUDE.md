@@ -286,6 +286,15 @@ and the title widget's `eq()` compares only `{path, readOnly, hasFrontmatter, mo
   `frontmatterView(state)` is the single authority for which of the three renderings the region gets —
   two block replaces over one range would throw.
 
+**Dashboards** (`docs/DASHBOARDS.md`): a `noam_kind: dashboard` note opens on `DashboardSurface`
+(`App.tsx` nests `BoardSurface > DashboardSurface > Editor`, so a note is a board, a dashboard or
+text). Its `noam-view` fenced blocks are a CLOSED line grammar (`lib/dashboard/`) in the Tasks
+query's style: nothing is evaluated, an unknown line blocks the view rather than widening it, and
+relative dates resolve at run time. Views run through `queryNotes` (NoteKnowledge, with the
+desktop `traverse` for `rel has [[Note]]`) and read card fields index-only via `list_note_cards`.
+The card face is shared with the folder gallery (`components/gallery/NoteCard.tsx`). No iframe
+and no note content through `dangerouslySetInnerHTML`: values render as text.
+
 `AccessPanel` treats the vault mode as **unknown until fetched** (`teamAccess: TeamAccess | null`;
 `lib/teamAccessCache.ts` seeds the paint from localStorage but can never authorise a write, which
 waits for the real GET) — falling back to Private flashed the opposite of the truth on every open of

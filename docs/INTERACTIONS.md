@@ -143,6 +143,18 @@ n/a = synchronous or sub-100ms by construction.
 | Choose or reset a note, file, or folder icon | local presentation write + reindex | 0.1–1s | ✅ picker closes after a successful write and returns focus to its opener; a failed write keeps the picker open |
 | Close the picker (Close button / Escape / outside press) | local UI | instant | n/a; Close and Escape return focus to the opener |
 
+### Dashboards — `components/dashboard/`, `lib/dashboard/` ([[DASHBOARDS]])
+
+| Action | Work | Latency | Feedback |
+| --- | --- | --- | --- |
+| New dashboard (file tree menu) | create-only write + open | fast | ✅ opens on the Dashboard surface |
+| Dashboard / Text toggle | local (per note path) | instant | n/a |
+| A view running | index query per view | fast | ✅ "Loading…" on the first run only; rows stay on screen during refreshes |
+| Show more | next cursor page | fast | ✅ rows append; starts over if the cursor expired |
+| Table header click | in-memory re-sort | instant | n/a; the note is not rewritten |
+| Card / row click or Enter | open note | as note open | ✅ |
+| A view fails | none | n/a | ✅ error inside that view only; the others keep working |
+
 ### Editor & main — `components/Editor.tsx`, `App.tsx`
 
 | Action | Work | Latency | Feedback |

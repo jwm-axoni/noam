@@ -85,6 +85,14 @@ materialization time. Acceptable for sorting, and the docs should say so.
 
 ## Part 2: dashboards
 
+> **Status ✅ v1 (2026-09-29).** Cards and tables from `noam-view` blocks in a
+> `noam_kind: dashboard` note, a closed line grammar that never widens a result, relationship
+> filters (`people has [[Paul]]`) via the contract's `traverse` (now on the desktop `notes` query
+> too), card data from the index only (`list_note_cards`), and a "New dashboard" create flow. See
+> [[DASHBOARDS]]. Not in v1: sandboxed JS views (Phase E, unchanged), agent-saved dashboards,
+> inline body `#tags` in filters (only frontmatter `tags` are indexed), `!=` / `or` / `name`
+> filters, and a total count ("Showing 24 of 25+").
+
 - **Storage: a note with `noam_kind: dashboard` in frontmatter**, following the Boards precedent
   (`noam_kind: board`, [[BOARDS]]). It is a plain `.md` file, so it syncs, versions, and keeps its
   doc_id. A dashboard is a saved list of `KnowledgeQuery` objects plus a layout.
@@ -273,24 +281,27 @@ rather than writing it silently, because it's a visible file in the user's vault
 
 ## Build order
 
+Status 2026-09-29: Phases A–D are built (✅ below); Phase E is not started and waits on a
+decision, not on code.
+
 ```
-Phase A   quick wins, independent of each other
+Phase A ✅ quick wins, independent of each other
           ├─ sorting (everything but Created)
           ├─ find/replace bubble
           └─ terminal T1 (PTY + xterm as a tab)
 
-Phase B   extend NoteKnowledge
+Phase B ✅ extend NoteKnowledge
           ├─ sort + system props (created, modified), created-date source decided
           ├─ seed type / people in the catalog
           ├─ server query_knowledge parity
           └─ Created sort options go live
 
-Phase C   folder gallery (reads Phase B; thumbnails from the index)
+Phase C ✅ folder gallery (reads Phase B; thumbnails from the index)
           terminal T2 (bottom zone) + T3
 
-Phase D   dashboards v1: noam_kind: dashboard, React cards/table, no frame JS
+Phase D ✅ dashboards v1: noam_kind: dashboard, React cards/table, no frame JS
 
-Phase E   sandboxed JS views, after the CSP change and the Tauri subframe IPC audit
+Phase E ⏸ sandboxed JS views, after the CSP change and the Tauri subframe IPC audit
 ```
 
 Sorting, find/replace and the terminal don't depend on the query layer, so they don't wait for it.
