@@ -18,7 +18,7 @@ import {
   type McpContext,
   type NoteEdit,
 } from "./service.js";
-import type { KnowledgeQuery, PropertyPredicate } from "../knowledge/query.js";
+import type { KnowledgeQuery, KnowledgeSort, PropertyPredicate } from "../knowledge/query.js";
 
 /**
  * The MCP tool catalog. Each entry carries a JSON-Schema `inputSchema` (sent to
@@ -181,6 +181,26 @@ export function parseKnowledgeArgs(args: Args): { vaultId: string; query: Knowle
       maxDepth: row.maxDepth as 1 | 2 | 3 | 4,
     };
   }
+
+  if (args.sort !== undefined) {
+    if (!args.sort || typeof args.sort !== "object" || Array.isArray(args.sort)) {
+      throw new McpToolError("sort must be an object");
+    }
+    const row = args.sort as Args;
+    const direction = row.direction ?? "asc";
+    if (direction !== "asc" && direction !== "desc") {
+      throw new McpToolError("sort.direction must be asc or desc");
+    }
+    let key: KnowledgeSort["key"];
+    if (row.key === "name" || row.key === "created" || row.key === "modified") {
+      key = row.key;
+    } else if (row.key && typeof row.key === "object" && !Array.isArray(row.key)) {
+      key = { propertyId: boundedString((row.key as Args).propertyId, "sort.key.propertyId", 64) };
+    } else {
+      throw new McpToolError("sort.key must be name, created, modified or { propertyId }");
+    }
+    query.sort = { key, direction };
+  }
   return { vaultId, query };
 }
 
@@ -286,7 +306,7 @@ export const TOOLS: McpTool[] = [
   {
     name: "query_knowledge",
     description:
-      "Query the properties and named relationships of notes you can access. Supports typed property predicates, bounded incoming/outgoing traversal, current-index checks, and paginated source evidence.",
+      "Query the properties and named relationships of notes you can access. Supports typed property predicates, sorting, bounded incoming/outgoing traversal, current-index checks, and paginated source evidence. Every note has two read-only system properties usable in `where` and `sort`: `created` (frontmatter `created:` if present, else when the note was first registered) and `modified` (last content edit); compare them with eq/lt/lte/gt/gte against an ISO date (a whole UTC day), an ISO datetime, or epoch milliseconds.",
     inputSchema: {
       type: "object",
       properties: {
@@ -319,6 +339,27 @@ export const TOOLS: McpTool[] = [
             maxDepth: { type: "integer", minimum: 1, maximum: 4 },
           },
           required: ["fromDocId", "relationshipIds", "direction", "maxDepth"],
+          additionalProperties: false,
+        },
+        sort: {
+          type: "object",
+          description:
+            "Order of results. Ties break by docId; notes without a value for the key sort last in both directions.",
+          properties: {
+            key: {
+              oneOf: [
+                { type: "string", enum: ["name", "created", "modified"] },
+                {
+                  type: "object",
+                  properties: { propertyId: S("Stable property definition id") },
+                  required: ["propertyId"],
+                  additionalProperties: false,
+                },
+              ],
+            },
+            direction: { type: "string", enum: ["asc", "desc"] },
+          },
+          required: ["key"],
           additionalProperties: false,
         },
         consistency: { type: "string", enum: ["current-only", "allow-stale"] },

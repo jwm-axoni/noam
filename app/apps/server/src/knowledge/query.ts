@@ -5,6 +5,17 @@ import { pgText } from "../db/text.js";
 import { pool as defaultPool } from "../db/pool.js";
 import { extractDocText } from "../index/indexer.js";
 import { listReadableDocsInVault } from "../permissions/vault-docs.js";
+import {
+  compareSorted,
+  isSystemProperty,
+  noteName,
+  systemRange,
+  textSortValue,
+  type KnowledgeSort,
+  type SortValue,
+} from "./system.js";
+
+export type { KnowledgeSort } from "./system.js";
 
 type Queryable = Pick<pg.Pool, "query">;
 
@@ -13,6 +24,7 @@ export type KnowledgeErrorCode =
   | "stale_index"
   | "cursor_expired"
   | "limit_exceeded"
+  | "schema_invalid"
   | "temporarily_unavailable";
 
 export class KnowledgeQueryError extends Error {
@@ -36,6 +48,11 @@ export interface KnowledgeQuery {
     direction: "outgoing" | "incoming";
     maxDepth: 1 | 2 | 3 | 4;
   };
+  /**
+   * Order of the page. Ties break by doc id ascending; a note without a
+   * sortable value sorts last in both directions. Absent = doc id order.
+   */
+  sort?: KnowledgeSort;
   page?: { limit?: number; cursor?: string };
   consistency?: "current-only" | "allow-stale";
 }
@@ -48,6 +65,12 @@ export interface AnswerEvidence {
   sourceRevision: string;
   indexRevision: string | null;
   indexState: "current" | "stale" | "failed" | "missing";
+  /** System property `created` (ISO, UTC): frontmatter `created:`, else when
+   *  the server first registered the note. */
+  created: string;
+  createdSource: "frontmatter" | "server";
+  /** System property `modified` (ISO, UTC): the last content edit. */
+  modified: string;
   passages: Array<{ start: number; end: number; text: string }>;
 }
 
@@ -64,6 +87,8 @@ interface CursorPayload {
   readableHash: string;
   indexHash: string;
   lastDocId: string;
+  /** Sorted queries only: the last row's sort value (JSON), for keyset paging. */
+  lastKey?: string;
 }
 
 interface IndexedState {
@@ -122,7 +147,8 @@ function decodeCursor(value: string): CursorPayload {
       typeof payload.queryHash !== "string" ||
       typeof payload.readableHash !== "string" ||
       typeof payload.indexHash !== "string" ||
-      typeof payload.lastDocId !== "string"
+      typeof payload.lastDocId !== "string" ||
+      (payload.lastKey !== undefined && typeof payload.lastKey !== "string")
     ) {
       throw new Error("invalid cursor payload");
     }
@@ -203,10 +229,43 @@ async function traversalCandidates(
   return rows.map((row) => row.doc_id);
 }
 
+/**
+ * The system properties as SQL over `notes n` + `note_knowledge_state ks`, in
+ * epoch ms. `modified` reads `last_edited_at`, which only content edits stamp
+ * (a rename or move bumps `updated_at` instead); see `system.ts`.
+ */
+const CREATED_MS_SQL =
+  "COALESCE(ks.frontmatter_created_ms, floor(extract(epoch FROM n.created_at) * 1000)::bigint)";
+const MODIFIED_MS_SQL =
+  "floor(extract(epoch FROM COALESCE(n.last_edited_at, n.created_at)) * 1000)::bigint";
+const CREATED_SOURCE_SQL =
+  "CASE WHEN ks.frontmatter_created_ms IS NOT NULL THEN 'frontmatter' ELSE 'server' END";
+const SYSTEM_PREDICATE_HELP =
+  "compares (eq/lt/lte/gt/gte) with an ISO date/datetime or epoch milliseconds";
+
+function systemPredicateSql(predicate: PropertyPredicate, params: unknown[]): string {
+  const range = systemRange(predicate.op, predicate.value);
+  if (!range) {
+    throw new KnowledgeQueryError("schema_invalid", `${predicate.propertyId} ${SYSTEM_PREDICATE_HELP}`);
+  }
+  const expr = predicate.propertyId === "created" ? CREATED_MS_SQL : MODIFIED_MS_SQL;
+  const bounds: string[] = [];
+  if (range.lo !== null) {
+    params.push(range.lo);
+    bounds.push(`${expr} >= $${params.length}::bigint`);
+  }
+  if (range.hi !== null) {
+    params.push(range.hi);
+    bounds.push(`${expr} < $${params.length}::bigint`);
+  }
+  return `(${bounds.join(" AND ")})`;
+}
+
 function predicateSql(
   predicate: PropertyPredicate,
   params: unknown[],
 ): string {
+  if (isSystemProperty(predicate.propertyId)) return systemPredicateSql(predicate, params);
   params.push(predicate.propertyId);
   const property = `$${params.length}`;
   if (typeof predicate.value === "number") {
@@ -242,6 +301,42 @@ function predicateSql(
       AND pv.text_value ${op} ${value})`;
 }
 
+interface CandidateRow {
+  doc_id: string;
+  document_id: string | null;
+  title: string | null;
+  rel_path: string;
+  created_ms: string;
+  created_source: "frontmatter" | "server";
+  modified_ms: string;
+}
+
+interface SortColumns {
+  sort_type?: string | null;
+  sort_text?: string | null;
+  sort_number?: number | null;
+  sort_boolean?: boolean | null;
+}
+
+/** One row's sort value; null = no sortable value (sorts last). */
+function sortValue(sort: KnowledgeSort, row: CandidateRow & SortColumns): SortValue | null {
+  if (sort.key === "name") return textSortValue(noteName(row.rel_path));
+  if (sort.key === "created") return { t: "n", v: Number(row.created_ms) };
+  if (sort.key === "modified") return { t: "n", v: Number(row.modified_ms) };
+  switch (row.sort_type) {
+    case "number":
+      return row.sort_number == null ? null : { t: "n", v: Number(row.sort_number) };
+    case "boolean":
+      return row.sort_boolean == null ? null : { t: "b", v: row.sort_boolean };
+    case "text":
+    case "date":
+    case "datetime":
+      return textSortValue(row.sort_text);
+    default:
+      return null;
+  }
+}
+
 export function createKnowledgeQuery(
   scope: { actorId: string; vaultId: string },
   deps: { db?: Queryable; readableDocs?: typeof listReadableDocsInVault } = {},
@@ -265,6 +360,24 @@ export function createKnowledgeQuery(
       (typeof predicate.value === "string" && predicate.value.length > MAX_FILTER_TEXT)
     )) {
       throw new KnowledgeQueryError("limit_exceeded", "A property filter is too large");
+    }
+    if (query.sort) {
+      const { key, direction } = query.sort;
+      const validKey = key === "name" || key === "created" || key === "modified" || (
+        typeof key === "object" && key !== null &&
+        typeof key.propertyId === "string" && key.propertyId.length > 0 && key.propertyId.length <= 256
+      );
+      if (!validKey || (direction !== "asc" && direction !== "desc")) {
+        throw new KnowledgeQueryError(
+          "schema_invalid",
+          "sort needs a key (name, created, modified or { propertyId }) and a direction (asc or desc)",
+        );
+      }
+    }
+    for (const predicate of query.where ?? []) {
+      if (isSystemProperty(predicate.propertyId) && !systemRange(predicate.op, predicate.value)) {
+        throw new KnowledgeQueryError("schema_invalid", `${predicate.propertyId} ${SYSTEM_PREDICATE_HELP}`);
+      }
     }
     if (query.traverse && (
       query.traverse.relationshipIds.length > MAX_FILTERS ||
@@ -305,6 +418,7 @@ export function createKnowledgeQuery(
     );
 
     let after = "";
+    let afterKey: SortValue | null | undefined;
     if (query.page?.cursor) {
       const cursor = decodeCursor(query.page.cursor);
       if (
@@ -317,6 +431,12 @@ export function createKnowledgeQuery(
         throw new KnowledgeQueryError("cursor_expired", "The query changed since this page was read");
       }
       after = cursor.lastDocId;
+      if (query.sort) {
+        if (cursor.lastKey === undefined) {
+          throw new KnowledgeQueryError("cursor_expired", "The query changed since this page was read");
+        }
+        afterKey = JSON.parse(cursor.lastKey) as SortValue | null;
+      }
     }
 
     let candidates = noteIds;
@@ -335,27 +455,72 @@ export function createKnowledgeQuery(
     }
     for (const predicate of query.where ?? []) filters.push(predicateSql(predicate, params));
     const where = filters.join(" AND ");
-    const { rows: countRows } = await db.query<{ count: string }>(
-      `SELECT count(*)::text AS count FROM notes n
-       JOIN note_index ni ON ni.doc_id = n.id WHERE ${where}`,
-      params,
-    );
-    const count = Number(countRows[0]?.count ?? 0);
+    const from = `notes n
+       JOIN note_index ni ON ni.doc_id = n.id
+       LEFT JOIN note_knowledge_state ks ON ks.doc_id = n.id`;
+    const columns = `n.id AS doc_id, ki.document_id, ni.title, n.rel_path,
+            ${CREATED_MS_SQL}::text AS created_ms, ${CREATED_SOURCE_SQL} AS created_source,
+            ${MODIFIED_MS_SQL}::text AS modified_ms`;
 
-    params.push(after, limit + 1);
-    const { rows } = await db.query<{
-      doc_id: string;
-      document_id: string | null;
-      title: string | null;
-      rel_path: string;
-    }>(
-      `SELECT n.id AS doc_id, ki.document_id, ni.title, n.rel_path
-         FROM notes n JOIN note_index ni ON ni.doc_id = n.id
-         LEFT JOIN note_knowledge_identities ki ON ki.doc_id = n.id
-        WHERE ${where} AND n.id > $${params.length - 1}
-        ORDER BY n.id LIMIT $${params.length}`,
-      params,
-    );
+    let count: number;
+    let rows: CandidateRow[];
+    let pageKeys: Array<SortValue | null> = [];
+    if (query.sort) {
+      // Sorted: order every matching row with the SAME comparator the desktop
+      // uses (`system.ts`), then keyset-page on (sort value, doc id). The set
+      // is bounded by the caller's readable notes in one vault.
+      const sort = query.sort;
+      const property = typeof sort.key === "object" ? sort.key.propertyId : null;
+      let lateral = "";
+      if (property !== null) {
+        params.push(property);
+        lateral = `LEFT JOIN LATERAL (
+          SELECT pv.value_type, pv.text_value, pv.number_value, pv.boolean_value
+            FROM note_property_values pv
+           WHERE pv.doc_id = n.id AND pv.property_id = $${params.length}
+           ORDER BY pv.value_order LIMIT 1
+        ) sv ON TRUE`;
+      }
+      const sortColumns = property !== null
+        ? `, sv.value_type AS sort_type, sv.text_value AS sort_text,
+             sv.number_value AS sort_number, sv.boolean_value AS sort_boolean`
+        : "";
+      const { rows: all } = await db.query<CandidateRow & SortColumns>(
+        `SELECT ${columns}${sortColumns}
+           FROM ${from}
+           LEFT JOIN note_knowledge_identities ki ON ki.doc_id = n.id
+           ${lateral}
+          WHERE ${where}`,
+        params,
+      );
+      const keyed = all.map((row) => ({ row, key: sortValue(sort, row), docId: row.doc_id }));
+      keyed.sort((a, b) => compareSorted(a, b, sort.direction));
+      count = keyed.length;
+      let start = 0;
+      if (afterKey !== undefined) {
+        const last = { key: afterKey, docId: after };
+        while (start < keyed.length && compareSorted(keyed[start]!, last, sort.direction) <= 0) start++;
+      }
+      const slice = keyed.slice(start, start + limit + 1);
+      rows = slice.map((entry) => entry.row);
+      pageKeys = slice.map((entry) => entry.key);
+    } else {
+      const { rows: countRows } = await db.query<{ count: string }>(
+        `SELECT count(*)::text AS count FROM ${from} WHERE ${where}`,
+        params,
+      );
+      count = Number(countRows[0]?.count ?? 0);
+
+      params.push(after, limit + 1);
+      ({ rows } = await db.query<CandidateRow>(
+        `SELECT ${columns}
+           FROM ${from}
+           LEFT JOIN note_knowledge_identities ki ON ki.doc_id = n.id
+          WHERE ${where} AND n.id > $${params.length - 1}
+          ORDER BY n.id LIMIT $${params.length}`,
+        params,
+      ));
+    }
     const hasMore = rows.length > limit;
     const pageRows = rows.slice(0, limit);
     const items = await Promise.all(
@@ -380,13 +545,24 @@ export function createKnowledgeQuery(
           sourceRevision,
           indexRevision,
           indexState,
+          created: new Date(Number(row.created_ms)).toISOString(),
+          createdSource: row.created_source,
+          modified: new Date(Number(row.modified_ms)).toISOString(),
           passages: passage(content, query.text),
         };
       }),
     );
     const lastDocId = pageRows.at(-1)?.doc_id;
+    const lastKey = query.sort ? JSON.stringify(pageKeys[pageRows.length - 1] ?? null) : undefined;
     const nextCursor = hasMore && lastDocId
-      ? encodeCursor({ ...scope, queryHash, readableHash, indexHash, lastDocId })
+      ? encodeCursor({
+          ...scope,
+          queryHash,
+          readableHash,
+          indexHash,
+          lastDocId,
+          ...(lastKey !== undefined ? { lastKey } : {}),
+        })
       : null;
     return { items, count, nextCursor };
   };

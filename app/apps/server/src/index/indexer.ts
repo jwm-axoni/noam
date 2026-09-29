@@ -8,6 +8,7 @@ import { cosineSimilarity, embed, tokenize } from "./embedder.js";
 import {
   parseKnowledgeCatalog,
   parseKnowledgeMarkdown,
+  withDefaultKnowledgeCatalog,
   type KnowledgeCatalog,
   type KnowledgeProjection,
 } from "../knowledge/markdown.js";
@@ -30,6 +31,14 @@ type TransactionalQueryable = Queryable & Partial<Pick<pg.Pool, "connect">>;
 
 /** The shared Y.Text that holds a note body (matches the desktop bridge). */
 const CONTENT_FIELD = "content";
+
+/**
+ * Version of the per-doc system-property projection (`frontmatter_created_ms`,
+ * migration 029). Boot backfill re-indexes rows below it, so notes indexed
+ * before the column existed pick up their frontmatter `created:` without
+ * being marked stale (which would fail `current-only` queries meanwhile).
+ */
+const SYSTEM_PROJECTION_VERSION = 1;
 
 /** Default debounce window: collapse bursts of updates into one index write. */
 const DEBOUNCE_MS = 2000;
@@ -251,7 +260,7 @@ async function indexDocOnce(
       const content = pgText(rawContent);
       const title = pgText(note.title ?? relPathStem(note.rel_path));
       const links = parseWikilinks(content);
-      const catalog = await loadKnowledgeCatalog(tx, note.vault_id);
+      const catalog = withDefaultKnowledgeCatalog(await loadKnowledgeCatalog(tx, note.vault_id));
       const projection = parseKnowledgeMarkdown(rawContent, catalog);
       const vector = embed(`${title ?? ""}\n${content}`);
 
@@ -283,9 +292,11 @@ async function indexDocOnce(
                 index_revision = $2,
                 state = 'current',
                 error_code = NULL,
-                indexed_at = now()
+                indexed_at = now(),
+                frontmatter_created_ms = $3,
+                system_projection = ${SYSTEM_PROJECTION_VERSION}
           WHERE doc_id = $1`,
-        [docId, revision],
+        [docId, revision, projection.frontmatterCreatedMs],
       );
       if (note.rel_path === KNOWLEDGE_SCHEMA_PATH) {
         await tx.query(
@@ -526,7 +537,8 @@ export async function backfillIndex(db: Queryable = defaultPool): Promise<number
        LEFT JOIN note_index ni ON ni.doc_id = n.id
        LEFT JOIN note_knowledge_state ks ON ks.doc_id = n.id
       WHERE n.deleted_at IS NULL
-        AND (ni.doc_id IS NULL OR ks.doc_id IS NULL OR ks.state <> 'current')`,
+        AND (ni.doc_id IS NULL OR ks.doc_id IS NULL OR ks.state <> 'current'
+             OR ks.system_projection < ${SYSTEM_PROJECTION_VERSION})`,
   );
   let count = 0;
   for (const { id } of rows) {
