@@ -320,6 +320,9 @@ impl Index {
             );
             "#,
         )?;
+        // The earliest file birthtime this index has observed for a note: the
+        // last-resort source of the `created` system property (`note_times`).
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "btime_ms", "INTEGER")?;
         crate::knowledge::migrate(&self.conn)?;
         crate::tasks::migrate(&self.conn)?;
         Ok(())
@@ -513,6 +516,11 @@ impl Index {
         }
         crate::knowledge::resolve_queued_relationships(&tx)?;
         crate::tasks::mark_projection_ready(&tx)?;
+        // Once per index: seed the `created` sources for notes indexed before
+        // they existed. A stat per note, no file reads.
+        if !crate::knowledge::system_properties_ready(&tx)? {
+            crate::knowledge::backfill_system_properties(&tx, vault)?;
+        }
         tx.commit()?;
         // Unconditional, unlike `log_batch`, which stays silent below
         // `BATCH_LOG_MIN` — a clean reopen (0 touched notes) is exactly the case
@@ -800,6 +808,7 @@ impl Index {
     fn index_oversized(
         &self,
         tx: &Connection,
+        abs: &Path,
         rel: &str,
         stem: &str,
         mtime: i64,
@@ -815,6 +824,7 @@ impl Index {
                 sha256=excluded.sha256, frontmatter=excluded.frontmatter",
             params![id, rel, stem, mtime],
         )?;
+        crate::knowledge::record_birthtime(tx, &id, crate::note_times::file_birthtime_ms(abs))?;
         let rowid: i64 =
             tx.query_row("SELECT rowid FROM notes WHERE id = ?1", params![id], |r| {
                 r.get(0)
@@ -870,7 +880,7 @@ impl Index {
                 size as f64 / (1024.0 * 1024.0),
                 MAX_INDEX_BYTES / (1024 * 1024)
             );
-            return self.index_oversized(tx, &rel, stem, mtime, reuse_id, knowledge_generation);
+            return self.index_oversized(tx, abs, &rel, stem, mtime, reuse_id, knowledge_generation);
         }
 
         let content = std::fs::read_to_string(abs)?;
@@ -888,6 +898,7 @@ impl Index {
                 sha256=excluded.sha256, frontmatter=excluded.frontmatter",
             params![id, rel, parsed.title, mtime, sha, parsed.frontmatter_json],
         )?;
+        crate::knowledge::record_birthtime(tx, &id, crate::note_times::file_birthtime_ms(abs))?;
 
         let starts_frontmatter = content
             .strip_prefix('\u{feff}')
@@ -962,6 +973,22 @@ impl Index {
         page: &KnowledgePageRequest,
     ) -> AppResult<KnowledgePage> {
         crate::knowledge::query(&self.conn, query, page)
+    }
+
+    /// Every note's `created`/`modified` system properties in one read — the
+    /// cheap bulk path for list views (the explorer's "Created" sorts), which
+    /// have no use for the paging and filtering of `query_knowledge`.
+    pub fn list_note_times(&self) -> AppResult<Vec<crate::knowledge::NoteTimes>> {
+        crate::knowledge::list_note_times(&self.conn)
+    }
+
+    /// Record the server's `notes.created_at` (epoch ms) for synced notes,
+    /// keyed by doc_id. Survives `rebuild`; returns how many rows changed.
+    pub fn record_server_created(&self, entries: &[(String, i64)]) -> AppResult<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let changed = crate::knowledge::record_server_created(&tx, entries)?;
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Bounded reads over the derived task index.
@@ -1766,6 +1793,12 @@ impl Index {
         // between writes on.
         tx.execute(
             "DELETE FROM note_ui_state WHERE doc_id NOT IN (SELECT doc_id FROM _live_docs)",
+            [],
+        )?;
+        // The server's creation time for a note nobody can reach any more — the
+        // other doc_id-keyed table `rebuild` never touches.
+        tx.execute(
+            "DELETE FROM note_server_created WHERE doc_id NOT IN (SELECT doc_id FROM _live_docs)",
             [],
         )?;
         tx.execute_batch("DROP TABLE IF EXISTS _live_docs;")?;

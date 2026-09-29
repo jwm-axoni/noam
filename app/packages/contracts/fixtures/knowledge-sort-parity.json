@@ -1,0 +1,67 @@
+{
+  "$comment": "Shared parity fixture for query_knowledge sort + the created/modified system properties (docs/specs/06-note-knowledge-contract.md). Consumed by the desktop's Rust test (src-tauri/tests/knowledge_sort_parity.rs) and the server's vitest (tests/knowledge-sort-parity.test.ts): the same notes and the same query must yield the same ordered doc ids on both sides. serverCreatedAt is notes.created_at; modified is the file mtime on the desktop and notes.last_edited_at on the server, so it is kept to whole seconds (the local index stores second-precision mtimes).",
+  "notes": [
+    {
+      "docId": "n4",
+      "path": "Alpha.md",
+      "markdown": "---\ncreated: 2026-01-05\npriority: 3\nstatus: Active\ntype: meeting\n---\n# Alpha\n",
+      "serverCreatedAt": "2026-09-10T09:00:00.000Z",
+      "modified": 1788300000000
+    },
+    {
+      "docId": "n2",
+      "path": "beta.md",
+      "markdown": "---\npriority: 10\nstatus: blocked\n---\nBeta body\n",
+      "serverCreatedAt": "2026-03-01T08:00:00.000Z",
+      "modified": 1788500000000
+    },
+    {
+      "docId": "n6",
+      "path": "Projects/Gamma.md",
+      "markdown": "---\ncreated: 2026-03-01T08:00:00Z\nstatus: \"\"\n---\nGamma body\n",
+      "serverCreatedAt": "2026-09-12T00:00:00.000Z",
+      "modified": 1788400000000
+    },
+    {
+      "docId": "n1",
+      "path": "Sub/alpha.md",
+      "markdown": "---\ncreated: 2026-03-01 18:30\npriority: high\n---\nlower alpha\n",
+      "serverCreatedAt": "2026-02-01T00:00:00.000Z",
+      "modified": 1788400000000
+    },
+    {
+      "docId": "n5",
+      "path": "Delta.md",
+      "markdown": "---\ncreated: someday\npriority: true\n---\nDelta body\n",
+      "serverCreatedAt": "2025-12-31T23:59:59.999Z",
+      "modified": 1788100000000
+    },
+    {
+      "docId": "n3",
+      "path": "Épée.md",
+      "markdown": "Just text, no frontmatter.\n",
+      "serverCreatedAt": "2026-05-05T05:05:05.500Z",
+      "modified": 1788300000000
+    }
+  ],
+  "cases": [
+    { "name": "no sort orders by doc id", "query": {}, "expected": ["n1", "n2", "n3", "n4", "n5", "n6"] },
+    { "name": "name asc (ASCII case-folded, ties by doc id)", "query": { "sort": { "key": "name", "direction": "asc" } }, "expected": ["n1", "n4", "n2", "n5", "n6", "n3"] },
+    { "name": "name desc", "query": { "sort": { "key": "name", "direction": "desc" } }, "expected": ["n3", "n6", "n5", "n2", "n1", "n4"] },
+    { "name": "created asc (frontmatter beats server)", "query": { "sort": { "key": "created", "direction": "asc" } }, "expected": ["n5", "n4", "n2", "n6", "n1", "n3"] },
+    { "name": "created desc (tie by doc id)", "query": { "sort": { "key": "created", "direction": "desc" } }, "expected": ["n3", "n1", "n2", "n6", "n4", "n5"] },
+    { "name": "modified asc", "query": { "sort": { "key": "modified", "direction": "asc" } }, "expected": ["n5", "n3", "n4", "n1", "n6", "n2"] },
+    { "name": "modified desc", "query": { "sort": { "key": "modified", "direction": "desc" } }, "expected": ["n2", "n1", "n6", "n3", "n4", "n5"] },
+    { "name": "mixed-type property asc, missing last", "query": { "sort": { "key": { "propertyId": "priority" }, "direction": "asc" } }, "expected": ["n4", "n2", "n5", "n1", "n3", "n6"] },
+    { "name": "mixed-type property desc, missing still last", "query": { "sort": { "key": { "propertyId": "priority" }, "direction": "desc" } }, "expected": ["n1", "n5", "n2", "n4", "n3", "n6"] },
+    { "name": "empty text sorts as missing", "query": { "sort": { "key": { "propertyId": "status" }, "direction": "desc" } }, "expected": ["n2", "n4", "n1", "n3", "n5", "n6"] },
+    { "name": "created gte a date", "query": { "where": [{ "propertyId": "created", "op": "gte", "value": "2026-03-01" }], "sort": { "key": "created", "direction": "asc" } }, "expected": ["n2", "n6", "n1", "n3"] },
+    { "name": "created eq a date is the whole UTC day", "query": { "where": [{ "propertyId": "created", "op": "eq", "value": "2026-03-01" }], "sort": { "key": "name", "direction": "asc" } }, "expected": ["n1", "n2", "n6"] },
+    { "name": "created lt epoch ms", "query": { "where": [{ "propertyId": "created", "op": "lt", "value": 1767225600000 }] }, "expected": ["n5"] },
+    { "name": "modified gte epoch ms", "query": { "where": [{ "propertyId": "modified", "op": "gte", "value": 1788400000000 }], "sort": { "key": "modified", "direction": "desc" } }, "expected": ["n2", "n1", "n6"] },
+    { "name": "modified lte a date includes that day", "query": { "where": [{ "propertyId": "modified", "op": "lte", "value": "2026-09-02" }], "sort": { "key": "name", "direction": "asc" } }, "expected": ["n4", "n5", "n3"] },
+    { "name": "catalog property filter + property sort", "query": { "where": [{ "propertyId": "priority", "op": "gt", "value": 2 }], "sort": { "key": { "propertyId": "priority" }, "direction": "desc" } }, "expected": ["n2", "n4"] },
+    { "name": "seeded type property", "query": { "where": [{ "propertyId": "type", "op": "eq", "value": "meeting" }] }, "expected": ["n4"] },
+    { "name": "text contains", "query": { "where": [{ "propertyId": "status", "op": "contains", "value": "ACT" }], "sort": { "key": "created", "direction": "desc" } }, "expected": ["n4"] }
+  ]
+}

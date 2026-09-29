@@ -5,14 +5,18 @@
 //! directly. The Markdown file remains canonical.
 
 use crate::error::{AppError, AppResult};
+use crate::note_times;
 use crate::notefile::sha256_hex;
 use rusqlite::{params, params_from_iter, Connection, OptionalExtension};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use std::collections::HashSet;
+use std::cmp::Ordering;
+use std::collections::{HashMap, HashSet};
 
 pub const DEFAULT_PAGE_SIZE: u32 = 25;
 pub const MAX_PAGE_SIZE: u32 = 50;
+/// Mirrors the server's internal `MAX_FILTERS`.
+pub const MAX_PREDICATES: usize = 50;
 
 const DOCUMENT_ID_KEY: &str = "noam_document_id";
 const RELATIONSHIPS_KEY: &str = "noam_relationships";
@@ -115,6 +119,112 @@ pub enum KnowledgeQuery {
     IndexState {
         note_id: String,
     },
+    /// Notes filtered by property predicates and ordered by `sort`: the
+    /// contract's `where` + `sort` (spec 06), with the same system properties
+    /// and ordering rules as the server's `query_knowledge`.
+    Notes {
+        #[serde(default, rename = "where")]
+        where_: Vec<PropertyPredicate>,
+        #[serde(default)]
+        sort: Option<KnowledgeSort>,
+    },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct PropertyPredicate {
+    pub property_id: String,
+    pub op: PredicateOp,
+    pub value: PredicateValue,
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum PredicateOp {
+    Eq,
+    Contains,
+    Lt,
+    Lte,
+    Gt,
+    Gte,
+}
+
+impl PredicateOp {
+    fn as_str(self) -> &'static str {
+        match self {
+            PredicateOp::Eq => "eq",
+            PredicateOp::Contains => "contains",
+            PredicateOp::Lt => "lt",
+            PredicateOp::Lte => "lte",
+            PredicateOp::Gt => "gt",
+            PredicateOp::Gte => "gte",
+        }
+    }
+
+    fn sql(self) -> &'static str {
+        match self {
+            PredicateOp::Lt => "<",
+            PredicateOp::Lte => "<=",
+            PredicateOp::Gt => ">",
+            PredicateOp::Gte => ">=",
+            PredicateOp::Eq | PredicateOp::Contains => "=",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum PredicateValue {
+    Boolean(bool),
+    Number(serde_json::Number),
+    Text(String),
+}
+
+impl PredicateValue {
+    fn to_json(&self) -> Value {
+        match self {
+            PredicateValue::Boolean(value) => Value::Bool(*value),
+            PredicateValue::Number(value) => Value::Number(value.clone()),
+            PredicateValue::Text(value) => Value::String(value.clone()),
+        }
+    }
+}
+
+/// `sort` in the contract. Ties always break by `doc_id` ascending, and a note
+/// with no sortable value sorts after every note that has one, in BOTH
+/// directions.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeSort {
+    pub key: KnowledgeSortKey,
+    #[serde(default)]
+    pub direction: SortDirection,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(untagged)]
+pub enum KnowledgeSortKey {
+    System(SystemSortKey),
+    Property {
+        #[serde(rename = "propertyId")]
+        property_id: String,
+    },
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SystemSortKey {
+    Name,
+    Created,
+    Modified,
+}
+
+#[derive(Debug, Clone, Copy, Default, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub enum SortDirection {
+    #[default]
+    Asc,
+    Desc,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -172,6 +282,17 @@ pub enum KnowledgeItem {
     Note {
         note_id: String,
         path: String,
+    },
+    /// One row of a `notes` query: identity plus the system properties.
+    /// `created`/`modified` are epoch milliseconds (UTC); `name` is the
+    /// filename stem the UI displays.
+    NoteEntry {
+        note_id: String,
+        path: String,
+        name: String,
+        created: Option<i64>,
+        created_source: Option<String>,
+        modified: Option<i64>,
     },
     IndexState {
         note_id: String,
@@ -278,9 +399,113 @@ pub(crate) fn migrate(conn: &Connection) -> AppResult<()> {
             ON knowledge_relationships(target_note_id, relationship_id, source_note_id, ordinal);
         CREATE INDEX IF NOT EXISTS idx_knowledge_relationships_target_identity
             ON knowledge_relationships(target_document_id);
+
+        -- The server's `notes.created_at` for synced notes, recorded by the
+        -- registry pull (`record_server_created`). Keyed by doc_id and, like the
+        -- `yjs_*` tables, NOT touched by `rebuild`: it cannot be re-derived from
+        -- the file. Orphans are swept by `prune_yjs_docs`.
+        CREATE TABLE IF NOT EXISTS note_server_created (
+            doc_id      TEXT PRIMARY KEY,
+            created_ms  INTEGER NOT NULL
+        );
         "#,
     )?;
+    // Frontmatter `created:` as epoch ms (the first source of the `created`
+    // system property), derived per note like every other projection column.
+    add_column_if_missing(conn, "knowledge_documents", "frontmatter_created_ms", "INTEGER")?;
     Ok(())
+}
+
+/// Idempotent `ADD COLUMN` for an index that predates the column. A missing
+/// table is left alone (its own `CREATE TABLE` owns its shape).
+pub(crate) fn add_column_if_missing(conn: &Connection, table: &str, column: &str, ty: &str) -> AppResult<()> {
+    let (table_exists, column_exists): (bool, bool) = conn.query_row(
+        &format!(
+            "SELECT EXISTS(SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?1),
+                    EXISTS(SELECT 1 FROM pragma_table_info('{table}') WHERE name = ?2)"
+        ),
+        params![table, column],
+        |row| Ok((row.get(0)?, row.get(1)?)),
+    )?;
+    if table_exists && !column_exists {
+        conn.execute_batch(&format!("ALTER TABLE {table} ADD COLUMN {column} {ty}"))?;
+    }
+    Ok(())
+}
+
+const SYSTEM_PROPERTIES_READY: &str = "system_properties_v1";
+
+/// Has this index backfilled the `created` sources for notes it indexed
+/// before they existed? `rebuild` skips unchanged notes, so without this one
+/// flag an upgraded vault would report birthtime-less, frontmatter-less
+/// `created` values until each note happened to change.
+pub(crate) fn system_properties_ready(conn: &Connection) -> AppResult<bool> {
+    Ok(conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM knowledge_meta WHERE key = ?1)",
+        params![SYSTEM_PROPERTIES_READY],
+        |row| row.get(0),
+    )?)
+}
+
+/// One pass over already-indexed notes: frontmatter `created:` from the
+/// stored frontmatter JSON (no file read) and a birthtime `stat`.
+pub(crate) fn backfill_system_properties(conn: &Connection, vault: &std::path::Path) -> AppResult<()> {
+    let rows: Vec<(String, String, Option<String>)> = {
+        let mut stmt = conn.prepare("SELECT id, path, frontmatter FROM notes")?;
+        let rows = stmt.query_map([], |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)))?;
+        rows.collect::<Result<_, _>>()?
+    };
+    for (id, path, frontmatter) in rows {
+        let created = frontmatter
+            .as_deref()
+            .and_then(|raw| serde_json::from_str::<Value>(raw).ok())
+            .and_then(|value| value.as_object().and_then(note_times::frontmatter_created_ms));
+        conn.execute(
+            "UPDATE knowledge_documents SET frontmatter_created_ms = ?2 WHERE note_id = ?1",
+            params![id, created],
+        )?;
+        record_birthtime(conn, &id, note_times::file_birthtime_ms(&vault.join(&path)))?;
+    }
+    conn.execute(
+        "INSERT OR IGNORE INTO knowledge_meta (key, value) VALUES (?1, 1)",
+        params![SYSTEM_PROPERTIES_READY],
+    )?;
+    Ok(())
+}
+
+/// Keep the EARLIEST birthtime seen for a note. Atomic saves replace the inode,
+/// so the current file's birthtime is usually just its last save.
+pub(crate) fn record_birthtime(conn: &Connection, note_id: &str, birthtime: Option<i64>) -> AppResult<()> {
+    if let Some(ms) = birthtime.filter(|ms| *ms > 0) {
+        conn.execute(
+            "UPDATE notes SET btime_ms = CASE
+                 WHEN btime_ms IS NULL OR btime_ms > ?2 THEN ?2 ELSE btime_ms END
+             WHERE id = ?1",
+            params![note_id, ms],
+        )?;
+    }
+    Ok(())
+}
+
+/// Record the server's creation time for synced notes. Returns how many rows
+/// changed; a change bumps the knowledge generation so a cursor minted under
+/// the old ordering is refused rather than replayed.
+pub(crate) fn record_server_created(conn: &Connection, entries: &[(String, i64)]) -> AppResult<usize> {
+    let mut changed = 0;
+    {
+        let mut stmt = conn.prepare(
+            "INSERT INTO note_server_created (doc_id, created_ms) VALUES (?1, ?2)
+             ON CONFLICT(doc_id) DO UPDATE SET created_ms = excluded.created_ms
+             WHERE note_server_created.created_ms <> excluded.created_ms",
+        )?;
+        for (doc_id, ms) in entries {
+            changed += stmt.execute(params![doc_id, ms])?;
+        }
+    }
+    if changed > 0 {
+        next_generation(conn)?;
+    }
+    Ok(changed)
 }
 
 pub(crate) fn next_generation(conn: &Connection) -> AppResult<i64> {
@@ -436,6 +661,57 @@ fn parse_catalog(frontmatter_json: Option<&str>, body: &str) -> Option<Catalog> 
     Some(catalog)
 }
 
+/// Built-in catalog entries every vault starts with (spec 06, "Seeded
+/// defaults"). They apply only where the vault's catalog note does not define
+/// the same id (or, for the property, the same frontmatter key): the catalog
+/// note always wins, and nothing is ever written to it. Mirrored by the
+/// desktop TS (`lib/knowledge/catalog.ts`) and the server
+/// (`server/src/knowledge/markdown.ts`).
+///
+/// - `type`: a single-valued label, so "what kind of note is this" is typed
+///   and queryable without anyone writing a schema first.
+/// - `people`: a relationship to person notes. Relationships are keyed by the
+///   target's portable document id, so renaming "Paul.md" never breaks it.
+fn effective_catalog(catalog: Option<&Catalog>) -> Catalog {
+    let mut effective = catalog.cloned().unwrap_or(Catalog {
+        version: 1,
+        properties: Vec::new(),
+        labels: Vec::new(),
+        relationships: Vec::new(),
+    });
+    if !effective
+        .properties
+        .iter()
+        .any(|property| property.id == "type" || property.key == "type")
+    {
+        effective.properties.push(CatalogProperty {
+            id: "type".into(),
+            key: "type".into(),
+            name: "Type".into(),
+            property_type: CatalogPropertyType {
+                kind: "label".into(),
+                cardinality: "one".into(),
+            },
+            allowed_label_ids: None,
+        });
+    }
+    if !effective
+        .relationships
+        .iter()
+        .any(|relationship| relationship.id == "people")
+    {
+        effective.relationships.push(CatalogRelationship {
+            id: "people".into(),
+            name: "People".into(),
+            cardinality: "many".into(),
+            inverse_name: Some("Appears in".into()),
+        });
+    }
+    effective
+}
+
+/// The catalog indexing runs under: the vault's validated catalog note (if
+/// any) with the seeded defaults filled in.
 fn stored_catalog(conn: &Connection) -> AppResult<Option<Catalog>> {
     let json: Option<String> = conn
         .query_row(
@@ -444,7 +720,8 @@ fn stored_catalog(conn: &Connection) -> AppResult<Option<Catalog>> {
             |row| row.get(0),
         )
         .optional()?;
-    Ok(json.and_then(|value| serde_json::from_str(&value).ok()))
+    let parsed: Option<Catalog> = json.and_then(|value| serde_json::from_str(&value).ok());
+    Ok(Some(effective_catalog(parsed.as_ref())))
 }
 
 pub(crate) fn catalog_projection_ready(conn: &Connection) -> AppResult<bool> {
@@ -479,7 +756,7 @@ pub(crate) fn refresh_catalog(
 ) -> AppResult<()> {
     let catalog = parse_catalog(frontmatter_json, body);
     store_catalog(conn, catalog.as_ref())?;
-    reproject_all_properties(conn, catalog.as_ref())
+    reproject_all_properties(conn, Some(&effective_catalog(catalog.as_ref())))
 }
 
 pub(crate) fn replace_note(
@@ -529,19 +806,23 @@ pub(crate) fn replace_note(
         .and_then(Value::as_str)
         .filter(|value| valid_document_id(value))
         .map(str::to_string);
+    let frontmatter_created = frontmatter
+        .as_ref()
+        .and_then(note_times::frontmatter_created_ms);
 
     conn.execute(
         "INSERT INTO knowledge_documents
            (note_id, portable_document_id, identity_status, source_revision,
-            index_revision, index_status, generation)
-         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6)
+            index_revision, index_status, generation, frontmatter_created_ms)
+         VALUES (?1, ?2, ?3, ?4, ?4, ?5, ?6, ?7)
          ON CONFLICT(note_id) DO UPDATE SET
            portable_document_id = excluded.portable_document_id,
            identity_status = excluded.identity_status,
            source_revision = excluded.source_revision,
            index_revision = excluded.index_revision,
            index_status = excluded.index_status,
-           generation = excluded.generation",
+           generation = excluded.generation,
+           frontmatter_created_ms = excluded.frontmatter_created_ms",
         params![
             note_id,
             portable_id,
@@ -552,7 +833,8 @@ pub(crate) fn replace_note(
             },
             source_revision,
             index_status,
-            generation
+            generation,
+            frontmatter_created
         ],
     )?;
     queue_identity(conn, portable_id.as_deref())?;
@@ -625,6 +907,7 @@ pub(crate) fn mark_skipped(
          VALUES (?1, NULL, 'absent', NULL, NULL, ?2, ?3)
          ON CONFLICT(note_id) DO UPDATE SET
            portable_document_id = NULL,
+           frontmatter_created_ms = NULL,
            identity_status = 'absent',
            source_revision = NULL,
            index_revision = NULL,
@@ -677,7 +960,7 @@ pub(crate) fn remove_note(conn: &Connection, note_id: &str) -> AppResult<()> {
     )?;
     if removed_catalog {
         store_catalog(conn, None)?;
-        reproject_all_properties(conn, None)?;
+        reproject_all_properties(conn, Some(&effective_catalog(None)))?;
         conn.execute(
             "DELETE FROM knowledge_properties WHERE note_id = ?1",
             params![note_id],
@@ -1111,6 +1394,9 @@ pub(crate) fn query(
         KnowledgeQuery::IndexState { note_id } => {
             query_index_state(conn, note_id, &last, limit + 1)?
         }
+        KnowledgeQuery::Notes { where_, sort } => {
+            query_notes(conn, where_, sort.as_ref(), &last, limit + 1)?
+        }
     };
 
     let has_more = items.len() > limit as usize;
@@ -1432,6 +1718,317 @@ fn query_index_state(
         ))
     })?;
     collect_rows(rows)
+}
+
+/// One note's system properties, read straight from the index.
+#[derive(Debug, Clone, Serialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteTimes {
+    pub note_id: String,
+    pub path: String,
+    pub name: String,
+    /// Epoch ms, resolved frontmatter → server → birthtime (see `note_times`).
+    pub created: Option<i64>,
+    /// `"frontmatter" | "server" | "birthtime"`, or `None` with `created`.
+    pub created_source: Option<String>,
+    /// Epoch ms of the indexed file mtime (second precision). On a freshly
+    /// synced device this is when the note was materialized, not last edited.
+    pub modified: Option<i64>,
+}
+
+fn note_stem(path: &str) -> String {
+    std::path::Path::new(path)
+        .file_stem()
+        .and_then(|stem| stem.to_str())
+        .unwrap_or(path)
+        .to_string()
+}
+
+/// Every indexed note's system properties, in one statement.
+pub(crate) fn list_note_times(conn: &Connection) -> AppResult<Vec<NoteTimes>> {
+    let mut stmt = conn.prepare(
+        "SELECT n.id, n.path, n.mtime, kd.frontmatter_created_ms, sc.created_ms, n.btime_ms
+           FROM notes n
+           LEFT JOIN knowledge_documents kd ON kd.note_id = n.id
+           LEFT JOIN note_server_created sc ON sc.doc_id = n.id",
+    )?;
+    let rows = stmt.query_map([], |row| {
+        let note_id: String = row.get(0)?;
+        let path: String = row.get(1)?;
+        let mtime: Option<i64> = row.get(2)?;
+        let (created, source) =
+            note_times::created_source(row.get(3)?, row.get(4)?, row.get(5)?);
+        Ok(NoteTimes {
+            name: note_stem(&path),
+            note_id,
+            path,
+            created,
+            created_source: source.map(str::to_string),
+            modified: mtime.filter(|value| *value > 0).map(|value| value * 1000),
+        })
+    })?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// A comparable sort value. Numbers (and system timestamps) rank before
+/// booleans, which rank before text; text compares ASCII-case-insensitively
+/// by UTF-8 bytes, which is exactly what the server's comparator does.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(tag = "t", content = "v")]
+enum SortValue {
+    #[serde(rename = "n")]
+    Number(f64),
+    #[serde(rename = "b")]
+    Boolean(bool),
+    #[serde(rename = "s")]
+    Text(String),
+}
+
+impl SortValue {
+    fn rank(&self) -> u8 {
+        match self {
+            SortValue::Number(_) => 0,
+            SortValue::Boolean(_) => 1,
+            SortValue::Text(_) => 2,
+        }
+    }
+
+    fn cmp(&self, other: &Self) -> Ordering {
+        match (self, other) {
+            (SortValue::Number(a), SortValue::Number(b)) => a.total_cmp(b),
+            (SortValue::Boolean(a), SortValue::Boolean(b)) => a.cmp(b),
+            (SortValue::Text(a), SortValue::Text(b)) => a.as_bytes().cmp(b.as_bytes()),
+            _ => self.rank().cmp(&other.rank()),
+        }
+    }
+
+    fn text(value: &str) -> Option<SortValue> {
+        (!value.is_empty()).then(|| SortValue::Text(value.to_ascii_lowercase()))
+    }
+}
+
+/// Order two keyed notes: present values first in `direction`, absent values
+/// last in both directions, `doc_id` ascending on every tie.
+fn compare_sorted(
+    a: (&Option<SortValue>, &str),
+    b: (&Option<SortValue>, &str),
+    direction: SortDirection,
+) -> Ordering {
+    let by_value = match (a.0, b.0) {
+        (Some(x), Some(y)) => {
+            let ord = x.cmp(y);
+            if direction == SortDirection::Desc {
+                ord.reverse()
+            } else {
+                ord
+            }
+        }
+        (Some(_), None) => Ordering::Less,
+        (None, Some(_)) => Ordering::Greater,
+        (None, None) => Ordering::Equal,
+    };
+    by_value.then_with(|| a.1.as_bytes().cmp(b.1.as_bytes()))
+}
+
+fn schema_invalid(message: impl std::fmt::Display) -> AppError {
+    AppError::new(format!("schema_invalid: {message}"))
+}
+
+/// Note ids satisfying one catalog/raw property predicate. Mirrors the
+/// server's `predicateSql`: numbers compare numerically, booleans only by
+/// `eq`, text by `contains` (case-insensitive) or ordered comparison.
+fn property_matches(conn: &Connection, predicate: &PropertyPredicate) -> AppResult<HashSet<String>> {
+    let base = "SELECT DISTINCT note_id FROM knowledge_properties WHERE property_id = ?1 AND ";
+    let (sql, value): (String, rusqlite::types::Value) = match (&predicate.value, predicate.op) {
+        (PredicateValue::Number(_), PredicateOp::Contains) => return Ok(HashSet::new()),
+        (PredicateValue::Number(number), op) => (
+            format!("{base}value_type = 'number' AND number_value {} ?2", op.sql()),
+            rusqlite::types::Value::Real(number.as_f64().unwrap_or(f64::NAN)),
+        ),
+        (PredicateValue::Boolean(flag), PredicateOp::Eq) => (
+            format!("{base}value_type = 'checkbox' AND boolean_value = ?2"),
+            rusqlite::types::Value::Integer(i64::from(*flag)),
+        ),
+        (PredicateValue::Boolean(_), _) => return Ok(HashSet::new()),
+        (PredicateValue::Text(text), PredicateOp::Contains) => (
+            format!(
+                "{base}value_type IN ('text', 'date', 'datetime')
+                   AND instr(lower(COALESCE(text_value, '')), lower(?2)) > 0"
+            ),
+            rusqlite::types::Value::Text(text.clone()),
+        ),
+        (PredicateValue::Text(text), op) => (
+            format!(
+                "{base}value_type IN ('text', 'date', 'datetime') AND text_value {} ?2",
+                op.sql()
+            ),
+            rusqlite::types::Value::Text(text.clone()),
+        ),
+    };
+    let mut stmt = conn.prepare(&sql)?;
+    let rows = stmt.query_map(
+        params![predicate.property_id, value],
+        |row| row.get::<_, String>(0),
+    )?;
+    Ok(rows.collect::<Result<_, _>>()?)
+}
+
+/// First value (lowest ordinal) of one property per note, as a sort value.
+/// Lists, raw objects, nulls and empty text have no sortable value.
+fn property_sort_values(conn: &Connection, property_id: &str) -> AppResult<HashMap<String, SortValue>> {
+    let mut stmt = conn.prepare(
+        "SELECT note_id, value_type, text_value, number_value, boolean_value
+           FROM knowledge_properties WHERE property_id = ?1
+          ORDER BY note_id, ordinal",
+    )?;
+    let rows = stmt.query_map(params![property_id], |row| {
+        Ok((
+            row.get::<_, String>(0)?,
+            row.get::<_, String>(1)?,
+            row.get::<_, Option<String>>(2)?,
+            row.get::<_, Option<f64>>(3)?,
+            row.get::<_, Option<i64>>(4)?,
+        ))
+    })?;
+    let mut values = HashMap::new();
+    let mut seen = HashSet::new();
+    for row in rows {
+        let (note_id, value_type, text, number, boolean) = row?;
+        if !seen.insert(note_id.clone()) {
+            continue;
+        }
+        let value = match value_type.as_str() {
+            "number" => number.map(SortValue::Number),
+            "checkbox" => boolean.map(|value| SortValue::Boolean(value != 0)),
+            "text" | "date" | "datetime" => text.as_deref().and_then(SortValue::text),
+            _ => None,
+        };
+        if let Some(value) = value {
+            values.insert(note_id, value);
+        }
+    }
+    Ok(values)
+}
+
+fn query_notes(
+    conn: &Connection,
+    predicates: &[PropertyPredicate],
+    sort: Option<&KnowledgeSort>,
+    last: &[String],
+    limit: u32,
+) -> AppResult<QueryRows> {
+    if predicates.len() > MAX_PREDICATES {
+        return Err(AppError::new(format!(
+            "limit_exceeded: queries accept at most {MAX_PREDICATES} property filters"
+        )));
+    }
+    let valid_property_id =
+        |id: &str| !id.is_empty() && id.len() <= 256 && id == id.trim();
+    if predicates.iter().any(|predicate| {
+        !valid_property_id(&predicate.property_id)
+            || matches!(&predicate.value, PredicateValue::Text(text) if text.len() > 8_192)
+    }) {
+        return Err(AppError::new("limit_exceeded: a property filter is too large"));
+    }
+    if let Some(KnowledgeSort {
+        key: KnowledgeSortKey::Property { property_id },
+        ..
+    }) = sort
+    {
+        if !valid_property_id(property_id) {
+            return Err(schema_invalid("sort propertyId is invalid"));
+        }
+    }
+
+    // System predicates reduce to integer ranges; everything else is a set of
+    // matching note ids. Both are resolved before any row is ordered or paged.
+    let mut system_ranges: Vec<(&str, note_times::MsRange)> = Vec::new();
+    let mut allowed: Option<HashSet<String>> = None;
+    for predicate in predicates {
+        if note_times::is_system_property(&predicate.property_id) {
+            let (start, end) = note_times::value_span(&predicate.value.to_json()).ok_or_else(|| {
+                schema_invalid(format!(
+                    "{} compares with an ISO date/datetime or epoch milliseconds",
+                    predicate.property_id
+                ))
+            })?;
+            let range = note_times::system_range(predicate.op.as_str(), start, end).ok_or_else(
+                || schema_invalid(format!("{} does not support contains", predicate.property_id)),
+            )?;
+            system_ranges.push((predicate.property_id.as_str(), range));
+            continue;
+        }
+        let matches = property_matches(conn, predicate)?;
+        allowed = Some(match allowed {
+            Some(current) => current.intersection(&matches).cloned().collect(),
+            None => matches,
+        });
+    }
+
+    let property_values = match sort.map(|sort| &sort.key) {
+        Some(KnowledgeSortKey::Property { property_id }) => property_sort_values(conn, property_id)?,
+        _ => HashMap::new(),
+    };
+    let mut keyed: Vec<(Option<SortValue>, NoteTimes)> = list_note_times(conn)?
+        .into_iter()
+        .filter(|note| allowed.as_ref().is_none_or(|ids| ids.contains(&note.note_id)))
+        .filter(|note| {
+            system_ranges.iter().all(|(property, range)| {
+                let value = if *property == note_times::CREATED {
+                    note.created
+                } else {
+                    note.modified
+                };
+                value.is_some_and(|value| range.contains(value))
+            })
+        })
+        .map(|note| {
+            let key = match sort.map(|sort| &sort.key) {
+                None => None,
+                Some(KnowledgeSortKey::System(SystemSortKey::Name)) => SortValue::text(&note.name),
+                Some(KnowledgeSortKey::System(SystemSortKey::Created)) => {
+                    note.created.map(|ms| SortValue::Number(ms as f64))
+                }
+                Some(KnowledgeSortKey::System(SystemSortKey::Modified)) => {
+                    note.modified.map(|ms| SortValue::Number(ms as f64))
+                }
+                Some(KnowledgeSortKey::Property { .. }) => property_values.get(&note.note_id).cloned(),
+            };
+            (key, note)
+        })
+        .collect();
+    let direction = sort.map(|sort| sort.direction).unwrap_or_default();
+    keyed.sort_by(|a, b| {
+        compare_sorted((&a.0, &a.1.note_id), (&b.0, &b.1.note_id), direction)
+    });
+
+    // Keyset cursor: the last row's key and id. The cursor is already bound to
+    // this exact query (sort included) and index generation by `query`.
+    let start = match last {
+        [] => 0,
+        [key, id] => {
+            let key: Option<SortValue> = serde_json::from_str(key)
+                .map_err(|_| AppError::new("cursor_expired: invalid knowledge cursor"))?;
+            keyed.partition_point(|(value, note)| {
+                compare_sorted((value, &note.note_id), (&key, id), direction) != Ordering::Greater
+            })
+        }
+        _ => return Err(AppError::new("cursor_expired: invalid knowledge cursor")),
+    };
+    let mut items = Vec::new();
+    let mut keys = Vec::new();
+    for (key, note) in keyed.into_iter().skip(start).take(limit as usize) {
+        keys.push(vec![serde_json::to_string(&key)?, note.note_id.clone()]);
+        items.push(KnowledgeItem::NoteEntry {
+            note_id: note.note_id,
+            path: note.path,
+            name: note.name,
+            created: note.created,
+            created_source: note.created_source,
+            modified: note.modified,
+        });
+    }
+    Ok((items, keys))
 }
 
 fn collect_rows<T>(rows: rusqlite::MappedRows<'_, T>) -> AppResult<QueryRows>

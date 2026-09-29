@@ -10,6 +10,7 @@ pub mod import_export;
 pub mod index;
 pub mod keychain;
 pub mod knowledge;
+pub mod note_times;
 pub mod notefile;
 pub mod oauth;
 pub mod parse;
@@ -161,6 +162,8 @@ pub fn run() {
             commands::search_notes,
             commands::get_backlinks,
             commands::query_knowledge,
+            commands::list_note_times,
+            commands::record_server_created_times,
             commands::query_tasks,
             commands::graph_edges,
             commands::graph_edges_for,
