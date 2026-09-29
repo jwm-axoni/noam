@@ -131,6 +131,9 @@ n/a = synchronous or sub-100ms by construction.
 | Set colour, reorder, drag-move | local + registry | fast | n/a |
 | Sort (header button) — Name A–Z / Z–A, Modified newest / oldest | local only | instant | n/a; applies to every folder without its own sort; dragged items keep their place |
 | Right-click folder → "Sort this folder" | local only (per device) | instant | n/a; direct contents only; follows the folder through in-app renames and moves |
+| Sort by Created, newest / oldest | one read of created dates for the vault | fast | n/a; undated notes go last |
+| Right-click folder → "Show as gallery" / "Show as list" | local only (per device) | instant | ✅ gallery tab opens in the center |
+| Click a gallery-mode folder | index read (no note bodies) | fast | ✅ expands in the tree and opens or retargets the Gallery tab |
 | Pointer in the tree or a sync running, under a Modified sort | none | n/a | rows hold still and re-sort once both clear |
 
 ### Shared icon picker — `components/IconPicker.tsx`
@@ -149,6 +152,8 @@ n/a = synchronous or sub-100ms by construction.
 | Push-to-talk | mic + relay | instant | ✅ existing talk states |
 | Search | local FTS5 | fast | n/a |
 | Graph view | in-memory sim | fast | n/a |
+| Gallery: arrows / Home / End, Enter or click | local | instant | ✅ focus moves card to card; opens the note or enters the subfolder; breadcrumbs go back up |
+| Properties panel "Load more" | next page of relationships or backlinks | fast | ✅ rows stay loaded when an edit refreshes the panel |
 | Find in note (⌘F / Ctrl+F in the editor) | in-memory search | instant | ✅ floating bubble top-right, live "3 of 12"; prefilled from a one-line selection |
 | Find and replace (⌘⌥F on macOS, Ctrl+H elsewhere) | in-memory, one transaction per Replace All | instant | ✅ replace row; Replace All is one undo step |
 | Vault search (⌘F outside a note, ⌘⇧F anywhere) | local FTS5 | fast | ✅ Search panel opens focused |

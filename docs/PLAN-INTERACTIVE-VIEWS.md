@@ -107,6 +107,15 @@ Still not v1: arbitrary JavaScript in regular notes, and any third-party widget 
 
 ## Part 3: folder gallery
 
+> **Status ✅ (2026-09-29).** `gallery` center panel (one instance, persists only `{ folder }`),
+> per-folder list/gallery mode keyed by path like the sort overrides, card data derived at index
+> time in `src-tauri/src/cards.rs` (`excerpt`, `first_image`, `card_version` — raise
+> `CARD_VERSION` when the rules change or old indexes won't re-derive) and read by
+> `list_folder_cards`, which never reads note bodies. Card order is the sidebar's own `sortTree` +
+> `applyOrder`, Created sorts included. Choices worth revisiting: only notes and subfolders get
+> cards (images and PDFs don't), `![[bare-name]]` resolves next to the note, then the vault root,
+> then `attachments/`, and the header shows the sort read-only.
+
 - Per-folder view mode: list or gallery. Clicking a folder can open its gallery directly.
 - Cards show the filename stem (the UI's title rule, `noteLabel`), a thumbnail and the modified
   date.
@@ -120,7 +129,10 @@ Still not v1: arbitrary JavaScript in regular notes, and any third-party widget 
 
 ## Part 4: sorting
 
-> **Status ✅ Name/Modified (2026-09-29).** Two deliberate deviations from the bullets below, found
+> **Status ✅ all six options (2026-09-29).** Created newest/oldest read `getNoteTimes` (one vault
+> read, only while some sort is a Created mode); folders stay A–Z under them, undated notes go last,
+> and they do not pin the order the way Modified does, since an edit never moves a created date.
+> Name/Modified shipped first. Two deliberate deviations from the bullets below, found
 > while building: (1) per-folder overrides are keyed by **path**, not id — a local folder has no id
 > other than its path (`TreeNode.id` and the SQLite `folders.id` are both the path; only synced
 > vaults have server ids), so keys are remapped on in-app rename/move in `remapTabs` and dropped in

@@ -114,6 +114,9 @@ Errors: single `AppError(String)` (`error.rs`).
   `files-changed {changes: [{path, kind}]}` per drain. `kind` is `modified` | `removed` | `tree`, derived
   from an existence check rather than forwarded from `notify` (whose event kinds and rename pairing we
   deliberately ignore); a rename therefore arrives as an unpaired `removed` + `modified` in one batch.
+- `cards.rs` — gallery card data derived at index time: `notes.excerpt`, `notes.first_image`,
+  `notes.card_version`. Raise `CARD_VERSION` whenever the excerpt or image rules change, or existing
+  indexes won't re-derive. `list_folder_cards` reads only the index plus one directory listing.
 - `attachments.rs` — path-validated binary I/O under `attachments/`; never enters the note/CRDT pipeline.
 - `keychain.rs` — `keyring` crate, service `com.noam.app`; trait-based so tests use a fake.
 - `terminal.rs` — embedded terminal (plan `docs/PLAN-INTERACTIVE-VIEWS.md` Part 6). `portable-pty`
