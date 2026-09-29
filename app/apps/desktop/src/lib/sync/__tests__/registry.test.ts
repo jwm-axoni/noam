@@ -8,6 +8,7 @@ vi.mock("../../ipc", () => ({
   listNoteTitles: vi.fn(async () => []),
   writeNote: vi.fn(async () => {}),
   writeNoteIfMissing: vi.fn(async () => true),
+  recordServerCreatedTimes: vi.fn(async () => 0),
 }));
 vi.mock("../../vault/seed", () => ({ seedWelcomeContent: vi.fn(async () => {}) }));
 
@@ -77,6 +78,31 @@ describe("VaultRegistry.reconcile — vault adoption (joining member)", () => {
     // test); in the app it is what makes Rust refuse the write after a switch.
     expect(vi.mocked(ipc.writeNoteIfMissing)).toHaveBeenCalledWith("Team/hello.md", "", null);
     expect(reg.getMapping("Team/hello.md")).toEqual({ vaultId: "v-owner", docId: "n1" });
+  });
+
+  it("hands each listed note's server created_at to the index, keyed by doc id", async () => {
+    // The `created` system property's second source (spec 06): not derivable
+    // from the file, so the pull records it by doc_id, and only what changed.
+    const { api } = fakeApi({
+      vaults: [{ id: "v-owner", name: "MyNotes", organization_id: ORG }],
+      notes: [
+        { id: "n1", rel_path: "Team/hello.md", created_at: "2026-02-03T04:05:06.789Z" },
+        { id: "n2", rel_path: "Team/bye.md" },
+      ] as Array<{ id: string; rel_path: string }>,
+    });
+    vi.mocked(ipc.recordServerCreatedTimes).mockClear();
+    const reg = new VaultRegistry(api);
+    await reconcileWithTree(reg, { organizationId: ORG, vaultName: "acme" }, emptyTree());
+    await vi.waitFor(() =>
+      expect(vi.mocked(ipc.recordServerCreatedTimes)).toHaveBeenCalledWith(
+        [{ docId: "n1", createdAt: "2026-02-03T04:05:06.789Z" }],
+        null,
+      ),
+    );
+    const calls = vi.mocked(ipc.recordServerCreatedTimes).mock.calls.length;
+    await reg.pull();
+    await Promise.resolve();
+    expect(vi.mocked(ipc.recordServerCreatedTimes)).toHaveBeenCalledTimes(calls);
   });
 
   it("adopts by id (oldest in org) — a name-matching vault never wins over it", async () => {

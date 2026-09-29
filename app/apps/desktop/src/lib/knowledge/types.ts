@@ -5,6 +5,14 @@ export const KNOWLEDGE_SCHEMA_KIND = "knowledge-schema";
 export const KNOWLEDGE_SCHEMA_VERSION = 1 as const;
 export const DOCUMENT_ID_KEY = "noam_document_id";
 export const RELATIONSHIPS_KEY = "noam_relationships";
+/**
+ * Reserved, derived, read-only property ids every note has (epoch ms, UTC):
+ * `created` (frontmatter `created:` → server `notes.created_at` → file
+ * birthtime) and `modified` (file mtime; the server's last content edit).
+ * Queryable in `where` and `sort`; a `change` on them is `read_only`.
+ */
+export const SYSTEM_PROPERTY_IDS = ["created", "modified"] as const;
+export type SystemPropertyId = (typeof SYSTEM_PROPERTY_IDS)[number];
 
 export type Cardinality = "one" | "many";
 
@@ -94,8 +102,19 @@ export interface KnowledgeQuery {
     direction: "outgoing" | "incoming";
     maxDepth: 1 | 2 | 3 | 4;
   };
+  sort?: KnowledgeSort;
   page?: PageRequest;
   consistency?: "current-only" | "allow-stale";
+}
+
+/**
+ * Result order. Ties break by doc id ascending; a note with no sortable value
+ * sorts last in both directions. The sort is part of the query a cursor is
+ * bound to, so a cursor from one sort is refused under another.
+ */
+export interface KnowledgeSort {
+  key: "name" | "created" | "modified" | { propertyId: string };
+  direction: "asc" | "desc";
 }
 
 export type NoteChange =

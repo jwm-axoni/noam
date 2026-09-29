@@ -40,6 +40,7 @@ import {
   encodeRelationship,
   planKnowledgeChanges,
   RELATIONSHIPS_KEY,
+  withDefaultCatalogEntries,
   type KnowledgeChangePlan,
 } from "../lib/knowledge";
 import {
@@ -477,7 +478,10 @@ function RelationshipComposer({
       ) {
         throw new Error("The active note or vault changed before the relationship was added.");
       }
-      const latestCatalog = getKnowledgeCatalogSnapshot().catalog;
+      const latestSnapshot = getKnowledgeCatalogSnapshot();
+      const latestCatalog = latestSnapshot.error
+        ? null
+        : withDefaultCatalogEntries(latestSnapshot.catalog);
       if (!latestCatalog?.relationships.some((definition) => definition.id === relationshipId)) {
         throw new Error("That relationship type changed. Choose a current type and try again.");
       }
@@ -821,11 +825,14 @@ export function PropertiesDockPanel({
       }`
     : undefined;
   const index = load.data?.indexState ?? null;
+  // Relationships read the catalog WITH the seeded defaults (`people`), so a
+  // vault with no catalog note still offers them. Still null while loading or
+  // when the catalog note is invalid: its own definitions are unknown then.
   const catalog = catalogSnapshot.loaded
     && !catalogSnapshot.loading
     && !catalogSnapshot.error
     && catalogSnapshot.epoch === vaultEpoch
-    ? catalogSnapshot.catalog
+    ? withDefaultCatalogEntries(catalogSnapshot.catalog)
     : null;
   const refreshSoon = () => {
     setIndexRefresh((revision) => revision + 1);

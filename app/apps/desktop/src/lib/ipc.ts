@@ -197,7 +197,53 @@ export type LocalKnowledgeQuery =
       normalizedValue: string;
     }
   | { kind: "labelled"; labelId: string; propertyId?: string | null }
-  | { kind: "indexState"; noteId: string };
+  | { kind: "indexState"; noteId: string }
+  /**
+   * Notes filtered by `where` and ordered by `sort` (spec 06). Items are
+   * `noteEntry`. Same semantics as the server's `query_knowledge`, pinned by
+   * `packages/contracts/fixtures/knowledge-sort-parity.json`.
+   */
+  | { kind: "notes"; where?: KnowledgePredicate[]; sort?: KnowledgeSort | null };
+
+/** The read-only system properties every note has (epoch ms, UTC). */
+export type KnowledgeSystemPropertyId = "created" | "modified";
+
+/**
+ * One `where` clause. `created`/`modified` accept eq/lt/lte/gt/gte against an
+ * ISO date (the whole UTC day), an ISO datetime, or epoch milliseconds.
+ */
+export interface KnowledgePredicate {
+  propertyId: string;
+  op: "eq" | "contains" | "lt" | "lte" | "gt" | "gte";
+  value: string | number | boolean;
+}
+
+/**
+ * Result order. Ties break by doc id ascending; a note with no sortable value
+ * for the key sorts LAST in both directions. Text compares ASCII-case-
+ * insensitively; numbers < booleans < text when a property mixes types.
+ */
+export interface KnowledgeSort {
+  key: "name" | "created" | "modified" | { propertyId: string };
+  direction: "asc" | "desc";
+}
+
+/** Where a note's `created` came from, in resolution order. */
+export type CreatedSource = "frontmatter" | "server" | "birthtime";
+
+/** One note's system properties (see `listNoteTimes`). */
+export interface NoteTimes {
+  noteId: string;
+  path: string;
+  /** Filename stem, the `name` sort key. */
+  name: string;
+  /** Epoch ms: frontmatter `created:` → server `notes.created_at` → file birthtime. */
+  created: number | null;
+  createdSource: CreatedSource | null;
+  /** Epoch ms of the file mtime. A freshly synced device's mtimes are when
+   *  the notes arrived there, not when anyone edited them. */
+  modified: number | null;
+}
 
 export type LocalKnowledgeItem =
   | {
@@ -243,6 +289,7 @@ export type LocalKnowledgeItem =
       ordinal: number;
     }
   | { kind: "note"; noteId: string; path: string }
+  | ({ kind: "noteEntry" } & NoteTimes)
   | {
       kind: "indexState";
       noteId: string;
@@ -673,6 +720,32 @@ export const queryKnowledge = (
         ? { ...query, relationshipIds: query.relationshipIds ?? [] }
         : query,
     page: { limit: page.limit ?? 25, cursor: page.cursor ?? null },
+  });
+/**
+ * `created`/`modified` for every indexed note — or only those named by
+ * `paths` / `docIds` — in one indexed read. The cheap bulk path for list
+ * views; `lib/knowledge/noteTimes.ts` wraps it as maps.
+ */
+export const listNoteTimes = (
+  filter: { paths?: string[]; docIds?: string[] } = {},
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<NoteTimes[]>("list_note_times", {
+    paths: filter.paths ?? null,
+    docIds: filter.docIds ?? null,
+    expectedEpoch: expectedEpoch ?? null,
+  });
+/**
+ * Record the server's `notes.created_at` for synced notes (the second source
+ * of `created`). Called by the registry after a pull; returns rows changed.
+ */
+export const recordServerCreatedTimes = (
+  entries: Array<{ docId: string; createdAt: string }>,
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<number>("record_server_created_times", {
+    entries,
+    expectedEpoch: expectedEpoch ?? null,
   });
 /**
  * One bounded page from the derived task index.
