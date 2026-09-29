@@ -149,6 +149,12 @@ describe("PropertiesDockPanel", () => {
     });
   };
 
+  /** Flush until `check` passes (or vi.waitFor's timeout expires). */
+  const settleUntil = (check: () => void) => vi.waitFor(async () => {
+    await flush();
+    check();
+  });
+
   const renderActive = async (props = panelProps, path = props.activeNotePath!) => {
     await act(async () => {
       setActiveNote(bindActiveNote(view, path));
@@ -377,9 +383,13 @@ describe("PropertiesDockPanel", () => {
     });
 
     await renderActive();
-    await flush();
-    expect(host.textContent).toContain("Outgoing50+");
-    expect(host.textContent).toContain("Backlinks50+");
+    // Wait for the result, not a fixed number of ticks: under a loaded full
+    // run the paging chain can land a tick later, and a counted flush then
+    // asserted too early (this test failed intermittently for exactly that).
+    await settleUntil(() => {
+      expect(host.textContent).toContain("Outgoing50+");
+      expect(host.textContent).toContain("Backlinks50+");
+    });
 
     await act(async () => host.querySelector<HTMLButtonElement>(
       ".properties-inspector-group .properties-inspector-load-more",
@@ -388,10 +398,10 @@ describe("PropertiesDockPanel", () => {
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>(
       ".properties-inspector-load-more",
     )].find((button) => button.textContent === "Load more backlinks")!.click());
-    await flush();
-
-    expect(host.textContent).toContain("Outgoing51");
-    expect(host.textContent).toContain("Backlinks51");
+    await settleUntil(() => {
+      expect(host.textContent).toContain("Outgoing51");
+      expect(host.textContent).toContain("Backlinks51");
+    });
     expect(host.querySelector('[data-edge-id="edge-50"]')).not.toBeNull();
     expect(host.querySelector('[title="Notes/Source 50.md"]')).not.toBeNull();
     expect(mocks.queryKnowledge).toHaveBeenCalledWith(
