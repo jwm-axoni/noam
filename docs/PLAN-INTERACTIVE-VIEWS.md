@@ -49,6 +49,14 @@ where the risk is.
 
 ## Part 1: extend NoteKnowledge (don't rebuild it)
 
+> **Status ✅ (2026-09-29).** Shipped on desktop and server with a shared parity fixture
+> (`app/packages/contracts/fixtures/knowledge-sort-parity.json`). Details in
+> [[06-note-knowledge-contract]]. Notes from the build: the registry pull already carried
+> `created_at`, so no server listing change was needed; frontmatter `created:` without an offset is
+> read as UTC, and a bare date means the whole UTC day in `where`; the desktop keeps the EARLIEST
+> birthtime it has seen, because atomic saves replace the file and reset birthtime; server
+> `modified` is `notes.last_edited_at` (content edits only, never renames).
+
 - **Add `sort` to `KnowledgeQuery`.** The contract has `where` and `page` but no ordering. Sort keys:
   name, created, modified, and any catalog property with a sortable type. Cursors already bind to
   the normalized query, so sort becomes part of that binding.
@@ -112,6 +120,14 @@ Still not v1: arbitrary JavaScript in regular notes, and any third-party widget 
 
 ## Part 4: sorting
 
+> **Status ✅ Name/Modified (2026-09-29).** Two deliberate deviations from the bullets below, found
+> while building: (1) per-folder overrides are keyed by **path**, not id — a local folder has no id
+> other than its path (`TreeNode.id` and the SQLite `folders.id` are both the path; only synced
+> vaults have server ids), so keys are remapped on in-app rename/move in `remapTabs` and dropped in
+> `pruneTabs`, the same way manual order already works. A folder renamed outside the app loses its
+> override. (2) In the Name modes folders follow the name direction (Z–A reverses them too); they
+> stay A–Z only in the time modes, which is where the reshuffle problem lives.
+
 Options: Name A–Z, Name Z–A, Modified newest, Modified oldest, Created newest, Created oldest.
 Created ships once Part 1 settles its source; the rest can ship now.
 
@@ -128,6 +144,11 @@ Created ships once Part 1 settles its source; the rest can ship now.
 ---
 
 ## Part 5: find and replace
+
+> **Status ✅ (2026-09-29).** Decision on ⌘F: inside a note editor ⌘F / Ctrl+F opens the note's
+> find bubble; anywhere else it opens vault Search; ⌘⇧F / Ctrl+Shift+F always opens vault Search.
+> Replace: ⌘⌥F on macOS, Ctrl+H on Windows/Linux (⌘H stays "Hide Noam"). Replace All is one undo
+> step in solo and shared notes (tested against a real Yjs UndoManager).
 
 The current editor uses `@codemirror/search`'s default panel, the gray strip at the bottom. Replace
 it with a floating bubble in the editor's top-right:

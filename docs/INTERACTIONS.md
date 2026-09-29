@@ -129,6 +129,9 @@ n/a = synchronous or sub-100ms by construction.
 | Export… | disk copy outside the vault | 0.2s–30s | ✅ toast (nothing in-app changes otherwise) |
 | Share… | opens the dialog | instant | n/a |
 | Set colour, reorder, drag-move | local + registry | fast | n/a |
+| Sort (header button) — Name A–Z / Z–A, Modified newest / oldest | local only | instant | n/a; applies to every folder without its own sort; dragged items keep their place |
+| Right-click folder → "Sort this folder" | local only (per device) | instant | n/a; direct contents only; follows the folder through in-app renames and moves |
+| Pointer in the tree or a sync running, under a Modified sort | none | n/a | rows hold still and re-sort once both clear |
 
 ### Shared icon picker — `components/IconPicker.tsx`
 
@@ -146,6 +149,9 @@ n/a = synchronous or sub-100ms by construction.
 | Push-to-talk | mic + relay | instant | ✅ existing talk states |
 | Search | local FTS5 | fast | n/a |
 | Graph view | in-memory sim | fast | n/a |
+| Find in note (⌘F / Ctrl+F in the editor) | in-memory search | instant | ✅ floating bubble top-right, live "3 of 12"; prefilled from a one-line selection |
+| Find and replace (⌘⌥F on macOS, Ctrl+H elsewhere) | in-memory, one transaction per Replace All | instant | ✅ replace row; Replace All is one undo step |
+| Vault search (⌘F outside a note, ⌘⇧F anywhere) | local FTS5 | fast | ✅ Search panel opens focused |
 | Open terminal (Ctrl+` / activity button) | spawn login shell in vault root | 0.1–1s | ✅ opens in the bottom panel, focused; the prompt is the feedback. A restored tab shows "Session ended" + Restart, never a silent respawn |
 | Hide / show the bottom panel (Ctrl+` from its terminal, header chevron) | layout only | instant | n/a; the shell keeps running and focus returns to the note |
 | Resize the bottom panel (drag its top edge) | layout only | instant | ✅ live preview; the note keeps at least 200 px |

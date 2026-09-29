@@ -103,7 +103,13 @@ Errors: single `AppError(String)` (`error.rs`).
 - `index.rs` — SQLite at `<vault>/.context/index.sqlite` (WAL): `notes` (id=`doc_id`, path UNIQUE),
   FTS5 `notes_fts`, `tags`/`note_tags`, `links`, `folders`, `yjs_updates`, `yjs_snapshot`. Notes keyed by
   `doc_id`; `rebuild` preserves ids and never wipes the CRDT tables; `rename_note` rewrites paths by id so
-  backlinks survive moves.
+  backlinks survive moves. `note_server_created (doc_id, created_ms)` is the other doc_id-keyed table
+  `rebuild` never wipes (the server's `created_at`, recorded by the registry after each pull via
+  `record_server_created_times`; swept by `prune_yjs_docs`). `notes.btime_ms` keeps the EARLIEST
+  birthtime seen (atomic saves reset it) and `knowledge_documents.frontmatter_created_ms` the parsed
+  `created:`. `created` resolves frontmatter → server → birthtime; `note_times.rs` holds the timestamp
+  grammar and must stay in step with the server's `src/knowledge/system.ts` and the shared fixture
+  `app/packages/contracts/fixtures/knowledge-sort-parity.json` (replayed by both test suites).
 - `watcher.rs` — `notify` recursive watcher, 150ms-debounced (1000ms ceiling), emits ONE batched
   `files-changed {changes: [{path, kind}]}` per drain. `kind` is `modified` | `removed` | `tree`, derived
   from an existence check rather than forwarded from `notify` (whose event kinds and rename pairing we
