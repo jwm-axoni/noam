@@ -41,6 +41,7 @@ import { prefetchAfterPaint } from "./lib/prefetch";
 import { revealWindowOnce } from "./lib/windowReveal";
 import type { ViewMode } from "./lib/editor/viewMode";
 import { createViewModeShortcutHandler } from "./lib/editor/viewModeShortcut";
+import { openNoteFindFrom, routeFindShortcut } from "./lib/editor/findShortcut";
 import { matchGlobalShortcut } from "./lib/globalShortcuts";
 import { platformClass } from "./lib/platform";
 import { appKeepsKey, isTerminalTarget, matchTerminalShortcut } from "./lib/terminal/keys";
@@ -1197,7 +1198,14 @@ export default function App() {
           void useStore.getState().openNoteByPath(path);
         }
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      const findRoute = routeFindShortcut(e, e.target);
+      if (findRoute === "note") {
+        // The note's find bubble. CodeMirror's keymap normally took the key
+        // already (and prevented it); otherwise focus is in a header widget.
+        if (!e.defaultPrevented && openNoteFindFrom(e.target)) e.preventDefault();
+        return;
+      }
+      if (findRoute === "vault") {
         e.preventDefault();
         const layout = useLayoutStore.getState().layout;
         const found = findPanelTab(layout, "search");
