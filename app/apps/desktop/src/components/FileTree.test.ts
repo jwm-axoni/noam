@@ -152,7 +152,7 @@ describe("FileTree refused move callbacks", () => {
     mocks.state = {
       vault: { path: "t27-fixture", epoch: 7 },
       syncEnabled: false, locks: [], denies: [], lifts: [], vaultPresence: [], members: [],
-      itemColors: {}, itemOrder: {}, rootFrozen: false, treeSort: "name", titles: [],
+      itemColors: {}, itemOrder: {}, rootFrozen: false, treeSort: "name", folderSorts: {}, titles: [],
       docSyncState: {}, docIdByPath: {}, revealRequest: null,
       remapTabs: mocks.remapTabs,
       openNoteByPath: mocks.openNoteByPath,

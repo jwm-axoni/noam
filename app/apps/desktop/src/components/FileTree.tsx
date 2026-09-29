@@ -29,7 +29,13 @@ import {
   removeFromOrder,
   renameInOrder,
 } from "../lib/ordering";
-import { pinModified, sortTree, TREE_SORTS } from "../lib/tree/sort";
+import {
+  isTimeSort,
+  pinModified,
+  sortTree,
+  TREE_SORTS,
+  treeSortLabel,
+} from "../lib/tree/sort";
 import { isBlankTreeTarget } from "../lib/tree/blankTarget";
 import {
   effectiveLockForPath,
@@ -314,6 +320,7 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
   const rootFrozen = useStore((s) => s.rootFrozen);
   const itemOrder = useStore((s) => s.itemOrder);
   const treeSort = useStore((s) => s.treeSort);
+  const folderSorts = useStore((s) => s.folderSorts);
   const docSyncState = useStore((s) => s.docSyncState);
   const docIdByPath = useStore((s) => s.docIdByPath);
   const titles = useStore((s) => s.titles);
@@ -457,7 +464,7 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
 
   // ---- Row-order stability while something is syncing ------------------
   //
-  // The default sort is "Recently modified", whose key is the `.md` file's
+  // The default sort is "Modified, newest first", whose key is the `.md` file's
   // mtime — and a sync run REWRITES files (a bulk wave moved 1,372 of this
   // vault's 1,560 mtimes inside three minutes). Each write re-sorted its folder
   // and arborist positions rows absolutely, so the row under the pointer was
@@ -466,11 +473,16 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
   // rows keep the mtime they were first seen with while either
   //   • the pointer is inside the sidebar (someone is aiming at a row), or
   //   • a bulk run is in flight (nothing is stable enough to be worth showing),
-  // and the true order is restored the moment both clear. Only "recent" needs
-  // it; "name" has no live sort key.
+  // and the true order is restored the moment both clear. Only the time modes
+  // need it — globally or in any one folder's override; the name modes have no
+  // live sort key.
   const [pointerInTree, setPointerInTree] = useState(false);
   const syncBusy = useStore((s) => isBulkPhase(s.syncProgress?.phase));
-  const orderPinned = treeSort === "recent" && (pointerInTree || syncBusy);
+  const anyTimeSort = useMemo(
+    () => isTimeSort(treeSort) || Object.values(folderSorts).some(isTimeSort),
+    [treeSort, folderSorts],
+  );
+  const orderPinned = anyTimeSort && (pointerInTree || syncBusy);
   const pinnedMtimes = useRef(new Map<string, number>());
   // Safety net for a pin that never got its `pointerleave` — the window losing
   // focus with the cursor still over the tree (cmd-tab, a dialog stealing it).
@@ -552,14 +564,14 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
     );
     if (!orderPinned) {
       pinnedMtimes.current.clear();
-      return applyOrder(sortTree(level, treeSort), "", itemOrder);
+      return applyOrder(sortTree(level, treeSort, folderSorts), "", itemOrder);
     }
     return applyOrder(
-      sortTree(pinModified(level, pinnedMtimes.current), treeSort),
+      sortTree(pinModified(level, pinnedMtimes.current), treeSort, folderSorts),
       "",
       itemOrder,
     );
-  }, [tree, itemOrder, treeSort, orderPinned, hiddenCompanions, showMetadata]);
+  }, [tree, itemOrder, treeSort, folderSorts, orderPinned, hiddenCompanions, showMetadata]);
 
   // Flatten the (arranged) tree so bulk actions can resolve any path — even a
   // collapsed one — to its node, and so "Select all" knows every path.
@@ -2165,7 +2177,7 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
             <button
               ref={sortButtonRef}
               className={`tree-tool${sortOpen ? " on" : ""}`}
-              title={`Sort: ${TREE_SORTS.find((s) => s.id === treeSort)?.label}`}
+              title={`Sort: ${treeSortLabel(treeSort)}`}
               aria-label="Sort notes"
               aria-haspopup="menu"
               aria-expanded={sortOpen}
@@ -2213,7 +2225,7 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
                     needs to know this button won't undo that. */}
                 <li className="menu-note">
                   Folders and notes you've dragged into place keep their
-                  position.
+                  position. Right-click a folder to sort it differently.
                 </li>
               </ViewportMenu>
             )}
@@ -2460,25 +2472,71 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
               Change icon…
             </li>
           )}
-          {/* The same vault-wide sort as the header button. A per-folder sort
-              would be a third arrangement layer fighting the other two, so
-              there is one setting and it is reachable from both places. */}
-          <li className="menu-heading menu-sep-item">Sort notes by</li>
-          {TREE_SORTS.map((s) => (
-            <li
-              key={s.id}
-              role="menuitemradio"
-              aria-checked={treeSort === s.id}
-              className={treeSort === s.id ? "is-on" : undefined}
-              title={s.hint}
-              onClick={() => useStore.getState().setTreeSort(s.id)}
-            >
-              <span className="menu-tick" aria-hidden="true">
-                {treeSort === s.id ? "✓" : ""}
-              </span>
-              {s.label}
-            </li>
-          ))}
+          {/* On a folder: that folder's own sort, which overrides the default
+              for its direct children only (the override replaces the base
+              sort, so `applyOrder` still pins any hand-made arrangement on
+              top). Elsewhere: the same vault-wide default as the header
+              button. One list either way, so the menu doesn't grow two. */}
+          {menu.node?.data.isDir ? (
+            <>
+              <li className="menu-heading menu-sep-item">Sort this folder</li>
+              <li
+                role="menuitemradio"
+                aria-checked={folderSorts[menu.node.data.path] === undefined}
+                className={
+                  folderSorts[menu.node.data.path] === undefined ? "is-on" : undefined
+                }
+                title="Follow the sort for all notes"
+                onClick={() =>
+                  useStore.getState().setFolderSort(menu.node!.data.path, null)
+                }
+              >
+                <span className="menu-tick" aria-hidden="true">
+                  {folderSorts[menu.node.data.path] === undefined ? "✓" : ""}
+                </span>
+                Default ({treeSortLabel(treeSort)})
+              </li>
+              {TREE_SORTS.map((s) => {
+                const on = folderSorts[menu.node!.data.path] === s.id;
+                return (
+                  <li
+                    key={s.id}
+                    role="menuitemradio"
+                    aria-checked={on}
+                    className={on ? "is-on" : undefined}
+                    title={s.hint}
+                    onClick={() =>
+                      useStore.getState().setFolderSort(menu.node!.data.path, s.id)
+                    }
+                  >
+                    <span className="menu-tick" aria-hidden="true">
+                      {on ? "✓" : ""}
+                    </span>
+                    {s.label}
+                  </li>
+                );
+              })}
+            </>
+          ) : (
+            <>
+              <li className="menu-heading menu-sep-item">Sort notes by</li>
+              {TREE_SORTS.map((s) => (
+                <li
+                  key={s.id}
+                  role="menuitemradio"
+                  aria-checked={treeSort === s.id}
+                  className={treeSort === s.id ? "is-on" : undefined}
+                  title={s.hint}
+                  onClick={() => useStore.getState().setTreeSort(s.id)}
+                >
+                  <span className="menu-tick" aria-hidden="true">
+                    {treeSort === s.id ? "✓" : ""}
+                  </span>
+                  {s.label}
+                </li>
+              ))}
+            </>
+          )}
           {/* Only offered where there IS an arrangement to drop — this clears
               the hand-made order for one folder so its contents fall back to
               the sort above, and leaves every other folder's alone. */}

@@ -7,7 +7,7 @@
 import type { ServerChoice } from "./auth/serverChoice";
 import type { PropertiesMode } from "./editor/frontmatter";
 import type { ViewMode } from "./editor/viewMode";
-import type { TreeSort } from "./tree/sort";
+import { DEFAULT_TREE_SORT, parseTreeSort, type TreeSort } from "./tree/sort";
 
 export type ActivityStatus = "online" | "away" | "busy" | "invisible";
 
@@ -212,15 +212,17 @@ const TREE_SORT_KEY = "context.treeSort";
  * contents): this is a habit about how you read a sidebar, and having it flip
  * as you switch vaults would be its own surprise.
  *
- * Defaults to "recent" — a second brain is mostly read from the top, and the
- * note you want is nearly always one you touched lately.
+ * Defaults to "recent" (Modified, newest first) — a second brain is mostly
+ * read from the top, and the note you want is nearly always one you touched
+ * lately. Per-folder overrides layer on this: `lib/tree/folderSorts`.
  */
 export function readTreeSort(): TreeSort {
   try {
-    const v = localStorage.getItem(TREE_SORT_KEY);
-    return v === "name" || v === "recent" ? v : "recent";
+    // `parseTreeSort` knows every id ever shipped, the original "recent" and
+    // "name" included, so a saved choice survives new modes being added.
+    return parseTreeSort(localStorage.getItem(TREE_SORT_KEY)) ?? DEFAULT_TREE_SORT;
   } catch {
-    return "recent";
+    return DEFAULT_TREE_SORT;
   }
 }
 

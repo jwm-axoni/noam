@@ -74,7 +74,14 @@ import {
 } from "./lib/prefs";
 import type { PropertiesMode } from "./lib/editor/frontmatter";
 import type { ViewMode } from "./lib/editor/viewMode";
-import type { TreeSort } from "./lib/tree/sort";
+import type { FolderSorts, TreeSort } from "./lib/tree/sort";
+import {
+  dropFolderSorts,
+  readFolderSorts,
+  remapFolderSorts,
+  setFolderSortAt,
+  writeFolderSorts,
+} from "./lib/tree/folderSorts";
 import { seedWelcomeContent, vaultIsEmpty, WELCOME_NOTE_PATH } from "./lib/vault/seed";
 import { planLanding } from "./lib/vault/landing";
 import { planTurnOnSync } from "./lib/vault/turnOnSync";
@@ -436,6 +443,9 @@ interface AppStore {
   /** How the sidebar arranges everything the user hasn't arranged by hand.
    *  Layered UNDER `itemOrder`, never replacing it — see `lib/tree/sort`. */
   treeSort: TreeSort;
+  /** Per-folder overrides of `treeSort` for one folder's direct children
+   *  (vault-local, device-local). Path-keyed — see `lib/tree/folderSorts`. */
+  folderSorts: FolderSorts;
   /** Set briefly when a teammate joins the vault, to drive the celebration
    *  banner + confetti. `at` changes each time so a repeat join re-triggers it. */
   memberJoined: { name: string; at: number } | null;
@@ -450,6 +460,8 @@ interface AppStore {
   setRootFrozen: (frozen: boolean) => Promise<void>;
   setItemOrder: (order: ItemOrder) => void;
   setTreeSort: (sort: TreeSort) => void;
+  /** Override (or, with `null`, stop overriding) the sort of one folder. */
+  setFolderSort: (folderPath: string, sort: TreeSort | null) => void;
   /**
    * Re-list the sidebar. With `folders`, ONLY those folder listings are re-read
    * (the watcher batch said nothing else changed); without it, the root and
@@ -533,9 +545,11 @@ interface AppStore {
   /** Close one tab. Closing the active one activates its right-hand neighbour
    *  (left-hand when it was last); closing the only tab clears the editor. */
   closeTab: (path: string) => void;
-  /** Drop the tabs at (or under — folders) the given deleted paths. */
+  /** Drop the tabs at (or under — folders) the given deleted paths, and any
+   *  folder sort override there. */
   pruneTabs: (paths: string[]) => void;
-  /** Re-point tabs across a rename/move of a file or a folder subtree. */
+  /** Re-point tabs (and path-keyed per-item prefs: collapsed Properties,
+   *  folder sort overrides) across a rename/move of a file or folder subtree. */
   remapTabs: (from: string, to: string) => void;
   /** Close every tab except the given one, which takes (or keeps) the screen. */
   closeOtherTabs: (path: string) => void;
@@ -1510,6 +1524,7 @@ export const useStore = create<AppStore>((set, get) => ({
   lineNumbers: readLineNumbers(),
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
+  folderSorts: {},
   memberJoined: null,
 
   setVault: (v) => {
@@ -1529,6 +1544,7 @@ export const useStore = create<AppStore>((set, get) => ({
       vault: v,
       itemColors: readItemColors(v?.path),
       itemOrder: readItemOrder(v?.path),
+      folderSorts: readFolderSorts(v?.path),
       ...(switched ? { openFolderIsSynced: null } : {}),
     });
     // Answer "does THIS folder sync?" for the open gate (see `probeFolderSync`).
@@ -1592,6 +1608,15 @@ export const useStore = create<AppStore>((set, get) => ({
     // vault — it's a device preference.
     writeTreeSort(sort);
     set({ treeSort: sort });
+  },
+
+  setFolderSort: (folderPath, sort) => {
+    const vault = get().vault;
+    if (!vault) return;
+    const next = setFolderSortAt(get().folderSorts, folderPath, sort);
+    if (next === get().folderSorts) return;
+    writeFolderSorts(vault.path, next);
+    set({ folderSorts: next });
   },
 
   refreshTree: async (folders) => {
@@ -2204,6 +2229,15 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   pruneTabs: (paths) => {
+    // Every in-app delete (row, bulk, a teammate's) funnels through here, so
+    // the path-keyed folder sort overrides are dropped here too.
+    const vault = get().vault;
+    let sorts = get().folderSorts;
+    for (const p of paths) sorts = dropFolderSorts(sorts, p);
+    if (vault && sorts !== get().folderSorts) {
+      writeFolderSorts(vault.path, sorts);
+      set({ folderSorts: sorts });
+    }
     const { viewModeOverrides } = get();
     const gone = (p: string) => paths.some((d) => p === d || p.startsWith(d + "/"));
     const nextModes = Object.fromEntries(
@@ -2217,6 +2251,14 @@ export const useStore = create<AppStore>((set, get) => ({
 
   remapTabs: (from, to) => {
     remapPropertiesCollapsed(get().vault?.path ?? "", from, to);
+    // Same funnel for folder sort overrides: every in-app rename/move of a
+    // folder re-points its override (and its subfolders') to the new path.
+    const vault = get().vault;
+    const sorts = remapFolderSorts(get().folderSorts, from, to);
+    if (vault && sorts !== get().folderSorts) {
+      writeFolderSorts(vault.path, sorts);
+      set({ folderSorts: sorts });
+    }
     const { openNote, viewModeOverrides, defaultViewMode } = get();
     const tabs = documentTabs().map((tab) => tab.path);
     const remap = (path: string) =>
@@ -2594,6 +2636,7 @@ export const useStore = create<AppStore>((set, get) => ({
       noteRemovedSynced: false,
       itemColors: readItemColors(undefined),
       itemOrder: readItemOrder(undefined),
+      folderSorts: readFolderSorts(undefined),
     });
     // Welcome is now the state a reload should restore (same rule as
     // closeLocalVault) — don't let the launch reopen undo the sign-out landing.
@@ -3435,6 +3478,7 @@ export const useStore = create<AppStore>((set, get) => ({
       openFolderIsSynced: null,
       itemColors: readItemColors(info.path),
       itemOrder: readItemOrder(info.path),
+      folderSorts: readFolderSorts(info.path),
       pendingVaultFolder: null,
     });
     probeFolderSync(get, set, info.path);
@@ -3543,6 +3587,7 @@ export const useStore = create<AppStore>((set, get) => ({
       openFolderIsSynced: true,
       itemColors: readItemColors(v.path),
       itemOrder: readItemOrder(v.path),
+      folderSorts: readFolderSorts(v.path),
       pendingVaultFolder: null,
     });
     rememberOrgVault(orgId, v.path);

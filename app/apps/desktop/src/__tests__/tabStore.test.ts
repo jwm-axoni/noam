@@ -143,6 +143,38 @@ describe("Properties preferences on confirmed moves", () => {
   });
 });
 
+// Folder sort overrides are path-keyed (a local folder has no other id), so the
+// store's rename/move and delete funnels must carry them along.
+describe("folder sort overrides on moves and deletes", () => {
+  it("follows a folder rename, persists it, and drops it on delete", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ vault: { path: "/fixture", epoch: 1 } as never, folderSorts: {} });
+    useStore.getState().setFolderSort("Work", "name-desc");
+    useStore.getState().setFolderSort("Work/Sub", "recent");
+    useStore.getState().setFolderSort("Home", "modified-asc");
+
+    useStore.getState().remapTabs("Work", "Archive/Job");
+    expect(useStore.getState().folderSorts).toEqual({
+      "Archive/Job": "name-desc",
+      "Archive/Job/Sub": "recent",
+      Home: "modified-asc",
+    });
+    expect(JSON.parse(values.get("context.folderSorts:/fixture")!)).toEqual(
+      useStore.getState().folderSorts,
+    );
+
+    useStore.getState().pruneTabs(["Archive"]);
+    expect(useStore.getState().folderSorts).toEqual({ Home: "modified-asc" });
+
+    useStore.getState().setFolderSort("Home", null);
+    expect(JSON.parse(values.get("context.folderSorts:/fixture")!)).toEqual({});
+  });
+});
+
 const open = (path: string) => useStore.getState().openNoteByPath(path);
 const tabPaths = () => documentTabs().map((tab) => tab.path);
 
