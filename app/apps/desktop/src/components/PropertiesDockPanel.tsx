@@ -116,6 +116,37 @@ function isExpiredCursor(error: unknown): boolean {
   return errorMessage(error).startsWith("cursor_expired:");
 }
 
+/** How many pages a refresh may follow to restore what "Load more" had shown. */
+const MAX_REFILL_PAGES = 20;
+
+/**
+ * Re-follow a section's cursors until it holds `want` items again (or runs out,
+ * or hits `MAX_REFILL_PAGES`). An expired cursor mid-way keeps what it has: a
+ * shorter list the user can extend again beats an error over data we just had.
+ */
+async function refill<T>(
+  query: ipc.LocalKnowledgeQuery,
+  first: ipc.LocalKnowledgePage,
+  parse: (page: ipc.LocalKnowledgePage) => T[],
+  want: number,
+  cancelled: () => boolean,
+): Promise<PagedItems<T>> {
+  let items = parse(first);
+  let cursor = first.nextCursor;
+  for (let pages = 0; cursor && items.length < want && pages < MAX_REFILL_PAGES; pages += 1) {
+    let next: ipc.LocalKnowledgePage;
+    try {
+      next = await ipc.queryKnowledge(query, { limit: 50, cursor });
+    } catch {
+      break;
+    }
+    if (cancelled()) break;
+    items = [...items, ...parse(next)];
+    cursor = next.nextCursor;
+  }
+  return paged(items, cursor);
+}
+
 function indexState(page: ipc.LocalKnowledgePage) {
   return page.items.find(
     (item): item is Extract<ipc.LocalKnowledgeItem, { kind: "indexState" }> =>
@@ -134,8 +165,19 @@ function useInspectorData(
     refreshRevision: 0,
     load: EMPTY_LOAD,
   });
+  // How deep each list was loaded for this note. The panel re-reads 450 ms
+  // after every edit (see `indexRefresh`); without this that re-read put every
+  // list back to its first 50 items, so rows the user had loaded with "Load
+  // more" vanished shortly after their next keystroke.
+  const depth = useRef<{ path: string | null; want: Record<PagedSection, number> }>({
+    path: null,
+    want: { outgoing: 0, incoming: 0, backlinks: 0 },
+  });
 
   useEffect(() => {
+    if (depth.current.path !== path) {
+      depth.current = { path, want: { outgoing: 0, incoming: 0, backlinks: 0 } };
+    }
     if (!path) {
       setSnapshot({ path: null, vaultEpoch: null, refreshRevision, load: EMPTY_LOAD });
       return;
@@ -149,17 +191,24 @@ function useInspectorData(
         if (cancelled) return;
         if (!meta) throw new Error("The note is not in the local index.");
 
+        const outgoingQuery: ipc.LocalKnowledgeQuery =
+          { kind: "relationships", noteId: meta.id, direction: "outgoing" };
+        const incomingQuery: ipc.LocalKnowledgeQuery =
+          { kind: "relationships", noteId: meta.id, direction: "incoming" };
+        const backlinksQuery: ipc.LocalKnowledgeQuery = { kind: "backlinks", noteId: meta.id };
         const [outgoingPage, incomingPage, backlinksPage, indexPage] = await Promise.all([
-          ipc.queryKnowledge(
-            { kind: "relationships", noteId: meta.id, direction: "outgoing" },
-            { limit: 50 },
-          ),
-          ipc.queryKnowledge(
-            { kind: "relationships", noteId: meta.id, direction: "incoming" },
-            { limit: 50 },
-          ),
-          ipc.queryKnowledge({ kind: "backlinks", noteId: meta.id }, { limit: 50 }),
+          ipc.queryKnowledge(outgoingQuery, { limit: 50 }),
+          ipc.queryKnowledge(incomingQuery, { limit: 50 }),
+          ipc.queryKnowledge(backlinksQuery, { limit: 50 }),
           ipc.queryKnowledge({ kind: "indexState", noteId: meta.id }, { limit: 1 }),
+        ]);
+        if (cancelled) return;
+        const want = depth.current.want;
+        const isCancelled = () => cancelled;
+        const [outgoing, incoming, backlinked] = await Promise.all([
+          refill(outgoingQuery, outgoingPage, relationships, want.outgoing, isCancelled),
+          refill(incomingQuery, incomingPage, relationships, want.incoming, isCancelled),
+          refill(backlinksQuery, backlinksPage, backlinks, want.backlinks, isCancelled),
         ]);
         if (cancelled) return;
         setSnapshot({
@@ -170,9 +219,9 @@ function useInspectorData(
             status: "ready",
             data: {
               meta,
-              outgoing: paged(relationships(outgoingPage), outgoingPage.nextCursor),
-              incoming: paged(relationships(incomingPage), incomingPage.nextCursor),
-              backlinks: paged(backlinks(backlinksPage), backlinksPage.nextCursor),
+              outgoing,
+              incoming,
+              backlinks: backlinked,
               indexState: indexState(indexPage),
             },
             error: null,
@@ -209,6 +258,11 @@ function useInspectorData(
     if (!path || !current || !page?.nextCursor || page.loading) return;
     const cursor = page.nextCursor;
     const noteId = current.meta.id;
+    // Record the depth asked for BEFORE fetching: a refresh that lands while
+    // this page is in flight discards the result below, and must restore it.
+    if (depth.current.path === path) {
+      depth.current.want[section] = Math.max(depth.current.want[section], page.items.length + 50);
+    }
     const query: ipc.LocalKnowledgeQuery = section === "backlinks"
       ? { kind: "backlinks", noteId }
       : { kind: "relationships", noteId, direction: section };
