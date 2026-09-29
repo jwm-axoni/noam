@@ -1816,6 +1816,21 @@ pub async fn get_note_meta(
     guard.get_note_meta(&path)
 }
 
+/// One folder's direct children as folder-gallery cards (`cards.rs`): the
+/// subfolders and `.md` notes, with each note's index-time excerpt and first
+/// image. `None` when the folder no longer exists. Epoch-pinned: a gallery
+/// left open across a vault switch must not list the next vault's folder.
+#[tauri::command]
+pub async fn list_folder_cards(
+    state: State<'_, AppState>,
+    folder: String,
+    expected_epoch: Option<u64>,
+) -> AppResult<Option<Vec<crate::cards::FolderCard>>> {
+    let (vault, index) = require_vault_at(&state, expected_epoch)?;
+    let guard = index.lock().unwrap();
+    crate::cards::list_folder_cards(&vault, &guard, &folder)
+}
+
 #[tauri::command]
 pub async fn resolve_wikilink(
     state: State<'_, AppState>,

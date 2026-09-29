@@ -323,6 +323,13 @@ impl Index {
         // The earliest file birthtime this index has observed for a note: the
         // last-resort source of the `created` system property (`note_times`).
         crate::knowledge::add_column_if_missing(&self.conn, "notes", "btime_ms", "INTEGER")?;
+        // Folder-gallery card data (`cards.rs`): derived like every other
+        // `notes` column. An index that predates these columns has
+        // `card_version` NULL everywhere, which `rebuild` treats as stale, so
+        // the next open fills them once without waiting for each note to change.
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "excerpt", "TEXT")?;
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "first_image", "TEXT")?;
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "card_version", "INTEGER")?;
         crate::knowledge::migrate(&self.conn)?;
         crate::tasks::migrate(&self.conn)?;
         Ok(())
@@ -349,20 +356,27 @@ impl Index {
         let tx = self.conn.unchecked_transaction()?;
         let knowledge_generation = crate::knowledge::next_generation(&tx)?;
 
-        // Snapshot what's already indexed: path -> (id, mtime, rowid).
+        // Snapshot what's already indexed: path -> (id, mtime, rowid), plus
+        // the ids whose gallery card data predates `cards::CARD_VERSION`.
         let mut indexed: HashMap<String, (String, i64, i64)> = HashMap::new();
+        let mut cards_stale: HashSet<String> = HashSet::new();
         {
-            let mut stmt = tx.prepare("SELECT path, id, mtime, rowid FROM notes")?;
+            let mut stmt =
+                tx.prepare("SELECT path, id, mtime, rowid, card_version FROM notes")?;
             let rows = stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, Option<i64>>(2)?.unwrap_or(0),
                     r.get::<_, i64>(3)?,
+                    r.get::<_, Option<i64>>(4)?,
                 ))
             })?;
             for row in rows {
-                let (path, id, mtime, rowid) = row?;
+                let (path, id, mtime, rowid, card_version) = row?;
+                if card_version != Some(crate::cards::CARD_VERSION) {
+                    cards_stale.insert(id.clone());
+                }
                 indexed.insert(path, (id, mtime, rowid));
             }
         }
@@ -467,6 +481,7 @@ impl Index {
                 Some((id, mtime, _))
                     if *mtime == disk_mtime
                         && knowledge_indexed.contains(id)
+                        && !cards_stale.contains(id)
                         && tasks_ready
                         && (rel != crate::knowledge::KNOWLEDGE_SCHEMA_PATH
                             || catalog_projection_ready) => {}
@@ -837,6 +852,8 @@ impl Index {
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
         crate::knowledge::mark_skipped(tx, &id, "skipped_oversized", knowledge_generation)?;
+        // Not parsed, so no card data: the gallery shows the name only.
+        Self::write_card(tx, &id, None, None)?;
         // An oversized note is listed but not parsed, so it contributes no tasks.
         crate::tasks::remove_note(tx, &id)?;
         Ok(id)
@@ -924,6 +941,11 @@ impl Index {
         // note's rows and its task rows can never disagree.
         crate::tasks::index_tasks(tx, &id, &content, knowledge_generation)?;
 
+        // Folder-gallery card data, from the same parse (see `cards.rs`).
+        let excerpt = crate::cards::derive_excerpt(&parsed.body);
+        let first_image = crate::cards::first_image(vault, &rel, &parsed.body);
+        Self::write_card(tx, &id, excerpt.as_deref(), first_image.as_deref())?;
+
         let rowid: i64 =
             tx.query_row("SELECT rowid FROM notes WHERE id = ?1", params![id], |r| {
                 r.get(0)
@@ -964,6 +986,61 @@ impl Index {
         }
 
         Ok(id)
+    }
+
+    fn write_card(
+        tx: &Connection,
+        id: &str,
+        excerpt: Option<&str>,
+        first_image: Option<&str>,
+    ) -> AppResult<()> {
+        tx.execute(
+            "UPDATE notes SET excerpt = ?2, first_image = ?3, card_version = ?4 WHERE id = ?1",
+            params![id, excerpt, first_image, crate::cards::CARD_VERSION],
+        )?;
+        Ok(())
+    }
+
+    /// Card fields of the notes DIRECTLY inside `folder` ("" = vault root),
+    /// keyed by path. A range scan over the `path` UNIQUE index (`/` + 1 is `0`).
+    pub fn card_rows_in(&self, folder: &str) -> AppResult<HashMap<String, crate::cards::CardRow>> {
+        let map_row = |r: &rusqlite::Row<'_>| {
+            Ok((
+                r.get::<_, String>(0)?,
+                crate::cards::CardRow {
+                    id: r.get(1)?,
+                    excerpt: r.get(2)?,
+                    first_image: r.get(3)?,
+                },
+            ))
+        };
+        let rows = if folder.is_empty() {
+            let mut stmt = self.conn.prepare(
+                "SELECT path, id, excerpt, first_image FROM notes WHERE instr(path, '/') = 0",
+            )?;
+            let out = stmt.query_map([], map_row)?.collect::<Result<HashMap<_, _>, _>>()?;
+            out
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT path, id, excerpt, first_image FROM notes
+                 WHERE path >= ?1 || '/' AND path < ?1 || '0'
+                   AND instr(substr(path, length(?1) + 2), '/') = 0",
+            )?;
+            let out = stmt
+                .query_map(params![folder], map_row)?
+                .collect::<Result<HashMap<_, _>, _>>()?;
+            out
+        };
+        Ok(rows)
+    }
+
+    /// How many notes sit anywhere under `folder` (a range scan; `/` + 1 is `0`).
+    pub fn count_notes_under(&self, folder: &str) -> AppResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM notes WHERE path >= ?1 || '/' AND path < ?1 || '0'",
+            params![folder],
+            |r| r.get(0),
+        )?)
     }
 
     /// Bounded, generation-bound reads over the normalized local knowledge index.
@@ -2907,6 +2984,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(resolved, 1);
+    }
+
+    #[test]
+    fn card_data_backfills_on_rebuild_for_an_index_that_predates_it() {
+        let (_tmp, v) = seed_vault();
+        let idx = Index::open(&v).unwrap();
+        idx.rebuild(&v).unwrap();
+        let rows = idx.card_rows_in("sub").unwrap();
+        assert_eq!(rows["sub/Beta.md"].excerpt.as_deref(), Some("The quick brown fox. Back to Alpha."));
+        // Simulate an index written before the card columns existed: mtimes
+        // all match, so only the version marker can make `rebuild` look again.
+        idx.conn
+            .execute_batch("UPDATE notes SET excerpt = NULL, first_image = NULL, card_version = NULL")
+            .unwrap();
+        idx.rebuild(&v).unwrap();
+        let rows = idx.card_rows_in("").unwrap();
+        assert_eq!(rows["Alpha.md"].excerpt.as_deref(), Some("Links to Beta and #inline tag."));
+        assert_eq!(rows["Gamma.md"].excerpt.as_deref(), Some("Dangling Nonexistent link."));
+        assert!(!rows.contains_key("sub/Beta.md"), "root listing is direct children only");
+        assert_eq!(idx.count_notes_under("sub").unwrap(), 1);
     }
 
     #[test]

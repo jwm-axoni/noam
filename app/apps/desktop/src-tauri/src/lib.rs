@@ -3,6 +3,7 @@
 //! registered here and reacts to `files-changed` / `vault-opened` events.
 
 pub mod attachments;
+pub mod cards;
 mod commands;
 mod error;
 mod identity;
@@ -168,6 +169,7 @@ pub fn run() {
             commands::graph_edges,
             commands::graph_edges_for,
             commands::get_note_meta,
+            commands::list_folder_cards,
             commands::resolve_wikilink,
             commands::list_note_titles,
             commands::list_graph_nodes,
