@@ -22,6 +22,7 @@
 }
 
 .terminal-overlay {
+  font-family: var(--font-body);
   display: flex;
   align-items: center;
   gap: 12px;
@@ -45,4 +46,53 @@
 
 .terminal-restart:hover {
   background: var(--bg-hover);
+}
+
+.terminal-guide {
+  font-family: var(--font-body);
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-subtle);
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.terminal-guide-text {
+  flex: 1 1 320px;
+  min-width: 0;
+}
+
+.terminal-guide code {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+}
+
+.terminal-guide-actions {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.terminal-guide-actions .terminal-restart {
+  margin-left: 0;
+}
+
+.terminal-guide-link {
+  padding: 3px 8px;
+  border: 0;
+  border-radius: 6px;
+  background: transparent;
+  color: var(--text-secondary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.terminal-guide-link:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
 }

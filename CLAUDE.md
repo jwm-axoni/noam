@@ -123,6 +123,9 @@ Errors: single `AppError(String)` (`error.rs`).
   only (`.workspace-center-column`), x-splits only, always mounted even collapsed (a hidden
   terminal keeps running), and persisted layouts without a `bottom` key still load. The xterm view
   refits only while really on screen (`canFit`), or hiding the dock would resize the shell to one row.
+  A running terminal OFFERS (never writes silently) a vault-root `AGENTS.md` keeping agents out of
+  `.context/` (`lib/terminal/agentGuide.ts`): create-only, plus a `CLAUDE.md` importing it only when
+  none exists — it is a visible note that syncs to the team, hence the offer.
 
 Tauri events to the UI: **`vault-opened`** and **`files-changed`** (the only two).
 

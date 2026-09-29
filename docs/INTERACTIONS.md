@@ -149,6 +149,7 @@ n/a = synchronous or sub-100ms by construction.
 | Open terminal (Ctrl+` / activity button) | spawn login shell in vault root | 0.1–1s | ✅ opens in the bottom panel, focused; the prompt is the feedback. A restored tab shows "Session ended" + Restart, never a silent respawn |
 | Hide / show the bottom panel (Ctrl+` from its terminal, header chevron) | layout only | instant | n/a; the shell keeps running and focus returns to the note |
 | Resize the bottom panel (drag its top edge) | layout only | instant | ✅ live preview; the note keeps at least 200 px |
+| Add AGENTS.md (terminal banner) | create-only write of AGENTS.md (+ CLAUDE.md if missing) | fast | ✅ banner leaves every terminal; toast names what was added, or says an existing CLAUDE.md needs the `@AGENTS.md` line |
 | Drag a terminal tab to the bottom (empty panel) | layout only | instant | ✅ a "Drop to dock at the bottom" strip appears mid-drag for tabs allowed there |
 | New terminal (Ctrl+Shift+`) | same, new tab (max 4) | 0.1–1s | ✅ tab opens focused; at the limit nothing opens |
 | Shell exits | pty EOF + wait | instant | ✅ "Shell exited with code N" + Restart under the output |

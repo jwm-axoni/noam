@@ -228,7 +228,13 @@ rather than writing it silently, because it's a visible file in the user's vault
   inside the bottom terminal hides the dock, anywhere else it shows one. The header's chevron hides
   without closing. A terminal only refits while really on screen, so hiding the dock never resizes
   the shell.
-- **T3:** managed-policy key, keyboard passthrough polish, the `AGENTS.md` offer.
+- **T3 ✅:** managed-policy key and keyboard passthrough (shipped with T1), and the `AGENTS.md`
+  offer (`lib/terminal/agentGuide.ts`): a banner above a running terminal when the vault root has
+  no `AGENTS.md`, with Add it / Not now / Don't ask again (per vault, device-local). Add it writes
+  create-only via `write_note_if_missing`, so an existing file is never touched, and the watcher
+  syncs the new note like any external write. It also adds a one-line `CLAUDE.md` importing
+  `@AGENTS.md` when the vault has none; a user's own `CLAUDE.md` is left alone with a toast saying
+  which line to add. No offer in a vault whose root is frozen.
 
 ---
 
@@ -267,6 +273,7 @@ Sorting, find/replace and the terminal don't depend on the query layer, so they 
    also a window reload?
 4. **Graph as a dashboard view type:** reuse the existing canvas graph with a query as its node
    filter, or keep graph separate?
-5. **`AGENTS.md` offer:** on first terminal open, or as a vault setting?
+5. ~~**`AGENTS.md` offer:** on first terminal open, or as a vault setting?~~ Decided: on a running
+   terminal, once per vault per session, with a device-local "Don't ask again".
 
 See [[STATUS]] for build progress once any of this starts.

@@ -19,6 +19,7 @@ import {
 import { platformClass } from "../../lib/platform";
 import { appKeepsKey, TERMINAL_HOST_CLASS } from "../../lib/terminal/keys";
 import { consumeSpawnRequest, reapOrphans, trackSession } from "../../lib/terminal/lifecycle";
+import { AgentGuideOffer } from "./AgentGuideOffer";
 import "./terminal.css";
 
 type Phase =
@@ -268,6 +269,7 @@ export function TerminalPanel({ instanceId, visible }: PanelBodyProps) {
 
   return (
     <div className="terminal-panel" data-terminal-id={instanceId}>
+      {phase.kind === "running" && <AgentGuideOffer />}
       <div ref={hostRef} className={TERMINAL_HOST_CLASS} />
       {overlay && (
         <div className="terminal-overlay" role="status">
