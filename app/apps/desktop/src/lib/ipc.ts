@@ -517,6 +517,37 @@ export const listTree = (expectedEpoch?: VaultEpoch) =>
 /** Lazy sidebar loading: immediate children of one dir ("" = root). */
 export const listChildren = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<TreeNode[]>("list_children", { path, expectedEpoch: expectedEpoch ?? null });
+/** A subfolder card in a folder gallery (Rust `cards::FolderCard::Folder`). */
+export interface FolderCardFolder {
+  kind: "folder";
+  path: string;
+  name: string;
+  /** Notes anywhere under the folder, from the index. */
+  noteCount: number;
+}
+
+/** A note card in a folder gallery (Rust `cards::FolderCard::Note`). */
+export interface FolderCardNote {
+  kind: "note";
+  path: string;
+  /** The filename stem — the UI's title rule. */
+  name: string;
+  docId: string | null;
+  /** First meaningful paragraph as plain text, derived at index time. */
+  excerpt: string | null;
+  /** Vault-relative path of the first embedded image, derived at index time. */
+  firstImage: string | null;
+  /** mtime in epoch millis; 0 when unknown. */
+  modified: number;
+  /** 0-byte file: a server-only note that has not been downloaded yet. */
+  empty: boolean;
+}
+
+export type FolderCard = FolderCardFolder | FolderCardNote;
+
+/** One folder's direct children as gallery cards; `null` when the folder is gone. */
+export const listFolderCards = (folder: string, expectedEpoch?: VaultEpoch) =>
+  invoke<FolderCard[] | null>("list_folder_cards", { folder, expectedEpoch: expectedEpoch ?? null });
 export const readNote = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<string>("read_note", { path, expectedEpoch: expectedEpoch ?? null });
 export const readNoteSnapshot = (path: string, expectedEpoch?: VaultEpoch) =>

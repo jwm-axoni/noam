@@ -76,6 +76,7 @@ import {
   setActiveNotePresentation,
 } from "../lib/editor/activeView";
 import { useStore } from "../store";
+import { openGallery } from "../lib/gallery/open";
 import { shareResourceId } from "../lib/api";
 import { syncManager } from "../lib/sync/docSession";
 import { isBulkPhase } from "../lib/sync/vaultScope";
@@ -323,6 +324,7 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
   const folderSorts = useStore((s) => s.folderSorts);
   // Only populated while a Created sort is active (store: `refreshCreatedTimes`).
   const createdTimes = useStore((s) => s.createdTimes);
+  const folderViews = useStore((s) => s.folderViews);
   const docSyncState = useStore((s) => s.docSyncState);
   const docIdByPath = useStore((s) => s.docIdByPath);
   const titles = useStore((s) => s.titles);
@@ -2485,6 +2487,33 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
               Change icon…
             </li>
           )}
+          {/* View mode: a gallery folder also opens its cards in the center
+              when clicked. Device-local, like the sort below. */}
+          {menu.node?.data.isDir && (
+            folderViews[menu.node.data.path] === "gallery" ? (
+              <li
+                className="menu-sep-item"
+                onClick={() => {
+                  useStore.getState().setFolderView(menu.node!.data.path, "list");
+                  setMenu(null);
+                }}
+              >
+                Show as list
+              </li>
+            ) : (
+              <li
+                className="menu-sep-item"
+                onClick={() => {
+                  const path = menu.node!.data.path;
+                  useStore.getState().setFolderView(path, "gallery");
+                  openGallery(path);
+                  setMenu(null);
+                }}
+              >
+                Show as gallery
+              </li>
+            )
+          )}
           {/* On a folder: that folder's own sort, which overrides the default
               for its direct children only (the override replaces the base
               sort, so `applyOrder` still pins any hand-made arrangement on
@@ -3011,6 +3040,12 @@ function SidebarPresence({ peers }: { peers: VaultPeer[] }) {
 const RENAME_DOUBLE_CLICK_MS = 180;
 let lastRowClick: { path: string; at: number } | null = null;
 
+/** A folder in gallery mode opens (or retargets) the gallery tab as well as
+ *  expanding; list-mode folders only expand, exactly as before. */
+function openGalleryIfChosen(path: string): void {
+  if (useStore.getState().folderViews?.[path] === "gallery") openGallery(path);
+}
+
 function Node({
   node,
   style,
@@ -3102,7 +3137,10 @@ function Node({
         onDragProbe(node.data.path, e.clientX, e.clientY);
       }}
       onClick={() => {
-        if (isDir) node.toggle();
+        if (isDir) {
+          node.toggle();
+          if (!selectMode) openGalleryIfChosen(node.data.path);
+        }
         // Double-click a row to rename it in place (Finder-style) — but timed
         // by us, not by the browser's `dblclick`. That event honours the OS
         // "double-click speed" setting, which on a slow setting pairs two
@@ -3126,8 +3164,10 @@ function Node({
       onKeyDown={(event) => {
         if (event.key !== "Enter" && event.key !== " ") return;
         event.preventDefault();
-        if (isDir) node.toggle();
-        else if (isOpenablePath(node.data.path) || previewKind(node.data.path) != null) {
+        if (isDir) {
+          node.toggle();
+          if (!selectMode) openGalleryIfChosen(node.data.path);
+        } else if (isOpenablePath(node.data.path) || previewKind(node.data.path) != null) {
           void useStore.getState().openNoteByPath(node.data.path);
         }
       }}

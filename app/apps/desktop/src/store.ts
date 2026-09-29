@@ -84,6 +84,16 @@ import {
   setFolderSortAt,
   writeFolderSorts,
 } from "./lib/tree/folderSorts";
+import {
+  dropFolderViews,
+  readFolderViews,
+  remapFolderViews,
+  setFolderViewAt,
+  writeFolderViews,
+  type FolderViewMode,
+  type FolderViews,
+} from "./lib/tree/folderViews";
+import { followGalleryRename } from "./lib/gallery/open";
 import { seedWelcomeContent, vaultIsEmpty, WELCOME_NOTE_PATH } from "./lib/vault/seed";
 import { planLanding } from "./lib/vault/landing";
 import { planTurnOnSync } from "./lib/vault/turnOnSync";
@@ -452,6 +462,9 @@ interface AppStore {
    *  of `treeSort`/`folderSorts` is a Created mode — a vault that never sorts
    *  by created never pays the read. See `lib/tree/createdTimes`. */
   createdTimes: ReadonlyMap<string, number> | null;
+  /** Per-folder view mode (list | gallery), device-local and per vault.
+   *  Path-keyed with the same remap/prune funnels — see `lib/tree/folderViews`. */
+  folderViews: FolderViews;
   /** Set briefly when a teammate joins the vault, to drive the celebration
    *  banner + confetti. `at` changes each time so a repeat join re-triggers it. */
   memberJoined: { name: string; at: number } | null;
@@ -468,6 +481,8 @@ interface AppStore {
   setTreeSort: (sort: TreeSort) => void;
   /** Override (or, with `null`, stop overriding) the sort of one folder. */
   setFolderSort: (folderPath: string, sort: TreeSort | null) => void;
+  /** Show one folder as a list (the default) or a gallery. */
+  setFolderView: (folderPath: string, mode: FolderViewMode) => void;
   /**
    * Re-list the sidebar. With `folders`, ONLY those folder listings are re-read
    * (the watcher batch said nothing else changed); without it, the root and
@@ -1546,6 +1561,7 @@ export const useStore = create<AppStore>((set, get) => ({
   treeSort: readTreeSort(),
   folderSorts: {},
   createdTimes: null,
+  folderViews: {},
   memberJoined: null,
 
   setVault: (v) => {
@@ -1566,6 +1582,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemColors: readItemColors(v?.path),
       itemOrder: readItemOrder(v?.path),
       folderSorts: readFolderSorts(v?.path),
+      folderViews: readFolderViews(v?.path),
       // Another vault's created dates would sort this one by the wrong keys;
       // the tree refresh that follows a switch re-reads them.
       ...(switched ? { openFolderIsSynced: null, createdTimes: null } : {}),
@@ -1665,6 +1682,15 @@ export const useStore = create<AppStore>((set, get) => ({
     if (!sameVault(get, read.epoch)) return;
     if (!usesCreatedSort(get().treeSort, get().folderSorts)) return;
     set({ createdTimes: read.created });
+  },
+
+  setFolderView: (folderPath, mode) => {
+    const vault = get().vault;
+    if (!vault) return;
+    const next = setFolderViewAt(get().folderViews, folderPath, mode);
+    if (next === get().folderViews) return;
+    writeFolderViews(vault.path, next);
+    set({ folderViews: next });
   },
 
   refreshTree: async (folders) => {
@@ -2290,6 +2316,14 @@ export const useStore = create<AppStore>((set, get) => ({
       writeFolderSorts(vault.path, sorts);
       set({ folderSorts: sorts });
     }
+    // Folder view modes ride the same funnel. An open gallery on a deleted
+    // folder is left alone: it says the folder is gone rather than vanishing.
+    let views = get().folderViews;
+    for (const p of paths) views = dropFolderViews(views, p);
+    if (vault && views !== get().folderViews) {
+      writeFolderViews(vault.path, views);
+      set({ folderViews: views });
+    }
     const { viewModeOverrides } = get();
     const gone = (p: string) => paths.some((d) => p === d || p.startsWith(d + "/"));
     const nextModes = Object.fromEntries(
@@ -2311,6 +2345,13 @@ export const useStore = create<AppStore>((set, get) => ({
       writeFolderSorts(vault.path, sorts);
       set({ folderSorts: sorts });
     }
+    // …and folder view modes, and the gallery tab showing the moved folder.
+    const views = remapFolderViews(get().folderViews, from, to);
+    if (vault && views !== get().folderViews) {
+      writeFolderViews(vault.path, views);
+      set({ folderViews: views });
+    }
+    followGalleryRename(from, to);
     const { openNote, viewModeOverrides, defaultViewMode } = get();
     const tabs = documentTabs().map((tab) => tab.path);
     const remap = (path: string) =>
@@ -2690,6 +2731,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemOrder: readItemOrder(undefined),
       folderSorts: readFolderSorts(undefined),
       createdTimes: null,
+      folderViews: readFolderViews(undefined),
     });
     // Welcome is now the state a reload should restore (same rule as
     // closeLocalVault) — don't let the launch reopen undo the sign-out landing.
@@ -3533,6 +3575,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemOrder: readItemOrder(info.path),
       folderSorts: readFolderSorts(info.path),
       createdTimes: null,
+      folderViews: readFolderViews(info.path),
       pendingVaultFolder: null,
     });
     probeFolderSync(get, set, info.path);
@@ -3643,6 +3686,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemOrder: readItemOrder(v.path),
       folderSorts: readFolderSorts(v.path),
       createdTimes: null,
+      folderViews: readFolderViews(v.path),
       pendingVaultFolder: null,
     });
     rememberOrgVault(orgId, v.path);

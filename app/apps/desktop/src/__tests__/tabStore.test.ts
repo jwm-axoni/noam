@@ -84,6 +84,8 @@ import { createDefaultLayout } from "../layout/types";
 import { findPanelTab } from "../layout/operations";
 import { documentTabs } from "../layout/workspaceActions";
 import { readPropertiesCollapsed } from "../lib/prefs";
+import { openGallery } from "../lib/gallery/open";
+import { galleryFolder, galleryPanelId } from "../lib/gallery/panelState";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -172,6 +174,44 @@ describe("folder sort overrides on moves and deletes", () => {
 
     useStore.getState().setFolderSort("Home", null);
     expect(JSON.parse(values.get("context.folderSorts:/fixture")!)).toEqual({});
+  });
+});
+
+// Folder view modes ride the same funnels, and the gallery tab showing a
+// renamed folder follows it (a deleted one is left to say it is gone).
+describe("folder view modes and the gallery on moves and deletes", () => {
+  it("remaps on rename, persists, drops on delete, and retargets the gallery", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ vault: { path: "/fixture", epoch: 1 } as never, folderViews: {} });
+    useLayoutStore.getState().replace(createDefaultLayout());
+    useStore.getState().setFolderView("Work", "gallery");
+    useStore.getState().setFolderView("Work/Sub", "gallery");
+    useStore.getState().setFolderView("Home", "gallery");
+    openGallery("Work/Sub");
+
+    useStore.getState().remapTabs("Work", "Archive/Job");
+    expect(useStore.getState().folderViews).toEqual({
+      "Archive/Job": "gallery",
+      "Archive/Job/Sub": "gallery",
+      Home: "gallery",
+    });
+    expect(JSON.parse(values.get("noam.folderViews:/fixture")!)).toEqual(
+      useStore.getState().folderViews,
+    );
+    const layout = useLayoutStore.getState().layout;
+    expect(galleryFolder(layout.panels[galleryPanelId(layout)!]!.state)).toBe("Archive/Job/Sub");
+
+    useStore.getState().pruneTabs(["Archive"]);
+    expect(useStore.getState().folderViews).toEqual({ Home: "gallery" });
+    const after = useLayoutStore.getState().layout;
+    expect(galleryPanelId(after)).not.toBeNull();
+
+    useStore.getState().setFolderView("Home", "list");
+    expect(JSON.parse(values.get("noam.folderViews:/fixture")!)).toEqual({});
   });
 });
 

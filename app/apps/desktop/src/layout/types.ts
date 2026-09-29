@@ -15,6 +15,7 @@ export const PANEL_TYPES = [
   "presence",
   "review",
   "terminal",
+  "gallery",
 ] as const;
 export type PanelType = (typeof PANEL_TYPES)[number];
 
@@ -98,6 +99,8 @@ export const PANEL_ALLOWED_ZONES: Readonly<Record<PanelType, readonly ZoneId[]>>
   // A shell is a work surface: the bottom panel under the note (its home), a
   // full center tab, or beside the note. The left dock stays navigation.
   terminal: ["bottom", "center", "right"],
+  // A folder shown as cards is a document surface: it needs the center's width.
+  gallery: ["center"],
 };
 
 export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
@@ -115,6 +118,8 @@ export const PANEL_MULTIPLICITY: Readonly<Record<PanelType, number>> = {
   review: 1,
   // Each terminal is its own process; a few side by side, not unbounded.
   terminal: 4,
+  // One gallery that RETARGETS as you move between folders, like a Finder window.
+  gallery: 1,
 };
 
 export function isZoneId(value: unknown): value is ZoneId {

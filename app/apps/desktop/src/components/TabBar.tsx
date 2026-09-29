@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import { resolveVaultAsset } from "../lib/fileTypes/assetResolver";
 import { LayoutGroup, motion, useReducedMotion } from "motion/react";
 import { noteLabel } from "../lib/notePath";
+import { galleryTabLabel } from "../lib/gallery/panelState";
 import { panelRegistry } from "../layout/panelRegistry";
 import { useLayoutStore } from "../layout/store";
 import { CENTER_NOTE_GROUP_ID, type LayoutTab } from "../layout/types";
@@ -32,6 +33,7 @@ interface TabMenuState {
 function tabLabel(tab: LayoutTab, panels: ReturnType<typeof useLayoutStore.getState>["layout"]["panels"]): string {
   if (tab.kind === "note") return noteLabel(tab.path);
   const panel = panels[tab.panelId];
+  if (panel?.type === "gallery") return galleryTabLabel(panel.state);
   return panel ? panelRegistry[panel.type].label : "Tool";
 }
 

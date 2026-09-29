@@ -61,12 +61,18 @@ export function setFolderSortAt(
 
 /**
  * Follow a rename or move: re-prefix the moved folder's key and every key
- * under it. Returns the same object when nothing matched.
+ * under it. Returns the same object when nothing matched. Generic over the
+ * value, because every path-keyed folder pref (sorts, view modes) follows a
+ * rename the same way.
  */
-export function remapFolderSorts(sorts: FolderSorts, from: string, to: string): FolderSorts {
+export function remapPathKeys<T>(
+  sorts: Record<string, T>,
+  from: string,
+  to: string,
+): Record<string, T> {
   if (from === to) return sorts;
   let changed = false;
-  const out: FolderSorts = {};
+  const out: Record<string, T> = {};
   for (const [key, sort] of Object.entries(sorts)) {
     const next =
       key === from ? to : key.startsWith(from + "/") ? to + key.slice(from.length) : key;
@@ -76,11 +82,21 @@ export function remapFolderSorts(sorts: FolderSorts, from: string, to: string): 
   return changed ? out : sorts;
 }
 
-/** Forget the overrides of a deleted folder and everything under it. */
-export function dropFolderSorts(sorts: FolderSorts, path: string): FolderSorts {
+/** Forget the keys of a deleted folder and everything under it. */
+export function dropPathKeys<T>(sorts: Record<string, T>, path: string): Record<string, T> {
   const gone = (k: string) => k === path || k.startsWith(path + "/");
   if (!Object.keys(sorts).some(gone)) return sorts;
-  const out: FolderSorts = {};
+  const out: Record<string, T> = {};
   for (const [key, sort] of Object.entries(sorts)) if (!gone(key)) out[key] = sort;
   return out;
+}
+
+/** {@link remapPathKeys} for sort overrides. */
+export function remapFolderSorts(sorts: FolderSorts, from: string, to: string): FolderSorts {
+  return remapPathKeys(sorts, from, to);
+}
+
+/** {@link dropPathKeys} for sort overrides: a deleted folder takes them along. */
+export function dropFolderSorts(sorts: FolderSorts, path: string): FolderSorts {
+  return dropPathKeys(sorts, path);
 }

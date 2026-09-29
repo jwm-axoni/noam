@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import type { PanelType, ZoneId } from "./types";
+import { galleryPersistentState } from "../lib/gallery/panelState";
 
 export interface PanelBodyProps {
   instanceId: string;
@@ -131,6 +132,11 @@ const presencePersistentState = (state: Record<string, unknown>) => {
 const terminalLoader: PanelRegistration["load"] = () =>
   import("../components/terminal/TerminalPanel").then(({ TerminalPanel }) => ({
     default: TerminalPanel,
+  }));
+
+const galleryLoader: PanelRegistration["load"] = () =>
+  import("../components/gallery/GalleryPanel").then(({ GalleryPanel }) => ({
+    default: GalleryPanel,
   }));
 
 const outlineLoader: PanelRegistration["load"] = () =>
@@ -327,6 +333,22 @@ export const panelRegistry = {
     // The shell lives in Rust and never survives a relaunch, so there is
     // nothing about it worth saving.
     persistentState: noPersistentState,
+  },
+  gallery: {
+    type: "gallery",
+    label: "Gallery",
+    defaultZone: "center",
+    defaultGroup: "primary",
+    // lucide `layout-grid`.
+    icon: icon(<><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>),
+    allowedZones: ["center"],
+    minimumWidth: 280,
+    minimumHeight: 200,
+    multiplicity: 1,
+    load: galleryLoader,
+    validateState: emptyState,
+    // Only the folder it shows; everything else re-derives from disk.
+    persistentState: galleryPersistentState,
   },
 } as const satisfies Record<PanelType, PanelRegistration>;
 

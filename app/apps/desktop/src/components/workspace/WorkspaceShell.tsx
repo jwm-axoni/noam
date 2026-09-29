@@ -53,6 +53,7 @@ const PANEL_COMPONENTS = {
   presence: lazyPanel("presence"),
   review: lazyPanel("review"),
   terminal: lazyPanel("terminal"),
+  gallery: lazyPanel("gallery"),
 };
 
 interface WorkspaceShellProps {
