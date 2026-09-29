@@ -1034,6 +1034,91 @@ impl Index {
         Ok(rows)
     }
 
+    /// Card + column data for the given notes (dashboards), in the order asked,
+    /// read from the index only: the index-time excerpt/first image, the typed
+    /// property values and the named relationships. Unknown ids are skipped.
+    pub fn note_cards(&self, ids: &[String]) -> AppResult<Vec<crate::cards::NoteCardRow>> {
+        use crate::cards::{NoteCardProperty, NoteCardRelationship, NoteCardRow};
+        let mut note = self
+            .conn
+            .prepare("SELECT path, excerpt, first_image, sha256 FROM notes WHERE id = ?1")?;
+        let mut properties = self.conn.prepare(
+            "SELECT property_id, text_value, number_value, boolean_value
+               FROM knowledge_properties WHERE note_id = ?1
+              ORDER BY property_id, ordinal",
+        )?;
+        let mut relationships = self.conn.prepare(
+            "SELECT r.relationship_id, r.target_note_id, dst.path
+               FROM knowledge_relationships r
+               LEFT JOIN notes dst ON dst.id = r.target_note_id
+              WHERE r.source_note_id = ?1
+              ORDER BY r.relationship_id, r.ordinal",
+        )?;
+        let mut out = Vec::with_capacity(ids.len());
+        let mut seen = HashSet::new();
+        for id in ids {
+            if !seen.insert(id.as_str()) {
+                continue;
+            }
+            let row = note
+                .query_row(params![id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .optional()?;
+            let Some((path, excerpt, first_image, sha)) = row else { continue };
+            let empty = sha.as_deref() == Some(crate::cards::EMPTY_SHA256);
+            let values = properties
+                .query_map(params![id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter_map(|(property_id, text, number, boolean)| {
+                    let text = text
+                        .or_else(|| number.map(crate::cards::format_number))
+                        .or_else(|| boolean.map(|b| (b != 0).to_string()))?;
+                    Some(NoteCardProperty { property_id, text })
+                })
+                .collect();
+            let edges = relationships
+                .query_map(params![id], |r| {
+                    Ok(NoteCardRelationship {
+                        relationship_id: r.get(0)?,
+                        target_note_id: r.get(1)?,
+                        target_path: r.get(2)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let file = path.rsplit('/').next().unwrap_or(&path);
+            let name = if file.to_ascii_lowercase().ends_with(".md") && file.len() > 3 {
+                file[..file.len() - 3].to_string()
+            } else {
+                file.to_string()
+            };
+            out.push(NoteCardRow {
+                doc_id: id.clone(),
+                name,
+                excerpt: if empty { None } else { excerpt },
+                first_image: if empty { None } else { first_image },
+                empty,
+                properties: values,
+                relationships: edges,
+                path,
+            });
+        }
+        Ok(out)
+    }
+
     /// How many notes sit anywhere under `folder` (a range scan; `/` + 1 is `0`).
     pub fn count_notes_under(&self, folder: &str) -> AppResult<i64> {
         Ok(self.conn.query_row(

@@ -127,8 +127,29 @@ pub enum KnowledgeQuery {
         where_: Vec<PropertyPredicate>,
         #[serde(default)]
         sort: Option<KnowledgeSort>,
+        /// The contract's `traverse`: restrict the candidates to the notes
+        /// reachable from `fromDocId` over named relationships (the start note
+        /// itself excluded), exactly like the server's `traversalCandidates`.
+        /// Skipped when absent so existing cursors keep their query hash.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        traverse: Option<KnowledgeTraverse>,
     },
 }
+
+/// `traverse` in the contract (spec 06).
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "camelCase")]
+pub struct KnowledgeTraverse {
+    pub from_doc_id: String,
+    /// Empty = any relationship.
+    #[serde(default)]
+    pub relationship_ids: Vec<String>,
+    pub direction: RelationshipDirection,
+    pub max_depth: u8,
+}
+
+/// Same bound as the server's MCP `traverse.relationshipIds`.
+const MAX_TRAVERSE_RELATIONSHIPS: usize = 32;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
@@ -1394,9 +1415,18 @@ pub(crate) fn query(
         KnowledgeQuery::IndexState { note_id } => {
             query_index_state(conn, note_id, &last, limit + 1)?
         }
-        KnowledgeQuery::Notes { where_, sort } => {
-            query_notes(conn, where_, sort.as_ref(), &last, limit + 1)?
-        }
+        KnowledgeQuery::Notes {
+            where_,
+            sort,
+            traverse,
+        } => query_notes(
+            conn,
+            where_,
+            sort.as_ref(),
+            traverse.as_ref(),
+            &last,
+            limit + 1,
+        )?,
     };
 
     let has_more = items.len() > limit as usize;
@@ -1910,10 +1940,79 @@ fn property_sort_values(conn: &Connection, property_id: &str) -> AppResult<HashM
     Ok(values)
 }
 
+/// The notes reachable from `traverse.from_doc_id` in 1..=`max_depth` hops over
+/// RESOLVED relationship edges (an edge whose target identity is missing or
+/// duplicated leads nowhere), the start note excluded. The server walks the
+/// same graph (`knowledge/query.ts traversalCandidates`); the local index
+/// already holds only what this user can read.
+fn traversal_candidates(conn: &Connection, traverse: &KnowledgeTraverse) -> AppResult<HashSet<String>> {
+    if !(1..=4).contains(&traverse.max_depth) {
+        return Err(schema_invalid("traverse.maxDepth must be an integer from 1 to 4"));
+    }
+    if traverse.relationship_ids.len() > MAX_TRAVERSE_RELATIONSHIPS
+        || traverse
+            .relationship_ids
+            .iter()
+            .any(|id| !valid_definition_id(id))
+    {
+        return Err(AppError::new(
+            "limit_exceeded: traverse.relationshipIds must contain at most 32 valid ids",
+        ));
+    }
+    let exists: bool = conn.query_row(
+        "SELECT EXISTS(SELECT 1 FROM notes WHERE id = ?1)",
+        params![traverse.from_doc_id],
+        |row| row.get(0),
+    )?;
+    if !exists {
+        return Err(AppError::new("not_found: The note was not found"));
+    }
+    let sql = match traverse.direction {
+        RelationshipDirection::Outgoing => {
+            "SELECT target_note_id, relationship_id FROM knowledge_relationships
+              WHERE source_note_id = ?1 AND resolution = 'resolved'
+                AND target_note_id IS NOT NULL"
+        }
+        RelationshipDirection::Incoming => {
+            "SELECT source_note_id, relationship_id FROM knowledge_relationships
+              WHERE target_note_id = ?1 AND resolution = 'resolved'"
+        }
+    };
+    let mut stmt = conn.prepare(sql)?;
+    let wanted: HashSet<&str> = traverse.relationship_ids.iter().map(String::as_str).collect();
+    let mut visited: HashSet<String> = HashSet::from([traverse.from_doc_id.clone()]);
+    let mut found: HashSet<String> = HashSet::new();
+    let mut frontier = vec![traverse.from_doc_id.clone()];
+    for _ in 0..traverse.max_depth {
+        let mut next = Vec::new();
+        for note in &frontier {
+            let rows = stmt.query_map(params![note], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            })?;
+            for row in rows {
+                let (neighbour, relationship) = row?;
+                if !wanted.is_empty() && !wanted.contains(relationship.as_str()) {
+                    continue;
+                }
+                if visited.insert(neighbour.clone()) {
+                    found.insert(neighbour.clone());
+                    next.push(neighbour);
+                }
+            }
+        }
+        if next.is_empty() {
+            break;
+        }
+        frontier = next;
+    }
+    Ok(found)
+}
+
 fn query_notes(
     conn: &Connection,
     predicates: &[PropertyPredicate],
     sort: Option<&KnowledgeSort>,
+    traverse: Option<&KnowledgeTraverse>,
     last: &[String],
     limit: u32,
 ) -> AppResult<QueryRows> {
@@ -1943,7 +2042,10 @@ fn query_notes(
     // System predicates reduce to integer ranges; everything else is a set of
     // matching note ids. Both are resolved before any row is ordered or paged.
     let mut system_ranges: Vec<(&str, note_times::MsRange)> = Vec::new();
-    let mut allowed: Option<HashSet<String>> = None;
+    let mut allowed: Option<HashSet<String>> = match traverse {
+        Some(traverse) => Some(traversal_candidates(conn, traverse)?),
+        None => None,
+    };
     for predicate in predicates {
         if note_times::is_system_property(&predicate.property_id) {
             let (start, end) = note_times::value_span(&predicate.value.to_json()).ok_or_else(|| {

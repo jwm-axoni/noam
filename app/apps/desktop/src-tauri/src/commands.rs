@@ -1831,6 +1831,27 @@ pub async fn list_folder_cards(
     crate::cards::list_folder_cards(&vault, &guard, &folder)
 }
 
+/// Card and column data for the notes a dashboard view matched (`cards.rs`
+/// `NoteCardRow`), in the order given, from the index alone — no note is read.
+/// At most `MAX_NOTE_CARDS` ids; unknown ids are skipped. Epoch-pinned like the
+/// folder gallery.
+#[tauri::command]
+pub async fn list_note_cards(
+    state: State<'_, AppState>,
+    doc_ids: Vec<String>,
+    expected_epoch: Option<u64>,
+) -> AppResult<Vec<crate::cards::NoteCardRow>> {
+    if doc_ids.len() > crate::cards::MAX_NOTE_CARDS {
+        return Err(AppError::new(format!(
+            "limit_exceeded: at most {} notes per call",
+            crate::cards::MAX_NOTE_CARDS
+        )));
+    }
+    let (_, index) = require_vault_at(&state, expected_epoch)?;
+    let guard = index.lock().unwrap();
+    guard.note_cards(&doc_ids)
+}
+
 #[tauri::command]
 pub async fn resolve_wikilink(
     state: State<'_, AppState>,

@@ -94,6 +94,8 @@ import {
   type FolderViews,
 } from "./lib/tree/folderViews";
 import { followGalleryRename } from "./lib/gallery/open";
+import { NEW_DASHBOARD_NAME, NEW_DASHBOARD_TEMPLATE } from "./lib/dashboard/template";
+import { rememberDashboardView } from "./lib/dashboard/surfacePref";
 import { seedWelcomeContent, vaultIsEmpty, WELCOME_NOTE_PATH } from "./lib/vault/seed";
 import { planLanding } from "./lib/vault/landing";
 import { planTurnOnSync } from "./lib/vault/turnOnSync";
@@ -523,6 +525,12 @@ interface AppStore {
    * where naming happens.
    */
   createNoteIn: (dir: string) => Promise<string | null>;
+  /**
+   * "New dashboard": a note named `Dashboard` / `Dashboard N` holding
+   * `noam_kind: dashboard` and one example view (`lib/dashboard/template.ts`),
+   * opened on its Dashboard surface. Same root-freeze latch as `createNoteIn`.
+   */
+  createDashboardIn: (dir: string) => Promise<string | null>;
   /**
    * "Show me this path in the sidebar." Bumped by `openNoteByPath` and by
    * `createNoteIn`; consumed by an effect in `FileTree`, which is the only place
@@ -2027,6 +2035,29 @@ export const useStore = create<AppStore>((set, get) => ({
         continue; // name taken → try the next one
       }
       return finishNoteCreate(get, path, { edit: true });
+    }
+    return null;
+  },
+
+  createDashboardIn: async (dir) => {
+    if (rootCreateBlocked(get, dir)) return null;
+    const epoch = get().vault?.epoch ?? null;
+    for (let i = 0; i < 50; i++) {
+      const candidate = i === 0 ? NEW_DASHBOARD_NAME : `${NEW_DASHBOARD_NAME} ${i}`;
+      let path: string;
+      try {
+        path = await ipc.createNote(dir, candidate, epoch);
+      } catch {
+        continue; // name taken → try the next one
+      }
+      try {
+        await ipc.writeNote(path, NEW_DASHBOARD_TEMPLATE, epoch);
+      } catch (e) {
+        // The note exists (empty); say so rather than pretend it is a dashboard.
+        toast(`Couldn't write the new dashboard: ${String(e)}`, "error");
+      }
+      rememberDashboardView(path, "dashboard");
+      return finishNoteCreate(get, path);
     }
     return null;
   },

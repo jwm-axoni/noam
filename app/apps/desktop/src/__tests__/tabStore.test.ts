@@ -74,6 +74,7 @@ const ipcMock = vi.hoisted(() => ({
     existing.add(path);
     return path;
   }),
+  writeNote: vi.fn(async () => {}),
 }));
 
 vi.mock("../lib/ipc", () => ipcMock);
@@ -511,6 +512,42 @@ describe("createNoteIn / createNoteAt", () => {
     const path = await useStore.getState().createNoteAt("", "Some New Note");
     expect(path).toBe("Some New Note.md");
     expect(useStore.getState().revealRequest).toMatchObject({ path, edit: false });
+  });
+});
+
+describe("createDashboardIn", () => {
+  it("creates Dashboard, Dashboard 1, … with the dashboard frontmatter and an example view", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    ipcMock.writeNote.mockClear();
+    const first = await useStore.getState().createDashboardIn("Work");
+    const second = await useStore.getState().createDashboardIn("Work");
+    expect(first).toBe("Work/Dashboard.md");
+    expect(second).toBe("Work/Dashboard 1.md");
+
+    const [path, content] = ipcMock.writeNote.mock.calls[0] as unknown as [string, string];
+    expect(path).toBe("Work/Dashboard.md");
+    const { isDashboardDocument, parseDashboard } = await import("../lib/dashboard/parse");
+    expect(isDashboardDocument(content)).toBe(true);
+    const views = parseDashboard(content).views;
+    expect(views).toHaveLength(1);
+    expect(views[0]).toMatchObject({ view: "cards", sort: { key: "modified", direction: "desc" }, issues: [] });
+
+    // Opened, revealed, and on its Dashboard surface.
+    expect(useStore.getState().openNote?.path).toBe(second);
+    expect(useStore.getState().revealRequest).toMatchObject({ path: second });
+    expect(values.get("noam:dashboard-view:Work/Dashboard.md")).toBe("dashboard");
+  });
+
+  it("refuses the vault root while the freeze latch is on", async () => {
+    useStore.setState({ rootFrozen: true });
+    ipcMock.createNote.mockClear();
+    expect(await useStore.getState().createDashboardIn("")).toBeNull();
+    expect(ipcMock.createNote).not.toHaveBeenCalled();
+    useStore.setState({ rootFrozen: false });
   });
 });
 

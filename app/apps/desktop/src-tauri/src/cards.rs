@@ -65,6 +65,56 @@ pub struct CardRow {
     pub first_image: Option<String>,
 }
 
+/// `sha256("")`: the index's hash of a 0-byte (not yet hydrated) note.
+pub const EMPTY_SHA256: &str = "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855";
+
+/// Most notes one `list_note_cards` call answers (a dashboard view shows at
+/// most 200).
+pub const MAX_NOTE_CARDS: usize = 200;
+
+/// One note's card and column data for a dashboard view (`list_note_cards`).
+/// Everything comes from the index; no note is read to build it.
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCardRow {
+    pub doc_id: String,
+    pub path: String,
+    /// The filename stem — the UI's title rule.
+    pub name: String,
+    pub excerpt: Option<String>,
+    pub first_image: Option<String>,
+    /// A 0-byte file: a server-only note that has not hydrated yet.
+    pub empty: bool,
+    /// Scalar property values (one per list member), as display text.
+    pub properties: Vec<NoteCardProperty>,
+    /// Outgoing named relationships; the target is `None` while unresolved.
+    pub relationships: Vec<NoteCardRelationship>,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCardProperty {
+    pub property_id: String,
+    pub text: String,
+}
+
+#[derive(Debug, Serialize, Clone, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct NoteCardRelationship {
+    pub relationship_id: String,
+    pub target_note_id: Option<String>,
+    pub target_path: Option<String>,
+}
+
+/// `3` rather than `3.0` for whole numbers.
+pub fn format_number(value: f64) -> String {
+    if value.fract() == 0.0 && value.abs() < 1e15 {
+        format!("{}", value as i64)
+    } else {
+        value.to_string()
+    }
+}
+
 // ---- Excerpt ---------------------------------------------------------------
 
 static HEADING_RE: Lazy<Regex> = Lazy::new(|| Regex::new(r"^#{1,6}(\s|$)").unwrap());

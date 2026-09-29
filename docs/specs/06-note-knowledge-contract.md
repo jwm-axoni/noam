@@ -108,7 +108,7 @@ The desktop reports the resolved source (`frontmatter`, `server` or `birthtime`)
 
 ### Implementations
 
-The server's MCP `query_knowledge` accepts the query above. The desktop exposes the same `where` and `sort` as the `notes` kind of its `query_knowledge` command (`{ kind: "notes", where, sort }`, items of kind `noteEntry`), plus a bulk `list_note_times` read for list views. Both implementations replay one shared fixture, `app/packages/contracts/fixtures/knowledge-sort-parity.json`, and must produce the same ordered `doc_id`s for every case in it; a contract change updates the fixture and both sides together.
+The server's MCP `query_knowledge` accepts the query above. The desktop exposes the same `where`, `sort` and `traverse` as the `notes` kind of its `query_knowledge` command (`{ kind: "notes", where, sort, traverse? }`, items of kind `noteEntry`; `traverse` walks resolved relationship edges from `fromDocId`, the start excluded, like the server's `traversalCandidates`, and is what a dashboard's `people has [[Paul]]` becomes), plus a bulk `list_note_times` read for list views. Both implementations replay one shared fixture, `app/packages/contracts/fixtures/knowledge-sort-parity.json`, and must produce the same ordered `doc_id`s for every case in it; a contract change updates the fixture and both sides together.
 
 Answer evidence includes `docId`, current relative path, source revision, indexed revision, and bounded source passages. `current-only` returns `stale_index` when the index cannot support current evidence.
 

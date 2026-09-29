@@ -203,7 +203,22 @@ export type LocalKnowledgeQuery =
    * `noteEntry`. Same semantics as the server's `query_knowledge`, pinned by
    * `packages/contracts/fixtures/knowledge-sort-parity.json`.
    */
-  | { kind: "notes"; where?: KnowledgePredicate[]; sort?: KnowledgeSort | null };
+  | {
+      kind: "notes";
+      where?: KnowledgePredicate[];
+      sort?: KnowledgeSort | null;
+      /** Spec 06 `traverse`: only notes reachable from `fromDocId` over named
+       *  relationships (the start excluded). Omitted, not null, when unused. */
+      traverse?: KnowledgeTraverse;
+    };
+
+/** Spec 06 `traverse`. `relationshipIds: []` means any relationship. */
+export interface KnowledgeTraverse {
+  fromDocId: string;
+  relationshipIds: string[];
+  direction: KnowledgeRelationshipDirection;
+  maxDepth: 1 | 2 | 3 | 4;
+}
 
 /** The read-only system properties every note has (epoch ms, UTC). */
 export type KnowledgeSystemPropertyId = "created" | "modified";
@@ -544,6 +559,33 @@ export interface FolderCardNote {
 }
 
 export type FolderCard = FolderCardFolder | FolderCardNote;
+
+/** One note's card + column data for a dashboard view (Rust `cards::NoteCardRow`). */
+export interface NoteCardRow {
+  docId: string;
+  path: string;
+  /** The filename stem — the UI's title rule. */
+  name: string;
+  excerpt: string | null;
+  firstImage: string | null;
+  /** 0-byte file: a server-only note that has not been downloaded yet. */
+  empty: boolean;
+  /** Scalar property values (one entry per list member), as display text. */
+  properties: Array<{ propertyId: string; text: string }>;
+  /** Outgoing named relationships; the target is null while unresolved. */
+  relationships: Array<{
+    relationshipId: string;
+    targetNoteId: string | null;
+    targetPath: string | null;
+  }>;
+}
+
+/** Most doc ids one {@link listNoteCards} call takes (Rust `MAX_NOTE_CARDS`). */
+export const MAX_NOTE_CARDS = 200;
+
+/** Card + column data for these notes, in order, from the index alone (unknown ids skipped). */
+export const listNoteCards = (docIds: string[], expectedEpoch?: VaultEpoch) =>
+  invoke<NoteCardRow[]>("list_note_cards", { docIds, expectedEpoch: expectedEpoch ?? null });
 
 /** One folder's direct children as gallery cards; `null` when the folder is gone. */
 export const listFolderCards = (folder: string, expectedEpoch?: VaultEpoch) =>

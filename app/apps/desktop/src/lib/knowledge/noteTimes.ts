@@ -3,6 +3,7 @@ import { SYSTEM_PROPERTY_IDS, type SystemPropertyId } from "./types";
 import type {
   KnowledgePredicate,
   KnowledgeSort,
+  KnowledgeTraverse,
   LocalKnowledgeItem,
   NoteTimes,
   VaultEpoch,
@@ -15,7 +16,7 @@ import type {
  * files in TS. Semantics: docs/specs/06-note-knowledge-contract.md.
  */
 
-export type { KnowledgePredicate, KnowledgeSort, NoteTimes } from "../ipc";
+export type { KnowledgePredicate, KnowledgeSort, KnowledgeTraverse, NoteTimes } from "../ipc";
 
 export { SYSTEM_PROPERTY_IDS } from "./types";
 
@@ -58,11 +59,21 @@ export interface NotesPage {
  * query that minted it; anything else is refused with `cursor_expired`.
  */
 export async function queryNotes(
-  query: { where?: KnowledgePredicate[]; sort?: KnowledgeSort | null } = {},
+  query: {
+    where?: KnowledgePredicate[];
+    sort?: KnowledgeSort | null;
+    /** Spec 06 `traverse` (relationship filters). Left off the wire when unset. */
+    traverse?: KnowledgeTraverse | null;
+  } = {},
   page: { limit?: number; cursor?: string | null } = {},
 ): Promise<NotesPage> {
   const result = await ipc.queryKnowledge(
-    { kind: "notes", where: query.where ?? [], sort: query.sort ?? null },
+    {
+      kind: "notes",
+      where: query.where ?? [],
+      sort: query.sort ?? null,
+      ...(query.traverse ? { traverse: query.traverse } : {}),
+    },
     page,
   );
   return {

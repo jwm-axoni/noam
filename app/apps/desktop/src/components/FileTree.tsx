@@ -2408,6 +2408,13 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
           <li
             className={menuCreateBlocked ? "disabled" : undefined}
             title={menuCreateBlocked ? ROOT_FROZEN_HINT : undefined}
+            onClick={() => void useStore.getState().createDashboardIn(menuDir)}
+          >
+            New dashboard
+          </li>
+          <li
+            className={menuCreateBlocked ? "disabled" : undefined}
+            title={menuCreateBlocked ? ROOT_FROZEN_HINT : undefined}
             onClick={() => createUniqueFolder(menuDir)}
           >
             New folder

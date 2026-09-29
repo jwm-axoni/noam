@@ -7,9 +7,7 @@
 // folder through `sortTree` + `applyOrder`), so the two views always agree.
 
 import {
-  createContext,
   useCallback,
-  useContext,
   useEffect,
   useMemo,
   useRef,
@@ -19,22 +17,17 @@ import {
 import type { PanelBodyProps } from "../../layout/panelRegistry";
 import { useLayoutStore } from "../../layout/store";
 import * as ipc from "../../lib/ipc";
-import type { FolderCard, FolderCardNote } from "../../lib/ipc";
-import { resolveVaultAsset } from "../../lib/fileTypes/assetResolver";
-import { breadcrumbs, fullDate, nextCardIndex, orderCards, relativeDate } from "../../lib/gallery/cards";
+import type { FolderCard } from "../../lib/ipc";
+import { breadcrumbs, nextCardIndex, orderCards } from "../../lib/gallery/cards";
 import { retargetGallery } from "../../lib/gallery/open";
 import { galleryFolder } from "../../lib/gallery/panelState";
 import { treeSortLabel } from "../../lib/tree/sort";
 import { useStore } from "../../store";
+import { NearViewport, NoteCardFace, useNearViewportObserver } from "./NoteCard";
 import "./gallery.css";
 
 /** Batched watcher events settle for this long before the grid re-reads. */
 const REFRESH_DEBOUNCE_MS = 250;
-/** Start loading a thumbnail this far before it scrolls into view. */
-const THUMB_ROOT_MARGIN = "400px 0px";
-
-type Observe = (el: Element, onNear: () => void) => () => void;
-const NearViewport = createContext<Observe | null>(null);
 
 /** Does a watcher change touch what this gallery shows? */
 function touches(folder: string, path: string): boolean {
@@ -125,38 +118,7 @@ export function GalleryPanel({ instanceId, vaultEpoch, visible, onOpenNote, onRe
   // One IntersectionObserver per panel, rooted at the scroller, so a folder of
   // hundreds of notes only decodes the thumbnails near the viewport.
   const scroller = useRef<HTMLDivElement | null>(null);
-  const [observe, setObserve] = useState<Observe | null>(null);
-  useEffect(() => {
-    const root = scroller.current;
-    if (!root || typeof IntersectionObserver === "undefined") {
-      setObserve(() => (_el: Element, onNear: () => void) => {
-        onNear();
-        return () => {};
-      });
-      return;
-    }
-    const waiting = new Map<Element, () => void>();
-    const io = new IntersectionObserver(
-      (entries) => {
-        for (const entry of entries) {
-          if (!entry.isIntersecting) continue;
-          waiting.get(entry.target)?.();
-          waiting.delete(entry.target);
-          io.unobserve(entry.target);
-        }
-      },
-      { root, rootMargin: THUMB_ROOT_MARGIN },
-    );
-    setObserve(() => (el: Element, onNear: () => void) => {
-      waiting.set(el, onNear);
-      io.observe(el);
-      return () => {
-        waiting.delete(el);
-        io.unobserve(el);
-      };
-    });
-    return () => io.disconnect();
-  }, []);
+  const observe = useNearViewportObserver(scroller);
 
   // Roving focus across the grid.
   const grid = useRef<HTMLDivElement | null>(null);
@@ -268,7 +230,7 @@ export function GalleryPanel({ instanceId, vaultEpoch, visible, onOpenNote, onRe
                     {card.kind === "folder" ? (
                       <FolderFace name={card.name} count={card.noteCount} />
                     ) : (
-                      <NoteFace card={card} vaultPath={vaultPath} />
+                      <NoteCardFace card={card} vaultPath={vaultPath} />
                     )}
                   </button>
                 </div>
@@ -293,53 +255,6 @@ function FolderFace({ name, count }: { name: string; count: number }) {
       <span className="gallery-card-meta">
         <span className="gallery-card-title">{name}</span>
         <span className="gallery-card-sub">{count === 1 ? "1 note" : `${count} notes`}</span>
-      </span>
-    </>
-  );
-}
-
-function NoteFace({ card, vaultPath }: { card: FolderCardNote; vaultPath: string | null }) {
-  const observe = useContext(NearViewport);
-  const thumbRef = useRef<HTMLSpanElement | null>(null);
-  const [near, setNear] = useState(false);
-  const [broken, setBroken] = useState(false);
-  useEffect(() => {
-    if (!card.firstImage || near) return;
-    const el = thumbRef.current;
-    if (!el || !observe) return;
-    return observe(el, () => setNear(true));
-  }, [card.firstImage, near, observe]);
-  useEffect(() => setBroken(false), [card.firstImage]);
-
-  const src = card.firstImage && near && !broken && vaultPath
-    ? resolveVaultAsset({ vaultPath, documentPath: "", source: card.firstImage, sourceKind: "path" })
-    : null;
-  const now = Date.now();
-
-  let thumb;
-  if (card.empty) {
-    thumb = <span className="gallery-placeholder">Not downloaded yet</span>;
-  } else if (card.firstImage && !broken) {
-    // Blank until the card nears the viewport; a failed load falls back to text.
-    thumb = src
-      ? <img src={src} alt="" loading="lazy" decoding="async" draggable={false} onError={() => setBroken(true)} />
-      : null;
-  } else if (card.excerpt) {
-    thumb = <span className="gallery-excerpt">{card.excerpt}</span>;
-  } else {
-    thumb = <span className="gallery-placeholder">Empty note</span>;
-  }
-
-  return (
-    <>
-      <span className="gallery-thumb" ref={thumbRef}>{thumb}</span>
-      <span className="gallery-card-meta">
-        <span className="gallery-card-title">{card.name}</span>
-        {card.modified > 0 && (
-          <span className="gallery-card-sub" title={fullDate(card.modified)}>
-            {relativeDate(card.modified, now)}
-          </span>
-        )}
       </span>
     </>
   );

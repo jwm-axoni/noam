@@ -61,6 +61,7 @@ import {
   refreshTasks,
 } from "./components/tasks/service";
 import { BoardSurface } from "./components/board/BoardSurface";
+import { DashboardSurface } from "./components/dashboard/DashboardSurface";
 import { requestWorkflowRun, WorkflowRunHost } from "./components/workflows/runWorkflow";
 import { currentEditorContext } from "./components/workflows/editorContext";
 import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
@@ -1361,23 +1362,27 @@ export default function App() {
           <div className="editor-wrap">
             {openNote ? (
               <BoardSurface path={openNote.path}>
-                <Suspense
-                  fallback={
-                    // The column the editor will use, not the default one:
-                    // without this the bars sat at 88ch and jumped sideways when
-                    // the real note landed. (The other half of that match is the
-                    // skeleton's own font-size — `--editor-measure` is a `ch`
-                    // length, so it resolves against whatever font the element
-                    // using it has; see `components/editor.css`.)
-                    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
-                      <div className="editor-host-wrap" />
-                      <StatusBar stats={null} />
-                      <EditorSkeleton />
-                    </div>
-                  }
-                >
-                  <Editor />
-                </Suspense>
+                {/* A note is a board OR a dashboard OR text: the board wins
+                    first, then the dashboard, else the editor. */}
+                <DashboardSurface path={openNote.path}>
+                  <Suspense
+                    fallback={
+                      // The column the editor will use, not the default one:
+                      // without this the bars sat at 88ch and jumped sideways when
+                      // the real note landed. (The other half of that match is the
+                      // skeleton's own font-size — `--editor-measure` is a `ch`
+                      // length, so it resolves against whatever font the element
+                      // using it has; see `components/editor.css`.)
+                      <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
+                        <div className="editor-host-wrap" />
+                        <StatusBar stats={null} />
+                        <EditorSkeleton />
+                      </div>
+                    }
+                  >
+                    <Editor />
+                  </Suspense>
+                </DashboardSurface>
               </BoardSurface>
             ) : (
               <EditorEmpty />
