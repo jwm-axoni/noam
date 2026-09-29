@@ -1,6 +1,14 @@
 import { describe, expect, it } from "vitest";
 import type { TreeNode } from "../../ipc";
-import { isTimeSort, parseTreeSort, pinModified, sortTree, TREE_SORTS } from "../sort";
+import {
+  isCreatedSort,
+  isLiveSort,
+  parseTreeSort,
+  pinModified,
+  sortTree,
+  TREE_SORTS,
+  usesCreatedSort,
+} from "../sort";
 import { applyOrder } from "../../ordering";
 
 const dir = (name: string, modified: number, children: TreeNode[] = []): TreeNode => ({
@@ -208,17 +216,42 @@ describe("sort ids", () => {
   });
 
   it("rejects anything it doesn't offer", () => {
-    expect(parseTreeSort("created-desc")).toBeNull();
+    expect(parseTreeSort("created")).toBeNull();
     expect(parseTreeSort(null)).toBeNull();
     expect(parseTreeSort(3)).toBeNull();
   });
 
-  it("offers the four modes, and marks exactly the modified ones as time sorts", () => {
-    expect(TREE_SORTS.map((s) => s.id)).toEqual(["name", "name-desc", "recent", "modified-asc"]);
-    expect(TREE_SORTS.filter((s) => isTimeSort(s.id)).map((s) => s.id)).toEqual([
+  it("offers the six modes, and marks exactly the modified ones as live", () => {
+    expect(TREE_SORTS.map((s) => s.id)).toEqual([
+      "name",
+      "name-desc",
+      "recent",
+      "modified-asc",
+      "created-desc",
+      "created-asc",
+    ]);
+    // Created is a time sort but NOT live: an edit never moves it, so the
+    // sidebar has no reason to pin the order while the pointer is over it.
+    expect(TREE_SORTS.filter((s) => isLiveSort(s.id)).map((s) => s.id)).toEqual([
       "recent",
       "modified-asc",
     ]);
+    expect(TREE_SORTS.filter((s) => isCreatedSort(s.id)).map((s) => s.id)).toEqual([
+      "created-desc",
+      "created-asc",
+    ]);
+  });
+
+  it("round-trips the Created ids", () => {
+    expect(parseTreeSort("created-desc")).toBe("created-desc");
+    expect(parseTreeSort("created-asc")).toBe("created-asc");
+  });
+
+  it("usesCreatedSort looks at the default AND every folder override", () => {
+    expect(usesCreatedSort("recent", {})).toBe(false);
+    expect(usesCreatedSort("name", { Work: "modified-asc" })).toBe(false);
+    expect(usesCreatedSort("created-asc", {})).toBe(true);
+    expect(usesCreatedSort("name", { "Work/Sub": "created-desc" })).toBe(true);
   });
 });
 
@@ -320,5 +353,122 @@ describe("pinModified", () => {
     const level = [dir("Work", 1, [file("Work/x.md", 1)]), file("a.md", 2)];
     pinModified(level, pins);
     expect(pinModified(level, pins)).toBe(level);
+  });
+});
+
+describe("sortTree — Created modes", () => {
+  // The mtimes run OPPOSITE to the created dates, so a mode that read the wrong
+  // key would visibly fail.
+  const level = () => [
+    file("b.md", 1),
+    dir("beta", 5),
+    file("A.md", 3),
+    dir("Alpha", 900),
+    file("c.md", 2),
+  ];
+  const created = new Map([
+    ["b.md", 200],
+    ["A.md", 100],
+    ["c.md", 300],
+    // A folder path in the map must not move folders: they stay A–Z.
+    ["beta", 1],
+    ["Alpha", 999],
+  ]);
+
+  it("Created, newest first: files by created descending, folders A–Z", () => {
+    expect(names(sortTree(level(), "created-desc", {}, { created }))).toEqual([
+      "Alpha",
+      "beta",
+      "c.md",
+      "b.md",
+      "A.md",
+    ]);
+  });
+
+  it("Created, oldest first: files by created ascending, folders A–Z", () => {
+    expect(names(sortTree(level(), "created-asc", {}, { created }))).toEqual([
+      "Alpha",
+      "beta",
+      "A.md",
+      "b.md",
+      "c.md",
+    ]);
+  });
+
+  it("puts notes with no created date last in BOTH directions, A–Z among themselves", () => {
+    const nodes = [file("z-new.md", 1), file("old.md", 1), file("a-new.md", 1), file("mid.md", 1)];
+    const partial = new Map([
+      ["old.md", 10],
+      ["mid.md", 20],
+    ]);
+    expect(names(sortTree(nodes, "created-desc", {}, { created: partial }))).toEqual([
+      "mid.md",
+      "old.md",
+      "a-new.md",
+      "z-new.md",
+    ]);
+    expect(names(sortTree(nodes, "created-asc", {}, { created: partial }))).toEqual([
+      "old.md",
+      "mid.md",
+      "a-new.md",
+      "z-new.md",
+    ]);
+  });
+
+  it("keeps a pre-1970 created date (a negative ms value is a date, not 'unknown')", () => {
+    const nodes = [file("modern.md", 1), file("ancient.md", 1)];
+    const times = new Map([
+      ["modern.md", 1_700_000_000_000],
+      ["ancient.md", -86_400_000],
+    ]);
+    expect(names(sortTree(nodes, "created-asc", {}, { created: times }))).toEqual([
+      "ancient.md",
+      "modern.md",
+    ]);
+  });
+
+  it("breaks created ties by the name collator, in both directions", () => {
+    const nodes = [file("note 10.md", 1), file("note 9.md", 1), file("B.md", 1)];
+    const tied = new Map([
+      ["note 10.md", 5],
+      ["note 9.md", 5],
+      ["B.md", 5],
+    ]);
+    for (const mode of ["created-desc", "created-asc"] as const) {
+      expect(names(sortTree(nodes, mode, {}, { created: tied }))).toEqual([
+        "B.md",
+        "note 9.md",
+        "note 10.md",
+      ]);
+    }
+  });
+
+  it("without a created map every file is unknown, so it degrades to A–Z", () => {
+    expect(names(sortTree(level(), "created-desc"))).toEqual([
+      "Alpha",
+      "beta",
+      "A.md",
+      "b.md",
+      "c.md",
+    ]);
+  });
+
+  it("reads created by full path inside folders, and works as a folder override", () => {
+    const tree = [
+      dir("Work", 1, [file("Work/a.md", 99), file("Work/z.md", 1)]),
+      file("a.md", 99),
+      file("z.md", 1),
+    ];
+    const times = new Map([
+      ["Work/a.md", 1],
+      ["Work/z.md", 2],
+      ["a.md", 1],
+      ["z.md", 2],
+    ]);
+    const out = sortTree(tree, "recent", { Work: "created-desc" }, { created: times });
+    // Work follows its override (created, newest first)…
+    expect(names(out[0].children!)).toEqual(["z.md", "a.md"]);
+    // …the root keeps the global default (modified, newest first).
+    expect(names(out)).toEqual(["Work", "a.md", "z.md"]);
   });
 });

@@ -74,7 +74,9 @@ import {
 } from "./lib/prefs";
 import type { PropertiesMode } from "./lib/editor/frontmatter";
 import type { ViewMode } from "./lib/editor/viewMode";
-import type { FolderSorts, TreeSort } from "./lib/tree/sort";
+import { usesCreatedSort, type FolderSorts, type TreeSort } from "./lib/tree/sort";
+import { createCreatedTimesLoader, createdByPath } from "./lib/tree/createdTimes";
+import { getNoteTimes } from "./lib/knowledge/noteTimes";
 import {
   dropFolderSorts,
   readFolderSorts,
@@ -446,6 +448,10 @@ interface AppStore {
   /** Per-folder overrides of `treeSort` for one folder's direct children
    *  (vault-local, device-local). Path-keyed — see `lib/tree/folderSorts`. */
   folderSorts: FolderSorts;
+  /** Note path → created (epoch ms), for the Created sorts. `null` unless one
+   *  of `treeSort`/`folderSorts` is a Created mode — a vault that never sorts
+   *  by created never pays the read. See `lib/tree/createdTimes`. */
+  createdTimes: ReadonlyMap<string, number> | null;
   /** Set briefly when a teammate joins the vault, to drive the celebration
    *  banner + confetti. `at` changes each time so a repeat join re-triggers it. */
   memberJoined: { name: string; at: number } | null;
@@ -468,6 +474,8 @@ interface AppStore {
    * every expanded folder are re-listed.
    */
   refreshTree: (folders?: ReadonlySet<string>) => Promise<void>;
+  /** Re-read `createdTimes` if a Created sort is active (else clear it). */
+  refreshCreatedTimes: () => Promise<void>;
   /** Lazily load one folder's immediate children into the sidebar tree. */
   loadChildren: (path: string) => Promise<void>;
   refreshTitles: () => Promise<void>;
@@ -1341,6 +1349,18 @@ function enterVaultScope(info: ipc.VaultInfo, orgId: string | null): void {
 }
 
 /**
+ * The sidebar's Created-sort read (`lib/tree/createdTimes`): one vault-wide
+ * `getNoteTimes`, tagged with the epoch it was pinned to so the caller can
+ * drop an answer for a vault it has left. Never called unless a Created sort
+ * is active; concurrent refreshes coalesce inside the loader.
+ */
+const createdLoader = createCreatedTimesLoader(async () => {
+  const epoch = useStore.getState().vault?.epoch;
+  const { byPath } = await getNoteTimes({}, epoch);
+  return { epoch, created: createdByPath(byPath) };
+});
+
+/**
  * Is `epoch` still the open vault? Every `set()` that happens after an await in
  * a vault/sync path must be guarded on this, or a slow operation for vault A
  * lands its results (tree, titles, syncEnabled) on vault B's view state.
@@ -1525,6 +1545,7 @@ export const useStore = create<AppStore>((set, get) => ({
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
   folderSorts: {},
+  createdTimes: null,
   memberJoined: null,
 
   setVault: (v) => {
@@ -1545,7 +1566,9 @@ export const useStore = create<AppStore>((set, get) => ({
       itemColors: readItemColors(v?.path),
       itemOrder: readItemOrder(v?.path),
       folderSorts: readFolderSorts(v?.path),
-      ...(switched ? { openFolderIsSynced: null } : {}),
+      // Another vault's created dates would sort this one by the wrong keys;
+      // the tree refresh that follows a switch re-reads them.
+      ...(switched ? { openFolderIsSynced: null, createdTimes: null } : {}),
     });
     // Answer "does THIS folder sync?" for the open gate (see `probeFolderSync`).
     if (switched && v) probeFolderSync(get, set, v.path);
@@ -1608,6 +1631,7 @@ export const useStore = create<AppStore>((set, get) => ({
     // vault — it's a device preference.
     writeTreeSort(sort);
     set({ treeSort: sort });
+    void get().refreshCreatedTimes();
   },
 
   setFolderSort: (folderPath, sort) => {
@@ -1617,6 +1641,30 @@ export const useStore = create<AppStore>((set, get) => ({
     if (next === get().folderSorts) return;
     writeFolderSorts(vault.path, next);
     set({ folderSorts: next });
+    void get().refreshCreatedTimes();
+  },
+
+  refreshCreatedTimes: async () => {
+    const { treeSort, folderSorts } = get();
+    let read: { epoch: ipc.VaultEpoch; created: Map<string, number> } | null;
+    try {
+      read = await createdLoader.load(treeSort, folderSorts);
+    } catch (e) {
+      if (ipc.isVaultMismatch(e)) return; // the vault moved on (see refreshTree)
+      // Best effort: a failed read leaves the last map (or none — every file
+      // then sorts as undated, i.e. A–Z) until the next tree refresh retries.
+      console.warn("[tree] could not read created times", e);
+      return;
+    }
+    if (read === null) {
+      if (get().createdTimes !== null) set({ createdTimes: null });
+      return;
+    }
+    // Stale answers: a vault switch mid-read, or the user left the Created
+    // sorts while it ran.
+    if (!sameVault(get, read.epoch)) return;
+    if (!usesCreatedSort(get().treeSort, get().folderSorts)) return;
+    set({ createdTimes: read.created });
   },
 
   refreshTree: async (folders) => {
@@ -1656,6 +1704,7 @@ export const useStore = create<AppStore>((set, get) => ({
         next = setChildrenAt(next, dir, merged);
       }
       set({ tree: next });
+      void get().refreshCreatedTimes();
       return;
     }
     // Which folders were already expanded/listed. This refresh runs on every
@@ -1711,6 +1760,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     set({ tree: next });
+    // After the listing, not before: a note that just appeared must be in the
+    // index the created read sees. A no-op unless a Created sort is active.
+    void get().refreshCreatedTimes();
   },
 
   loadChildren: async (path) => {
@@ -2637,6 +2689,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemColors: readItemColors(undefined),
       itemOrder: readItemOrder(undefined),
       folderSorts: readFolderSorts(undefined),
+      createdTimes: null,
     });
     // Welcome is now the state a reload should restore (same rule as
     // closeLocalVault) — don't let the launch reopen undo the sign-out landing.
@@ -3479,6 +3532,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemColors: readItemColors(info.path),
       itemOrder: readItemOrder(info.path),
       folderSorts: readFolderSorts(info.path),
+      createdTimes: null,
       pendingVaultFolder: null,
     });
     probeFolderSync(get, set, info.path);
@@ -3588,6 +3642,7 @@ export const useStore = create<AppStore>((set, get) => ({
       itemColors: readItemColors(v.path),
       itemOrder: readItemOrder(v.path),
       folderSorts: readFolderSorts(v.path),
+      createdTimes: null,
       pendingVaultFolder: null,
     });
     rememberOrgVault(orgId, v.path);

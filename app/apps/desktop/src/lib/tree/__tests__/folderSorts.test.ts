@@ -61,10 +61,10 @@ describe("folder sort storage", () => {
 
   it("drops values that are not sorts we offer, and survives garbage", () => {
     stubStorage({
-      "context.folderSorts:/v": JSON.stringify({ A: "name", B: "created-desc", C: 7 }),
+      "context.folderSorts:/v": JSON.stringify({ A: "name", B: "created", C: 7, D: "created-asc" }),
       "context.folderSorts:/broken": "{not json",
     });
-    expect(readFolderSorts("/v")).toEqual({ A: "name" });
+    expect(readFolderSorts("/v")).toEqual({ A: "name", D: "created-asc" });
     expect(readFolderSorts("/broken")).toEqual({});
   });
 });

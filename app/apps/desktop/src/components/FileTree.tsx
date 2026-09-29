@@ -30,7 +30,7 @@ import {
   renameInOrder,
 } from "../lib/ordering";
 import {
-  isTimeSort,
+  isLiveSort,
   pinModified,
   sortTree,
   TREE_SORTS,
@@ -321,6 +321,8 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
   const itemOrder = useStore((s) => s.itemOrder);
   const treeSort = useStore((s) => s.treeSort);
   const folderSorts = useStore((s) => s.folderSorts);
+  // Only populated while a Created sort is active (store: `refreshCreatedTimes`).
+  const createdTimes = useStore((s) => s.createdTimes);
   const docSyncState = useStore((s) => s.docSyncState);
   const docIdByPath = useStore((s) => s.docIdByPath);
   const titles = useStore((s) => s.titles);
@@ -473,16 +475,17 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
   // rows keep the mtime they were first seen with while either
   //   • the pointer is inside the sidebar (someone is aiming at a row), or
   //   • a bulk run is in flight (nothing is stable enough to be worth showing),
-  // and the true order is restored the moment both clear. Only the time modes
-  // need it — globally or in any one folder's override; the name modes have no
-  // live sort key.
+  // and the true order is restored the moment both clear. Only the Modified
+  // modes need it — globally or in any one folder's override; the name modes
+  // have no live sort key, and neither do the Created modes (an edit never
+  // moves a created date, so a sync wave cannot reshuffle them).
   const [pointerInTree, setPointerInTree] = useState(false);
   const syncBusy = useStore((s) => isBulkPhase(s.syncProgress?.phase));
-  const anyTimeSort = useMemo(
-    () => isTimeSort(treeSort) || Object.values(folderSorts).some(isTimeSort),
+  const anyLiveSort = useMemo(
+    () => isLiveSort(treeSort) || Object.values(folderSorts).some(isLiveSort),
     [treeSort, folderSorts],
   );
-  const orderPinned = anyTimeSort && (pointerInTree || syncBusy);
+  const orderPinned = anyLiveSort && (pointerInTree || syncBusy);
   const pinnedMtimes = useRef(new Map<string, number>());
   // Safety net for a pin that never got its `pointerleave` — the window losing
   // focus with the cursor still over the tree (cmd-tab, a dialog stealing it).
@@ -562,16 +565,26 @@ export function FileTree({ visible = true }: { visible?: boolean }) {
       tree?.children ?? [],
       showMetadata ? new Set<string>() : hiddenCompanions,
     );
+    const ctx = { created: createdTimes ?? undefined };
     if (!orderPinned) {
       pinnedMtimes.current.clear();
-      return applyOrder(sortTree(level, treeSort, folderSorts), "", itemOrder);
+      return applyOrder(sortTree(level, treeSort, folderSorts, ctx), "", itemOrder);
     }
     return applyOrder(
-      sortTree(pinModified(level, pinnedMtimes.current), treeSort, folderSorts),
+      sortTree(pinModified(level, pinnedMtimes.current), treeSort, folderSorts, ctx),
       "",
       itemOrder,
     );
-  }, [tree, itemOrder, treeSort, folderSorts, orderPinned, hiddenCompanions, showMetadata]);
+  }, [
+    tree,
+    itemOrder,
+    treeSort,
+    folderSorts,
+    createdTimes,
+    orderPinned,
+    hiddenCompanions,
+    showMetadata,
+  ]);
 
   // Flatten the (arranged) tree so bulk actions can resolve any path — even a
   // collapsed one — to its node, and so "Select all" knows every path.
