@@ -41,8 +41,11 @@ import { prefetchAfterPaint } from "./lib/prefetch";
 import { revealWindowOnce } from "./lib/windowReveal";
 import type { ViewMode } from "./lib/editor/viewMode";
 import { createViewModeShortcutHandler } from "./lib/editor/viewModeShortcut";
+import { openNoteFindFrom, routeFindShortcut } from "./lib/editor/findShortcut";
 import { matchGlobalShortcut } from "./lib/globalShortcuts";
 import { platformClass } from "./lib/platform";
+import { appKeepsKey, isTerminalTarget, matchTerminalShortcut } from "./lib/terminal/keys";
+import { newTerminal, toggleTerminal } from "./lib/terminal/open";
 import { setSlashWorkflowSource } from "./lib/editor/slash";
 import {
   batchTouchesWorkflows,
@@ -58,6 +61,7 @@ import {
   refreshTasks,
 } from "./components/tasks/service";
 import { BoardSurface } from "./components/board/BoardSurface";
+import { DashboardSurface } from "./components/dashboard/DashboardSurface";
 import { requestWorkflowRun, WorkflowRunHost } from "./components/workflows/runWorkflow";
 import { currentEditorContext } from "./components/workflows/editorContext";
 import { allowsShortcutTarget, findShortcutWorkflow } from "./components/workflows/shortcuts";
@@ -1107,6 +1111,16 @@ export default function App() {
     });
 
     const onKey = async (e: KeyboardEvent) => {
+      // A focused terminal owns the keyboard: vim and coding agents rely on
+      // Ctrl+F/R/W/N and friends. The app keeps only what `appKeepsKey` lists.
+      if (isTerminalTarget(e.target) && !appKeepsKey(e, platformClass() === "macos")) return;
+      const terminalShortcut = matchTerminalShortcut(e);
+      if (terminalShortcut) {
+        e.preventDefault();
+        if (terminalShortcut === "new-terminal") newTerminal();
+        else toggleTerminal(e.target);
+        return;
+      }
       const globalShortcut = matchGlobalShortcut(e);
       if (globalShortcut === "action-picker") {
         e.preventDefault();
@@ -1185,7 +1199,14 @@ export default function App() {
           void useStore.getState().openNoteByPath(path);
         }
       }
-      if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "f") {
+      const findRoute = routeFindShortcut(e, e.target);
+      if (findRoute === "note") {
+        // The note's find bubble. CodeMirror's keymap normally took the key
+        // already (and prevented it); otherwise focus is in a header widget.
+        if (!e.defaultPrevented && openNoteFindFrom(e.target)) e.preventDefault();
+        return;
+      }
+      if (findRoute === "vault") {
         e.preventDefault();
         const layout = useLayoutStore.getState().layout;
         const found = findPanelTab(layout, "search");
@@ -1341,23 +1362,27 @@ export default function App() {
           <div className="editor-wrap">
             {openNote ? (
               <BoardSurface path={openNote.path}>
-                <Suspense
-                  fallback={
-                    // The column the editor will use, not the default one:
-                    // without this the bars sat at 88ch and jumped sideways when
-                    // the real note landed. (The other half of that match is the
-                    // skeleton's own font-size — `--editor-measure` is a `ch`
-                    // length, so it resolves against whatever font the element
-                    // using it has; see `components/editor.css`.)
-                    <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
-                      <div className="editor-host-wrap" />
-                      <StatusBar stats={null} />
-                      <EditorSkeleton />
-                    </div>
-                  }
-                >
-                  <Editor />
-                </Suspense>
+                {/* A note is a board OR a dashboard OR text: the board wins
+                    first, then the dashboard, else the editor. */}
+                <DashboardSurface path={openNote.path}>
+                  <Suspense
+                    fallback={
+                      // The column the editor will use, not the default one:
+                      // without this the bars sat at 88ch and jumped sideways when
+                      // the real note landed. (The other half of that match is the
+                      // skeleton's own font-size — `--editor-measure` is a `ch`
+                      // length, so it resolves against whatever font the element
+                      // using it has; see `components/editor.css`.)
+                      <div className="editor-column" style={editorMeasureStyle(editorMeasure, editorFontSize)}>
+                        <div className="editor-host-wrap" />
+                        <StatusBar stats={null} />
+                        <EditorSkeleton />
+                      </div>
+                    }
+                  >
+                    <Editor />
+                  </Suspense>
+                </DashboardSurface>
               </BoardSurface>
             ) : (
               <EditorEmpty />

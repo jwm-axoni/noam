@@ -3,7 +3,7 @@
 // `@tauri-apps/api` directly. This keeps later phases (a Yjs sync layer) able to
 // swap the transport without hunting invoke() calls across components.
 
-import { invoke } from "@tauri-apps/api/core";
+import { Channel, invoke } from "@tauri-apps/api/core";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openPath, openUrl, revealItemInDir } from "@tauri-apps/plugin-opener";
 import { decodeStateVectors, decodeYjsState, frame, type YjsState } from "./ipcCodec";
@@ -197,7 +197,68 @@ export type LocalKnowledgeQuery =
       normalizedValue: string;
     }
   | { kind: "labelled"; labelId: string; propertyId?: string | null }
-  | { kind: "indexState"; noteId: string };
+  | { kind: "indexState"; noteId: string }
+  /**
+   * Notes filtered by `where` and ordered by `sort` (spec 06). Items are
+   * `noteEntry`. Same semantics as the server's `query_knowledge`, pinned by
+   * `packages/contracts/fixtures/knowledge-sort-parity.json`.
+   */
+  | {
+      kind: "notes";
+      where?: KnowledgePredicate[];
+      sort?: KnowledgeSort | null;
+      /** Spec 06 `traverse`: only notes reachable from `fromDocId` over named
+       *  relationships (the start excluded). Omitted, not null, when unused. */
+      traverse?: KnowledgeTraverse;
+    };
+
+/** Spec 06 `traverse`. `relationshipIds: []` means any relationship. */
+export interface KnowledgeTraverse {
+  fromDocId: string;
+  relationshipIds: string[];
+  direction: KnowledgeRelationshipDirection;
+  maxDepth: 1 | 2 | 3 | 4;
+}
+
+/** The read-only system properties every note has (epoch ms, UTC). */
+export type KnowledgeSystemPropertyId = "created" | "modified";
+
+/**
+ * One `where` clause. `created`/`modified` accept eq/lt/lte/gt/gte against an
+ * ISO date (the whole UTC day), an ISO datetime, or epoch milliseconds.
+ */
+export interface KnowledgePredicate {
+  propertyId: string;
+  op: "eq" | "contains" | "lt" | "lte" | "gt" | "gte";
+  value: string | number | boolean;
+}
+
+/**
+ * Result order. Ties break by doc id ascending; a note with no sortable value
+ * for the key sorts LAST in both directions. Text compares ASCII-case-
+ * insensitively; numbers < booleans < text when a property mixes types.
+ */
+export interface KnowledgeSort {
+  key: "name" | "created" | "modified" | { propertyId: string };
+  direction: "asc" | "desc";
+}
+
+/** Where a note's `created` came from, in resolution order. */
+export type CreatedSource = "frontmatter" | "server" | "birthtime";
+
+/** One note's system properties (see `listNoteTimes`). */
+export interface NoteTimes {
+  noteId: string;
+  path: string;
+  /** Filename stem, the `name` sort key. */
+  name: string;
+  /** Epoch ms: frontmatter `created:` → server `notes.created_at` → file birthtime. */
+  created: number | null;
+  createdSource: CreatedSource | null;
+  /** Epoch ms of the file mtime. A freshly synced device's mtimes are when
+   *  the notes arrived there, not when anyone edited them. */
+  modified: number | null;
+}
 
 export type LocalKnowledgeItem =
   | {
@@ -243,6 +304,7 @@ export type LocalKnowledgeItem =
       ordinal: number;
     }
   | { kind: "note"; noteId: string; path: string }
+  | ({ kind: "noteEntry" } & NoteTimes)
   | {
       kind: "indexState";
       noteId: string;
@@ -470,6 +532,64 @@ export const listTree = (expectedEpoch?: VaultEpoch) =>
 /** Lazy sidebar loading: immediate children of one dir ("" = root). */
 export const listChildren = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<TreeNode[]>("list_children", { path, expectedEpoch: expectedEpoch ?? null });
+/** A subfolder card in a folder gallery (Rust `cards::FolderCard::Folder`). */
+export interface FolderCardFolder {
+  kind: "folder";
+  path: string;
+  name: string;
+  /** Notes anywhere under the folder, from the index. */
+  noteCount: number;
+}
+
+/** A note card in a folder gallery (Rust `cards::FolderCard::Note`). */
+export interface FolderCardNote {
+  kind: "note";
+  path: string;
+  /** The filename stem — the UI's title rule. */
+  name: string;
+  docId: string | null;
+  /** First meaningful paragraph as plain text, derived at index time. */
+  excerpt: string | null;
+  /** Vault-relative path of the first embedded image, derived at index time. */
+  firstImage: string | null;
+  /** mtime in epoch millis; 0 when unknown. */
+  modified: number;
+  /** 0-byte file: a server-only note that has not been downloaded yet. */
+  empty: boolean;
+}
+
+export type FolderCard = FolderCardFolder | FolderCardNote;
+
+/** One note's card + column data for a dashboard view (Rust `cards::NoteCardRow`). */
+export interface NoteCardRow {
+  docId: string;
+  path: string;
+  /** The filename stem — the UI's title rule. */
+  name: string;
+  excerpt: string | null;
+  firstImage: string | null;
+  /** 0-byte file: a server-only note that has not been downloaded yet. */
+  empty: boolean;
+  /** Scalar property values (one entry per list member), as display text. */
+  properties: Array<{ propertyId: string; text: string }>;
+  /** Outgoing named relationships; the target is null while unresolved. */
+  relationships: Array<{
+    relationshipId: string;
+    targetNoteId: string | null;
+    targetPath: string | null;
+  }>;
+}
+
+/** Most doc ids one {@link listNoteCards} call takes (Rust `MAX_NOTE_CARDS`). */
+export const MAX_NOTE_CARDS = 200;
+
+/** Card + column data for these notes, in order, from the index alone (unknown ids skipped). */
+export const listNoteCards = (docIds: string[], expectedEpoch?: VaultEpoch) =>
+  invoke<NoteCardRow[]>("list_note_cards", { docIds, expectedEpoch: expectedEpoch ?? null });
+
+/** One folder's direct children as gallery cards; `null` when the folder is gone. */
+export const listFolderCards = (folder: string, expectedEpoch?: VaultEpoch) =>
+  invoke<FolderCard[] | null>("list_folder_cards", { folder, expectedEpoch: expectedEpoch ?? null });
 export const readNote = (path: string, expectedEpoch?: VaultEpoch) =>
   invoke<string>("read_note", { path, expectedEpoch: expectedEpoch ?? null });
 export const readNoteSnapshot = (path: string, expectedEpoch?: VaultEpoch) =>
@@ -673,6 +793,32 @@ export const queryKnowledge = (
         ? { ...query, relationshipIds: query.relationshipIds ?? [] }
         : query,
     page: { limit: page.limit ?? 25, cursor: page.cursor ?? null },
+  });
+/**
+ * `created`/`modified` for every indexed note — or only those named by
+ * `paths` / `docIds` — in one indexed read. The cheap bulk path for list
+ * views; `lib/knowledge/noteTimes.ts` wraps it as maps.
+ */
+export const listNoteTimes = (
+  filter: { paths?: string[]; docIds?: string[] } = {},
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<NoteTimes[]>("list_note_times", {
+    paths: filter.paths ?? null,
+    docIds: filter.docIds ?? null,
+    expectedEpoch: expectedEpoch ?? null,
+  });
+/**
+ * Record the server's `notes.created_at` for synced notes (the second source
+ * of `created`). Called by the registry after a pull; returns rows changed.
+ */
+export const recordServerCreatedTimes = (
+  entries: Array<{ docId: string; createdAt: string }>,
+  expectedEpoch?: VaultEpoch,
+) =>
+  invoke<number>("record_server_created_times", {
+    entries,
+    expectedEpoch: expectedEpoch ?? null,
   });
 /**
  * One bounded page from the derived task index.
@@ -1021,3 +1167,27 @@ export interface IndexReady {
 }
 export const onIndexReady = (cb: (e: IndexReady) => void): Promise<UnlistenFn> =>
   listen<IndexReady>("index-ready", (event) => cb(event.payload));
+
+// ---- Embedded terminal (src-tauri/src/terminal.rs) --------------------------
+// Rust owns each shell under a key (the terminal panel's instance id). Output
+// streams down a Channel as raw bytes, plus one `{ exit }` message when the
+// shell is gone. `terminalAttach` never starts a process; only `terminalOpen`
+// does, and only for a user action.
+
+export type TerminalMessage = ArrayBuffer | Uint8Array | number[] | { exit: number | null };
+export type TerminalChannel = Channel<TerminalMessage>;
+export const createTerminalChannel = (onMessage: (m: TerminalMessage) => void): TerminalChannel =>
+  new Channel<TerminalMessage>(onMessage);
+
+export const terminalStatus = () => invoke<{ enabled: boolean }>("terminal_status");
+export const terminalOpen = (key: string, cols: number, rows: number, channel: TerminalChannel) =>
+  invoke<void>("terminal_open", { key, cols, rows, channel });
+export const terminalAttach = (key: string, channel: TerminalChannel) =>
+  invoke<boolean>("terminal_attach", { key, channel });
+export const terminalDetach = (key: string, channelId: number) =>
+  invoke<void>("terminal_detach", { key, channelId });
+export const terminalWrite = (key: string, data: string) =>
+  invoke<void>("terminal_write", { key, data });
+export const terminalResize = (key: string, cols: number, rows: number) =>
+  invoke<void>("terminal_resize", { key, cols, rows });
+export const terminalKill = (key: string) => invoke<void>("terminal_kill", { key });

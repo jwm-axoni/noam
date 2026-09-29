@@ -1,5 +1,6 @@
 import { lazy, type ComponentType, type LazyExoticComponent, type ReactNode } from "react";
 import type { PanelType, ZoneId } from "./types";
+import { galleryPersistentState } from "../lib/gallery/panelState";
 
 export interface PanelBodyProps {
   instanceId: string;
@@ -21,7 +22,7 @@ export interface PanelRegistration {
   allowedZones: readonly ZoneId[];
   minimumWidth: number;
   minimumHeight: number;
-  multiplicity: 1 | 2;
+  multiplicity: number;
   load: () => Promise<{ default: ComponentType<PanelBodyProps> }>;
   validateState: (state: unknown) => state is Record<string, unknown>;
   persistentState: (state: Record<string, unknown>) => Record<string, unknown>;
@@ -127,6 +128,16 @@ const presencePersistentState = (state: Record<string, unknown>) => {
   );
   return { collapsed };
 };
+
+const terminalLoader: PanelRegistration["load"] = () =>
+  import("../components/terminal/TerminalPanel").then(({ TerminalPanel }) => ({
+    default: TerminalPanel,
+  }));
+
+const galleryLoader: PanelRegistration["load"] = () =>
+  import("../components/gallery/GalleryPanel").then(({ GalleryPanel }) => ({
+    default: GalleryPanel,
+  }));
 
 const outlineLoader: PanelRegistration["load"] = () =>
   import("../components/OutlinePanel").then(({ OutlinePanel }) => ({
@@ -305,6 +316,39 @@ export const panelRegistry = {
     load: historyLoader,
     validateState: emptyState,
     persistentState: noPersistentState,
+  },
+  terminal: {
+    type: "terminal",
+    label: "Terminal",
+    defaultZone: "bottom",
+    defaultGroup: "primary",
+    // lucide `square-terminal`.
+    icon: icon(<><rect x="3" y="4" width="18" height="16" rx="2" /><path d="m7 9 3 3-3 3M13 15h4" /></>),
+    allowedZones: ["bottom", "center", "right"],
+    minimumWidth: 320,
+    minimumHeight: 120,
+    multiplicity: 4,
+    load: terminalLoader,
+    validateState: emptyState,
+    // The shell lives in Rust and never survives a relaunch, so there is
+    // nothing about it worth saving.
+    persistentState: noPersistentState,
+  },
+  gallery: {
+    type: "gallery",
+    label: "Gallery",
+    defaultZone: "center",
+    defaultGroup: "primary",
+    // lucide `layout-grid`.
+    icon: icon(<><rect x="3" y="3" width="7" height="7" rx="1" /><rect x="14" y="3" width="7" height="7" rx="1" /><rect x="14" y="14" width="7" height="7" rx="1" /><rect x="3" y="14" width="7" height="7" rx="1" /></>),
+    allowedZones: ["center"],
+    minimumWidth: 280,
+    minimumHeight: 200,
+    multiplicity: 1,
+    load: galleryLoader,
+    validateState: emptyState,
+    // Only the folder it shows; everything else re-derives from disk.
+    persistentState: galleryPersistentState,
   },
 } as const satisfies Record<PanelType, PanelRegistration>;
 

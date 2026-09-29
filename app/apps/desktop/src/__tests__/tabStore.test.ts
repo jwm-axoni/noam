@@ -74,6 +74,7 @@ const ipcMock = vi.hoisted(() => ({
     existing.add(path);
     return path;
   }),
+  writeNote: vi.fn(async () => {}),
 }));
 
 vi.mock("../lib/ipc", () => ipcMock);
@@ -84,6 +85,8 @@ import { createDefaultLayout } from "../layout/types";
 import { findPanelTab } from "../layout/operations";
 import { documentTabs } from "../layout/workspaceActions";
 import { readPropertiesCollapsed } from "../lib/prefs";
+import { openGallery } from "../lib/gallery/open";
+import { galleryFolder, galleryPanelId } from "../lib/gallery/panelState";
 
 afterEach(() => vi.unstubAllGlobals());
 
@@ -140,6 +143,76 @@ describe("Properties preferences on confirmed moves", () => {
     expect(readPropertiesCollapsed("/fixture", "Moved/renamed.md", "doc-a")).toBe(true);
     expect(readPropertiesCollapsed("/fixture", "Moved/closed.md", "doc-closed")).toBe(true);
     expect(JSON.parse(values.get("context.propertiesCollapsed")!).vaults["/fixture"]).toBeUndefined();
+  });
+});
+
+// Folder sort overrides are path-keyed (a local folder has no other id), so the
+// store's rename/move and delete funnels must carry them along.
+describe("folder sort overrides on moves and deletes", () => {
+  it("follows a folder rename, persists it, and drops it on delete", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ vault: { path: "/fixture", epoch: 1 } as never, folderSorts: {} });
+    useStore.getState().setFolderSort("Work", "name-desc");
+    useStore.getState().setFolderSort("Work/Sub", "recent");
+    useStore.getState().setFolderSort("Home", "modified-asc");
+
+    useStore.getState().remapTabs("Work", "Archive/Job");
+    expect(useStore.getState().folderSorts).toEqual({
+      "Archive/Job": "name-desc",
+      "Archive/Job/Sub": "recent",
+      Home: "modified-asc",
+    });
+    expect(JSON.parse(values.get("context.folderSorts:/fixture")!)).toEqual(
+      useStore.getState().folderSorts,
+    );
+
+    useStore.getState().pruneTabs(["Archive"]);
+    expect(useStore.getState().folderSorts).toEqual({ Home: "modified-asc" });
+
+    useStore.getState().setFolderSort("Home", null);
+    expect(JSON.parse(values.get("context.folderSorts:/fixture")!)).toEqual({});
+  });
+});
+
+// Folder view modes ride the same funnels, and the gallery tab showing a
+// renamed folder follows it (a deleted one is left to say it is gone).
+describe("folder view modes and the gallery on moves and deletes", () => {
+  it("remaps on rename, persists, drops on delete, and retargets the gallery", () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    useStore.setState({ vault: { path: "/fixture", epoch: 1 } as never, folderViews: {} });
+    useLayoutStore.getState().replace(createDefaultLayout());
+    useStore.getState().setFolderView("Work", "gallery");
+    useStore.getState().setFolderView("Work/Sub", "gallery");
+    useStore.getState().setFolderView("Home", "gallery");
+    openGallery("Work/Sub");
+
+    useStore.getState().remapTabs("Work", "Archive/Job");
+    expect(useStore.getState().folderViews).toEqual({
+      "Archive/Job": "gallery",
+      "Archive/Job/Sub": "gallery",
+      Home: "gallery",
+    });
+    expect(JSON.parse(values.get("noam.folderViews:/fixture")!)).toEqual(
+      useStore.getState().folderViews,
+    );
+    const layout = useLayoutStore.getState().layout;
+    expect(galleryFolder(layout.panels[galleryPanelId(layout)!]!.state)).toBe("Archive/Job/Sub");
+
+    useStore.getState().pruneTabs(["Archive"]);
+    expect(useStore.getState().folderViews).toEqual({ Home: "gallery" });
+    const after = useLayoutStore.getState().layout;
+    expect(galleryPanelId(after)).not.toBeNull();
+
+    useStore.getState().setFolderView("Home", "list");
+    expect(JSON.parse(values.get("noam.folderViews:/fixture")!)).toEqual({});
   });
 });
 
@@ -439,6 +512,42 @@ describe("createNoteIn / createNoteAt", () => {
     const path = await useStore.getState().createNoteAt("", "Some New Note");
     expect(path).toBe("Some New Note.md");
     expect(useStore.getState().revealRequest).toMatchObject({ path, edit: false });
+  });
+});
+
+describe("createDashboardIn", () => {
+  it("creates Dashboard, Dashboard 1, … with the dashboard frontmatter and an example view", async () => {
+    const values = new Map<string, string>();
+    vi.stubGlobal("localStorage", {
+      getItem: (key: string) => values.get(key) ?? null,
+      setItem: (key: string, value: string) => values.set(key, value),
+    });
+    ipcMock.writeNote.mockClear();
+    const first = await useStore.getState().createDashboardIn("Work");
+    const second = await useStore.getState().createDashboardIn("Work");
+    expect(first).toBe("Work/Dashboard.md");
+    expect(second).toBe("Work/Dashboard 1.md");
+
+    const [path, content] = ipcMock.writeNote.mock.calls[0] as unknown as [string, string];
+    expect(path).toBe("Work/Dashboard.md");
+    const { isDashboardDocument, parseDashboard } = await import("../lib/dashboard/parse");
+    expect(isDashboardDocument(content)).toBe(true);
+    const views = parseDashboard(content).views;
+    expect(views).toHaveLength(1);
+    expect(views[0]).toMatchObject({ view: "cards", sort: { key: "modified", direction: "desc" }, issues: [] });
+
+    // Opened, revealed, and on its Dashboard surface.
+    expect(useStore.getState().openNote?.path).toBe(second);
+    expect(useStore.getState().revealRequest).toMatchObject({ path: second });
+    expect(values.get("noam:dashboard-view:Work/Dashboard.md")).toBe("dashboard");
+  });
+
+  it("refuses the vault root while the freeze latch is on", async () => {
+    useStore.setState({ rootFrozen: true });
+    ipcMock.createNote.mockClear();
+    expect(await useStore.getState().createDashboardIn("")).toBeNull();
+    expect(ipcMock.createNote).not.toHaveBeenCalled();
+    useStore.setState({ rootFrozen: false });
   });
 });
 

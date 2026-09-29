@@ -215,6 +215,63 @@ export function parseKnowledgeCatalog(markdown: string): CatalogParseResult {
   return validateKnowledgeCatalog(value);
 }
 
+/**
+ * Built-in catalog entries every vault starts with (spec 06, "Seeded
+ * defaults"): a single-valued `type` label and a `people` relationship to
+ * person notes (doc-id keyed, so renaming "Paul.md" never breaks it).
+ */
+export const DEFAULT_CATALOG_PROPERTIES: readonly PropertyDefinition[] = [
+  { id: "type", key: "type", name: "Type", type: { kind: "label", cardinality: "one" } },
+];
+export const DEFAULT_CATALOG_RELATIONSHIPS: readonly RelationshipDefinition[] = [
+  { id: "people", name: "People", cardinality: "many", inverseName: "Appears in" },
+];
+
+/**
+ * The catalog with the seeded defaults filled in wherever the vault's own
+ * catalog note does not define them (a property by id or frontmatter key, a
+ * relationship by id). The catalog note always wins, and this never writes
+ * it: the defaults exist only in memory. Mirrors Rust `effective_catalog`
+ * and the server's `withDefaultKnowledgeCatalog`.
+ *
+ * Memoized per input object, so a render that calls this every time still
+ * hands its children a stable reference. Treat the result as immutable.
+ */
+export function withDefaultCatalogEntries(catalog: KnowledgeCatalogV1 | null): KnowledgeCatalogV1 {
+  if (catalog === null) return (defaultsOnly ??= buildEffectiveCatalog(null));
+  let effective = effectiveCatalogs.get(catalog);
+  if (!effective) {
+    effective = buildEffectiveCatalog(catalog);
+    effectiveCatalogs.set(catalog, effective);
+  }
+  return effective;
+}
+
+let defaultsOnly: KnowledgeCatalogV1 | null = null;
+const effectiveCatalogs = new WeakMap<KnowledgeCatalogV1, KnowledgeCatalogV1>();
+
+function buildEffectiveCatalog(catalog: KnowledgeCatalogV1 | null): KnowledgeCatalogV1 {
+  const base: KnowledgeCatalogV1 = catalog ?? {
+    version: KNOWLEDGE_SCHEMA_VERSION,
+    properties: [],
+    labels: [],
+    relationships: [],
+  };
+  const properties = [...base.properties];
+  for (const seeded of DEFAULT_CATALOG_PROPERTIES) {
+    if (!properties.some((property) => property.id === seeded.id || property.key === seeded.key)) {
+      properties.push({ ...seeded, type: { ...seeded.type } });
+    }
+  }
+  const relationships = [...base.relationships];
+  for (const seeded of DEFAULT_CATALOG_RELATIONSHIPS) {
+    if (!relationships.some((relationship) => relationship.id === seeded.id)) {
+      relationships.push({ ...seeded });
+    }
+  }
+  return { ...base, properties, relationships };
+}
+
 /** Parse the canonical schema note and reject lookalikes at other paths. */
 export function parseKnowledgeSchema(path: string, markdown: string): CatalogParseResult {
   if (path !== KNOWLEDGE_SCHEMA_PATH) {

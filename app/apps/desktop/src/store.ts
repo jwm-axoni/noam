@@ -74,7 +74,28 @@ import {
 } from "./lib/prefs";
 import type { PropertiesMode } from "./lib/editor/frontmatter";
 import type { ViewMode } from "./lib/editor/viewMode";
-import type { TreeSort } from "./lib/tree/sort";
+import { usesCreatedSort, type FolderSorts, type TreeSort } from "./lib/tree/sort";
+import { createCreatedTimesLoader, createdByPath } from "./lib/tree/createdTimes";
+import { getNoteTimes } from "./lib/knowledge/noteTimes";
+import {
+  dropFolderSorts,
+  readFolderSorts,
+  remapFolderSorts,
+  setFolderSortAt,
+  writeFolderSorts,
+} from "./lib/tree/folderSorts";
+import {
+  dropFolderViews,
+  readFolderViews,
+  remapFolderViews,
+  setFolderViewAt,
+  writeFolderViews,
+  type FolderViewMode,
+  type FolderViews,
+} from "./lib/tree/folderViews";
+import { followGalleryRename } from "./lib/gallery/open";
+import { NEW_DASHBOARD_NAME, NEW_DASHBOARD_TEMPLATE } from "./lib/dashboard/template";
+import { rememberDashboardView } from "./lib/dashboard/surfacePref";
 import { seedWelcomeContent, vaultIsEmpty, WELCOME_NOTE_PATH } from "./lib/vault/seed";
 import { planLanding } from "./lib/vault/landing";
 import { planTurnOnSync } from "./lib/vault/turnOnSync";
@@ -436,6 +457,16 @@ interface AppStore {
   /** How the sidebar arranges everything the user hasn't arranged by hand.
    *  Layered UNDER `itemOrder`, never replacing it — see `lib/tree/sort`. */
   treeSort: TreeSort;
+  /** Per-folder overrides of `treeSort` for one folder's direct children
+   *  (vault-local, device-local). Path-keyed — see `lib/tree/folderSorts`. */
+  folderSorts: FolderSorts;
+  /** Note path → created (epoch ms), for the Created sorts. `null` unless one
+   *  of `treeSort`/`folderSorts` is a Created mode — a vault that never sorts
+   *  by created never pays the read. See `lib/tree/createdTimes`. */
+  createdTimes: ReadonlyMap<string, number> | null;
+  /** Per-folder view mode (list | gallery), device-local and per vault.
+   *  Path-keyed with the same remap/prune funnels — see `lib/tree/folderViews`. */
+  folderViews: FolderViews;
   /** Set briefly when a teammate joins the vault, to drive the celebration
    *  banner + confetti. `at` changes each time so a repeat join re-triggers it. */
   memberJoined: { name: string; at: number } | null;
@@ -450,12 +481,18 @@ interface AppStore {
   setRootFrozen: (frozen: boolean) => Promise<void>;
   setItemOrder: (order: ItemOrder) => void;
   setTreeSort: (sort: TreeSort) => void;
+  /** Override (or, with `null`, stop overriding) the sort of one folder. */
+  setFolderSort: (folderPath: string, sort: TreeSort | null) => void;
+  /** Show one folder as a list (the default) or a gallery. */
+  setFolderView: (folderPath: string, mode: FolderViewMode) => void;
   /**
    * Re-list the sidebar. With `folders`, ONLY those folder listings are re-read
    * (the watcher batch said nothing else changed); without it, the root and
    * every expanded folder are re-listed.
    */
   refreshTree: (folders?: ReadonlySet<string>) => Promise<void>;
+  /** Re-read `createdTimes` if a Created sort is active (else clear it). */
+  refreshCreatedTimes: () => Promise<void>;
   /** Lazily load one folder's immediate children into the sidebar tree. */
   loadChildren: (path: string) => Promise<void>;
   refreshTitles: () => Promise<void>;
@@ -488,6 +525,12 @@ interface AppStore {
    * where naming happens.
    */
   createNoteIn: (dir: string) => Promise<string | null>;
+  /**
+   * "New dashboard": a note named `Dashboard` / `Dashboard N` holding
+   * `noam_kind: dashboard` and one example view (`lib/dashboard/template.ts`),
+   * opened on its Dashboard surface. Same root-freeze latch as `createNoteIn`.
+   */
+  createDashboardIn: (dir: string) => Promise<string | null>;
   /**
    * "Show me this path in the sidebar." Bumped by `openNoteByPath` and by
    * `createNoteIn`; consumed by an effect in `FileTree`, which is the only place
@@ -533,9 +576,11 @@ interface AppStore {
   /** Close one tab. Closing the active one activates its right-hand neighbour
    *  (left-hand when it was last); closing the only tab clears the editor. */
   closeTab: (path: string) => void;
-  /** Drop the tabs at (or under — folders) the given deleted paths. */
+  /** Drop the tabs at (or under — folders) the given deleted paths, and any
+   *  folder sort override there. */
   pruneTabs: (paths: string[]) => void;
-  /** Re-point tabs across a rename/move of a file or a folder subtree. */
+  /** Re-point tabs (and path-keyed per-item prefs: collapsed Properties,
+   *  folder sort overrides) across a rename/move of a file or folder subtree. */
   remapTabs: (from: string, to: string) => void;
   /** Close every tab except the given one, which takes (or keeps) the screen. */
   closeOtherTabs: (path: string) => void;
@@ -1327,6 +1372,18 @@ function enterVaultScope(info: ipc.VaultInfo, orgId: string | null): void {
 }
 
 /**
+ * The sidebar's Created-sort read (`lib/tree/createdTimes`): one vault-wide
+ * `getNoteTimes`, tagged with the epoch it was pinned to so the caller can
+ * drop an answer for a vault it has left. Never called unless a Created sort
+ * is active; concurrent refreshes coalesce inside the loader.
+ */
+const createdLoader = createCreatedTimesLoader(async () => {
+  const epoch = useStore.getState().vault?.epoch;
+  const { byPath } = await getNoteTimes({}, epoch);
+  return { epoch, created: createdByPath(byPath) };
+});
+
+/**
  * Is `epoch` still the open vault? Every `set()` that happens after an await in
  * a vault/sync path must be guarded on this, or a slow operation for vault A
  * lands its results (tree, titles, syncEnabled) on vault B's view state.
@@ -1510,6 +1567,9 @@ export const useStore = create<AppStore>((set, get) => ({
   lineNumbers: readLineNumbers(),
   pendingTitleFocus: null,
   treeSort: readTreeSort(),
+  folderSorts: {},
+  createdTimes: null,
+  folderViews: {},
   memberJoined: null,
 
   setVault: (v) => {
@@ -1529,7 +1589,11 @@ export const useStore = create<AppStore>((set, get) => ({
       vault: v,
       itemColors: readItemColors(v?.path),
       itemOrder: readItemOrder(v?.path),
-      ...(switched ? { openFolderIsSynced: null } : {}),
+      folderSorts: readFolderSorts(v?.path),
+      folderViews: readFolderViews(v?.path),
+      // Another vault's created dates would sort this one by the wrong keys;
+      // the tree refresh that follows a switch re-reads them.
+      ...(switched ? { openFolderIsSynced: null, createdTimes: null } : {}),
     });
     // Answer "does THIS folder sync?" for the open gate (see `probeFolderSync`).
     if (switched && v) probeFolderSync(get, set, v.path);
@@ -1592,6 +1656,49 @@ export const useStore = create<AppStore>((set, get) => ({
     // vault — it's a device preference.
     writeTreeSort(sort);
     set({ treeSort: sort });
+    void get().refreshCreatedTimes();
+  },
+
+  setFolderSort: (folderPath, sort) => {
+    const vault = get().vault;
+    if (!vault) return;
+    const next = setFolderSortAt(get().folderSorts, folderPath, sort);
+    if (next === get().folderSorts) return;
+    writeFolderSorts(vault.path, next);
+    set({ folderSorts: next });
+    void get().refreshCreatedTimes();
+  },
+
+  refreshCreatedTimes: async () => {
+    const { treeSort, folderSorts } = get();
+    let read: { epoch: ipc.VaultEpoch; created: Map<string, number> } | null;
+    try {
+      read = await createdLoader.load(treeSort, folderSorts);
+    } catch (e) {
+      if (ipc.isVaultMismatch(e)) return; // the vault moved on (see refreshTree)
+      // Best effort: a failed read leaves the last map (or none — every file
+      // then sorts as undated, i.e. A–Z) until the next tree refresh retries.
+      console.warn("[tree] could not read created times", e);
+      return;
+    }
+    if (read === null) {
+      if (get().createdTimes !== null) set({ createdTimes: null });
+      return;
+    }
+    // Stale answers: a vault switch mid-read, or the user left the Created
+    // sorts while it ran.
+    if (!sameVault(get, read.epoch)) return;
+    if (!usesCreatedSort(get().treeSort, get().folderSorts)) return;
+    set({ createdTimes: read.created });
+  },
+
+  setFolderView: (folderPath, mode) => {
+    const vault = get().vault;
+    if (!vault) return;
+    const next = setFolderViewAt(get().folderViews, folderPath, mode);
+    if (next === get().folderViews) return;
+    writeFolderViews(vault.path, next);
+    set({ folderViews: next });
   },
 
   refreshTree: async (folders) => {
@@ -1631,6 +1738,7 @@ export const useStore = create<AppStore>((set, get) => ({
         next = setChildrenAt(next, dir, merged);
       }
       set({ tree: next });
+      void get().refreshCreatedTimes();
       return;
     }
     // Which folders were already expanded/listed. This refresh runs on every
@@ -1686,6 +1794,9 @@ export const useStore = create<AppStore>((set, get) => ({
     }
 
     set({ tree: next });
+    // After the listing, not before: a note that just appeared must be in the
+    // index the created read sees. A no-op unless a Created sort is active.
+    void get().refreshCreatedTimes();
   },
 
   loadChildren: async (path) => {
@@ -1924,6 +2035,29 @@ export const useStore = create<AppStore>((set, get) => ({
         continue; // name taken → try the next one
       }
       return finishNoteCreate(get, path, { edit: true });
+    }
+    return null;
+  },
+
+  createDashboardIn: async (dir) => {
+    if (rootCreateBlocked(get, dir)) return null;
+    const epoch = get().vault?.epoch ?? null;
+    for (let i = 0; i < 50; i++) {
+      const candidate = i === 0 ? NEW_DASHBOARD_NAME : `${NEW_DASHBOARD_NAME} ${i}`;
+      let path: string;
+      try {
+        path = await ipc.createNote(dir, candidate, epoch);
+      } catch {
+        continue; // name taken → try the next one
+      }
+      try {
+        await ipc.writeNote(path, NEW_DASHBOARD_TEMPLATE, epoch);
+      } catch (e) {
+        // The note exists (empty); say so rather than pretend it is a dashboard.
+        toast(`Couldn't write the new dashboard: ${String(e)}`, "error");
+      }
+      rememberDashboardView(path, "dashboard");
+      return finishNoteCreate(get, path);
     }
     return null;
   },
@@ -2204,6 +2338,23 @@ export const useStore = create<AppStore>((set, get) => ({
   },
 
   pruneTabs: (paths) => {
+    // Every in-app delete (row, bulk, a teammate's) funnels through here, so
+    // the path-keyed folder sort overrides are dropped here too.
+    const vault = get().vault;
+    let sorts = get().folderSorts;
+    for (const p of paths) sorts = dropFolderSorts(sorts, p);
+    if (vault && sorts !== get().folderSorts) {
+      writeFolderSorts(vault.path, sorts);
+      set({ folderSorts: sorts });
+    }
+    // Folder view modes ride the same funnel. An open gallery on a deleted
+    // folder is left alone: it says the folder is gone rather than vanishing.
+    let views = get().folderViews;
+    for (const p of paths) views = dropFolderViews(views, p);
+    if (vault && views !== get().folderViews) {
+      writeFolderViews(vault.path, views);
+      set({ folderViews: views });
+    }
     const { viewModeOverrides } = get();
     const gone = (p: string) => paths.some((d) => p === d || p.startsWith(d + "/"));
     const nextModes = Object.fromEntries(
@@ -2217,6 +2368,21 @@ export const useStore = create<AppStore>((set, get) => ({
 
   remapTabs: (from, to) => {
     remapPropertiesCollapsed(get().vault?.path ?? "", from, to);
+    // Same funnel for folder sort overrides: every in-app rename/move of a
+    // folder re-points its override (and its subfolders') to the new path.
+    const vault = get().vault;
+    const sorts = remapFolderSorts(get().folderSorts, from, to);
+    if (vault && sorts !== get().folderSorts) {
+      writeFolderSorts(vault.path, sorts);
+      set({ folderSorts: sorts });
+    }
+    // …and folder view modes, and the gallery tab showing the moved folder.
+    const views = remapFolderViews(get().folderViews, from, to);
+    if (vault && views !== get().folderViews) {
+      writeFolderViews(vault.path, views);
+      set({ folderViews: views });
+    }
+    followGalleryRename(from, to);
     const { openNote, viewModeOverrides, defaultViewMode } = get();
     const tabs = documentTabs().map((tab) => tab.path);
     const remap = (path: string) =>
@@ -2594,6 +2760,9 @@ export const useStore = create<AppStore>((set, get) => ({
       noteRemovedSynced: false,
       itemColors: readItemColors(undefined),
       itemOrder: readItemOrder(undefined),
+      folderSorts: readFolderSorts(undefined),
+      createdTimes: null,
+      folderViews: readFolderViews(undefined),
     });
     // Welcome is now the state a reload should restore (same rule as
     // closeLocalVault) — don't let the launch reopen undo the sign-out landing.
@@ -3435,6 +3604,9 @@ export const useStore = create<AppStore>((set, get) => ({
       openFolderIsSynced: null,
       itemColors: readItemColors(info.path),
       itemOrder: readItemOrder(info.path),
+      folderSorts: readFolderSorts(info.path),
+      createdTimes: null,
+      folderViews: readFolderViews(info.path),
       pendingVaultFolder: null,
     });
     probeFolderSync(get, set, info.path);
@@ -3543,6 +3715,9 @@ export const useStore = create<AppStore>((set, get) => ({
       openFolderIsSynced: true,
       itemColors: readItemColors(v.path),
       itemOrder: readItemOrder(v.path),
+      folderSorts: readFolderSorts(v.path),
+      createdTimes: null,
+      folderViews: readFolderViews(v.path),
       pendingVaultFolder: null,
     });
     rememberOrgVault(orgId, v.path);

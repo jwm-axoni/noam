@@ -1,4 +1,5 @@
 import {
+  DEFAULT_BOTTOM_HEIGHT,
   DEFAULT_LEFT_WIDTH,
   DEFAULT_RIGHT_WIDTH,
   type SplitAxis,
@@ -14,6 +15,10 @@ export const CENTER_NOTE_MIN = 480;
 export const TOOL_GROUP_MIN = 220;
 export const GRAPH_GROUP_MIN = 240;
 export const GROUP_HEIGHT_MIN = 180;
+export const BOTTOM_DOCK_MIN = 120;
+export const BOTTOM_DOCK_MAX = 900;
+/** What the note above the bottom dock always keeps, tab strip included. */
+export const CENTER_HEIGHT_MIN = 200;
 
 export interface WorkspaceFitInput {
   viewportWidth: number;
@@ -175,4 +180,34 @@ export function stackGroupSizes(zone: LayoutZone, height: number): number[] {
     }
   }
   return sizes;
+}
+
+export function clampPreferredBottomHeight(height: number): number {
+  return Math.round(Math.min(BOTTOM_DOCK_MAX, Math.max(BOTTOM_DOCK_MIN, finite(height, DEFAULT_BOTTOM_HEIGHT))));
+}
+
+/** Room the bottom dock can take from a center column of `columnHeight`. */
+function bottomAvailable(columnHeight: number): number {
+  return Math.floor(finite(columnHeight, 0) - PANE_SEPARATOR_SIZE - CENTER_HEIGHT_MIN);
+}
+
+/**
+ * Fit the bottom dock's preferred height into its column without mutating the
+ * preference. Under pressure it shrinks toward its minimum, then collapses to
+ * 0 rather than squeezing the note above below `CENTER_HEIGHT_MIN`.
+ */
+export function fitBottomDock(input: {
+  columnHeight: number;
+  open: boolean;
+  preferredHeight?: number;
+}): number {
+  if (!input.open) return 0;
+  const available = bottomAvailable(input.columnHeight);
+  if (available < BOTTOM_DOCK_MIN) return 0;
+  return Math.min(clampPreferredBottomHeight(input.preferredHeight ?? DEFAULT_BOTTOM_HEIGHT), available);
+}
+
+export function bottomResizeBounds(columnHeight: number): { min: number; max: number } {
+  const max = Math.min(BOTTOM_DOCK_MAX, bottomAvailable(columnHeight));
+  return { min: BOTTOM_DOCK_MIN, max: Math.max(BOTTOM_DOCK_MIN, max) };
 }

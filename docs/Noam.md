@@ -132,7 +132,9 @@ identity, recurrence, the closed query subset behind the Tasks panel and its sav
 (`noam_kind: task-filter`), and the adapter rule that every write re-resolves against live
 text. [[BOARDS]] covers the one-note Kanban board (`noam_kind: board`), the Obsidian Kanban
 subset it reads and writes byte-for-byte, and how a card move re-resolves lane and card
-before it plans a single span edit.
+before it plans a single span edit. [[DASHBOARDS]] covers the dashboard note
+(`noam_kind: dashboard`): its `noam-view` blocks, the closed view grammar, and how each
+view runs against the local index as cards or a table.
 
 ---
 
@@ -142,6 +144,13 @@ before it plans a single span edit.
 each one realistically takes, and what it shows while it works — plus the eight rules
 that govern that feedback (delayed spinners, optimistic destinations, sticky errors,
 reduced-motion answers). Add a control, add a row.
+
+---
+
+## Plans
+
+[[PLAN-INTERACTIVE-VIEWS]] is the draft plan for sorting, find/replace, folder galleries,
+dashboards on top of NoteKnowledge, and an embedded terminal. Not yet approved for build.
 
 ---
 

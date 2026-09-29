@@ -149,6 +149,12 @@ describe("PropertiesDockPanel", () => {
     });
   };
 
+  /** Flush until `check` passes (or vi.waitFor's timeout expires). */
+  const settleUntil = (check: () => void) => vi.waitFor(async () => {
+    await flush();
+    check();
+  });
+
   const renderActive = async (props = panelProps, path = props.activeNotePath!) => {
     await act(async () => {
       setActiveNote(bindActiveNote(view, path));
@@ -377,9 +383,13 @@ describe("PropertiesDockPanel", () => {
     });
 
     await renderActive();
-    await flush();
-    expect(host.textContent).toContain("Outgoing50+");
-    expect(host.textContent).toContain("Backlinks50+");
+    // Wait for the result, not a fixed number of ticks: under a loaded full
+    // run the paging chain can land a tick later, and a counted flush then
+    // asserted too early (this test failed intermittently for exactly that).
+    await settleUntil(() => {
+      expect(host.textContent).toContain("Outgoing50+");
+      expect(host.textContent).toContain("Backlinks50+");
+    });
 
     await act(async () => host.querySelector<HTMLButtonElement>(
       ".properties-inspector-group .properties-inspector-load-more",
@@ -388,10 +398,10 @@ describe("PropertiesDockPanel", () => {
     await act(async () => [...host.querySelectorAll<HTMLButtonElement>(
       ".properties-inspector-load-more",
     )].find((button) => button.textContent === "Load more backlinks")!.click());
-    await flush();
-
-    expect(host.textContent).toContain("Outgoing51");
-    expect(host.textContent).toContain("Backlinks51");
+    await settleUntil(() => {
+      expect(host.textContent).toContain("Outgoing51");
+      expect(host.textContent).toContain("Backlinks51");
+    });
     expect(host.querySelector('[data-edge-id="edge-50"]')).not.toBeNull();
     expect(host.querySelector('[title="Notes/Source 50.md"]')).not.toBeNull();
     expect(mocks.queryKnowledge).toHaveBeenCalledWith(
@@ -402,6 +412,57 @@ describe("PropertiesDockPanel", () => {
       { kind: "backlinks", noteId: "local-Notes/Project.md" },
       { limit: 50, cursor: "backlinks-page-2" },
     );
+  });
+
+  it("keeps rows loaded with Load more when an edit refreshes the panel", async () => {
+    const firstRelationships = Array.from({ length: 50 }, (_, index) => relationship({
+      edgeId: `edge-${index}`,
+      ordinal: index,
+      targetDocumentId: `portable-${index}`,
+      targetNoteId: `target-${index}`,
+      targetPath: `Notes/Target ${index}.md`,
+    }));
+    let outgoingFirstPages = 0;
+    mocks.queryKnowledge.mockImplementation(async (
+      query: LocalKnowledgeQuery,
+      request?: { cursor?: string | null },
+    ) => {
+      if (query.kind === "indexState") return page([state()]);
+      if (query.kind === "relationships" && query.direction === "incoming") return page([]);
+      if (query.kind === "relationships") {
+        if (!request?.cursor) outgoingFirstPages += 1;
+        return request?.cursor
+          ? page([relationship({
+              edgeId: "edge-50",
+              ordinal: 50,
+              targetDocumentId: "portable-50",
+              targetNoteId: "target-50",
+              targetPath: "Notes/Target 50.md",
+            })])
+          : page(firstRelationships, "relationships-page-2");
+      }
+      return page([]);
+    });
+
+    await renderActive();
+    await settleUntil(() => expect(host.textContent).toContain("Outgoing50+"));
+    await act(async () => host.querySelector<HTMLButtonElement>(
+      ".properties-inspector-group .properties-inspector-load-more",
+    )!.click());
+    await settleUntil(() => expect(host.textContent).toContain("Outgoing51"));
+    const before = outgoingFirstPages;
+
+    // An edit schedules the panel's re-read 450 ms later. It used to put the
+    // list back to its first 50 rows; it must now restore all 51.
+    await act(async () => {
+      view.dispatch({ changes: { from: view.state.doc.length, insert: "\nedited" } });
+      await new Promise((resolve) => window.setTimeout(resolve, 600));
+    });
+    await settleUntil(() => {
+      expect(outgoingFirstPages).toBeGreaterThan(before);
+      expect(host.textContent).toContain("Outgoing51");
+    });
+    expect(host.querySelector('[data-edge-id="edge-50"]')).not.toBeNull();
   });
 
   it("reloads a section from its first page when its cursor expires", async () => {

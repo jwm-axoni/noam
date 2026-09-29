@@ -21,6 +21,7 @@ import {
 import {
   DOCUMENT_ID_KEY,
   RELATIONSHIPS_KEY,
+  SYSTEM_PROPERTY_IDS,
   KnowledgeError,
   type ChangeRequest,
   type EditToken,
@@ -169,6 +170,12 @@ export function planKnowledgeChanges(
 
   for (const change of request.changes) {
     if (change.kind === "setProperty" || change.kind === "removeProperty") {
+      // `created`/`modified` are derived, read-only system properties: even a
+      // catalog that reuses the id cannot turn a change into a write of them.
+      // (Frontmatter `created:` stays editable as ordinary text in the note.)
+      if ((SYSTEM_PROPERTY_IDS as readonly string[]).includes(change.propertyId)) {
+        throw new KnowledgeError("read_only", `${change.propertyId} is a read-only system property`);
+      }
       const definition = propertyById.get(change.propertyId);
       if (!definition) {
         throw new KnowledgeError("schema_invalid", `Unknown property definition: ${change.propertyId}`);

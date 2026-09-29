@@ -2,6 +2,7 @@ import { applyLayoutOperation } from "./operations";
 import { useLayoutStore } from "./store";
 import {
   CENTER_NOTE_GROUP_ID,
+  ZONE_IDS,
   type LayoutTab,
   type LayoutV1,
   type SplitAxis,
@@ -87,9 +88,7 @@ export function resetDocumentTabs(): void {
 export function closePanelTab(groupId: string, tabId: string): Promise<void> {
   const store = useLayoutStore.getState();
   const layout = store.layout;
-  const zone = (["left", "center", "right"] as const).find((candidate) =>
-    layout.zones[candidate].groupIds.includes(groupId),
-  );
+  const zone = ZONE_IDS.find((candidate) => layout.zones[candidate].groupIds.includes(groupId));
   const group = layout.groups[groupId];
   const isLastSideContent = (zone === "left" || zone === "right") &&
     layout.zones[zone].groupIds.length === 1 && group?.tabs.length === 1;

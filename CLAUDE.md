@@ -103,13 +103,38 @@ Errors: single `AppError(String)` (`error.rs`).
 - `index.rs` — SQLite at `<vault>/.context/index.sqlite` (WAL): `notes` (id=`doc_id`, path UNIQUE),
   FTS5 `notes_fts`, `tags`/`note_tags`, `links`, `folders`, `yjs_updates`, `yjs_snapshot`. Notes keyed by
   `doc_id`; `rebuild` preserves ids and never wipes the CRDT tables; `rename_note` rewrites paths by id so
-  backlinks survive moves.
+  backlinks survive moves. `note_server_created (doc_id, created_ms)` is the other doc_id-keyed table
+  `rebuild` never wipes (the server's `created_at`, recorded by the registry after each pull via
+  `record_server_created_times`; swept by `prune_yjs_docs`). `notes.btime_ms` keeps the EARLIEST
+  birthtime seen (atomic saves reset it) and `knowledge_documents.frontmatter_created_ms` the parsed
+  `created:`. `created` resolves frontmatter → server → birthtime; `note_times.rs` holds the timestamp
+  grammar and must stay in step with the server's `src/knowledge/system.ts` and the shared fixture
+  `app/packages/contracts/fixtures/knowledge-sort-parity.json` (replayed by both test suites).
 - `watcher.rs` — `notify` recursive watcher, 150ms-debounced (1000ms ceiling), emits ONE batched
   `files-changed {changes: [{path, kind}]}` per drain. `kind` is `modified` | `removed` | `tree`, derived
   from an existence check rather than forwarded from `notify` (whose event kinds and rename pairing we
   deliberately ignore); a rename therefore arrives as an unpaired `removed` + `modified` in one batch.
+- `cards.rs` — gallery card data derived at index time: `notes.excerpt`, `notes.first_image`,
+  `notes.card_version`. Raise `CARD_VERSION` whenever the excerpt or image rules change, or existing
+  indexes won't re-derive. `list_folder_cards` reads only the index plus one directory listing.
 - `attachments.rs` — path-validated binary I/O under `attachments/`; never enters the note/CRDT pipeline.
 - `keychain.rs` — `keyring` crate, service `com.noam.app`; trait-based so tests use a fake.
+- `terminal.rs` — embedded terminal (plan `docs/PLAN-INTERACTIVE-VIEWS.md` Part 6). `portable-pty`
+  sessions keyed by the terminal PANEL's instance id, owned by Rust so a tab moving between docks
+  re-attaches (scrollback replayed) instead of killing the shell. Output streams over a per-view
+  `tauri::ipc::Channel` (raw bytes + one `{exit}` message), not an event. Unix spawns the user's
+  LOGIN shell (else a GUI app's PATH hides `claude`/`codex`), always in the vault root. Every
+  command refuses any window but `main`; `managed-policy.json` `terminal.enabled: false` (or
+  `NOAM_TERMINAL_POLICY=disabled`) refuses spawns. `terminal_attach` never spawns: the UI spawns
+  only for a panel a user action created (`lib/terminal/lifecycle.ts`), so a restored tab shows
+  "Session ended". A panel leaving `layout.panels` (close, vault switch) kills its shell; app exit
+  kills all. Its home is the `"bottom"` layout zone (`layout/types.ts`): under the CENTER column
+  only (`.workspace-center-column`), x-splits only, always mounted even collapsed (a hidden
+  terminal keeps running), and persisted layouts without a `bottom` key still load. The xterm view
+  refits only while really on screen (`canFit`), or hiding the dock would resize the shell to one row.
+  A running terminal OFFERS (never writes silently) a vault-root `AGENTS.md` keeping agents out of
+  `.context/` (`lib/terminal/agentGuide.ts`): create-only, plus a `CLAUDE.md` importing it only when
+  none exists — it is a visible note that syncs to the team, hence the offer.
 
 Tauri events to the UI: **`vault-opened`** and **`files-changed`** (the only two).
 
@@ -260,6 +285,15 @@ and the title widget's `eq()` compares only `{path, readOnly, hasFrontmatter, mo
   Per-vault types live in `.context/types.json`; the Visible/Hidden/Source mode is a device-local pref.
   `frontmatterView(state)` is the single authority for which of the three renderings the region gets —
   two block replaces over one range would throw.
+
+**Dashboards** (`docs/DASHBOARDS.md`): a `noam_kind: dashboard` note opens on `DashboardSurface`
+(`App.tsx` nests `BoardSurface > DashboardSurface > Editor`, so a note is a board, a dashboard or
+text). Its `noam-view` fenced blocks are a CLOSED line grammar (`lib/dashboard/`) in the Tasks
+query's style: nothing is evaluated, an unknown line blocks the view rather than widening it, and
+relative dates resolve at run time. Views run through `queryNotes` (NoteKnowledge, with the
+desktop `traverse` for `rel has [[Note]]`) and read card fields index-only via `list_note_cards`.
+The card face is shared with the folder gallery (`components/gallery/NoteCard.tsx`). No iframe
+and no note content through `dangerouslySetInnerHTML`: values render as text.
 
 `AccessPanel` treats the vault mode as **unknown until fetched** (`teamAccess: TeamAccess | null`;
 `lib/teamAccessCache.ts` seeds the paint from localStorage but can never authorise a write, which

@@ -109,6 +109,55 @@
 }
 .workspace-dock-right { grid-column: 6; }
 
+/* The center column: the center dock over the bottom dock. Only the center
+   track changes size when the bottom dock opens; the side docks keep their
+   full height. */
+.workspace-center-column {
+  --workspace-bottom-height: 0px;
+  --workspace-bottom-separator: 0px;
+  grid-column: 4;
+  position: relative;
+  display: grid;
+  grid-template-rows:
+    minmax(0, 1fr) var(--workspace-bottom-separator) var(--workspace-bottom-height);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+.workspace-center-column > .workspace-dock-center { grid-column: 1; grid-row: 1; }
+.workspace-center-column > .workspace-separator-bottom { grid-row: 2; }
+.workspace-center-column > .workspace-dock-bottom {
+  grid-column: 1;
+  grid-row: 3;
+  border-top: 1px solid var(--border);
+}
+/* Collapsed, the bottom dock stays mounted (a hidden terminal keeps running)
+   but takes no space and no focus. */
+.workspace-dock-bottom.is-collapsed { visibility: hidden; border-top: 0; }
+
+.workspace-bottom-drop {
+  position: absolute;
+  z-index: 6;
+  right: 0;
+  bottom: 0;
+  left: 0;
+  height: 56px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-top: 2px dashed var(--border-strong);
+  background: color-mix(in srgb, var(--bg-surface) 88%, transparent);
+  color: var(--text-secondary);
+  font-family: var(--font-body);
+  font-size: var(--type-label-size);
+  pointer-events: auto;
+}
+.workspace-bottom-drop.armed {
+  border-top-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
 .workspace-dock-axis-x.has-split {
   grid-template-columns: var(--workspace-zone-first-size) var(--workspace-separator-size) minmax(0, 1fr);
 }
@@ -276,6 +325,16 @@ body[data-pane-resizing] .workspace-shell {
   color: var(--text-secondary);
   font-size: var(--type-label-size);
 }
+.workspace-panel-collapse svg {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.workspace-panel-collapse,
 .workspace-panel-close {
   width: var(--workspace-toolbar-target);
   height: var(--workspace-toolbar-target);

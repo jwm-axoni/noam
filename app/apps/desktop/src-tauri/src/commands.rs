@@ -10,7 +10,7 @@ use crate::index::{
     Backlink, GraphEdge, GraphNode, Index, NoteMeta, NoteTitle, ResolvedLink, SearchResult,
     YjsPruneReport, YjsState, YjsStateVector,
 };
-use crate::knowledge::{KnowledgePage, KnowledgePageRequest, KnowledgeQuery};
+use crate::knowledge::{KnowledgePage, KnowledgePageRequest, KnowledgeQuery, NoteTimes};
 use crate::tasks::{TaskPage, TaskPageRequest, TaskQuery};
 use crate::notefile;
 use crate::state::AppState;
@@ -280,7 +280,7 @@ struct ManagedAutoUpdate {
 ///   Linux    `/etc/noam/managed-policy.json`
 ///   Windows  `%ProgramData%\Noam\managed-policy.json`
 /// `None` on a platform without a conventional system config location.
-fn managed_policy_path() -> Option<PathBuf> {
+pub(crate) fn managed_policy_path() -> Option<PathBuf> {
     #[cfg(target_os = "macos")]
     {
         Some(PathBuf::from(
@@ -1709,6 +1709,59 @@ pub async fn query_knowledge(
     guard.query_knowledge(&query, &page)
 }
 
+/// `created`/`modified` (epoch ms) for every indexed note, or only the notes
+/// named by `paths` / `doc_ids` when either is given. One indexed read; the
+/// explorer's time sorts use this instead of paging `query_knowledge`.
+#[tauri::command]
+pub async fn list_note_times(
+    state: State<'_, AppState>,
+    paths: Option<Vec<String>>,
+    doc_ids: Option<Vec<String>>,
+    expected_epoch: Option<u64>,
+) -> AppResult<Vec<NoteTimes>> {
+    let (_, index) = require_vault_at(&state, expected_epoch)?;
+    let times = index.lock().unwrap().list_note_times()?;
+    if paths.is_none() && doc_ids.is_none() {
+        return Ok(times);
+    }
+    let paths: std::collections::HashSet<String> = paths.unwrap_or_default().into_iter().collect();
+    let ids: std::collections::HashSet<String> = doc_ids.unwrap_or_default().into_iter().collect();
+    Ok(times
+        .into_iter()
+        .filter(|note| paths.contains(&note.path) || ids.contains(&note.note_id))
+        .collect())
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ServerCreatedTime {
+    pub doc_id: String,
+    /// The server's `notes.created_at`, as the registry listing sends it (ISO).
+    pub created_at: String,
+}
+
+/// Record the server's creation time for synced notes (the second `created`
+/// source). Called by the registry after a pull. Epoch-pinned: the doc ids
+/// come from one vault's registry map. Unparseable timestamps are skipped.
+#[tauri::command]
+pub async fn record_server_created_times(
+    state: State<'_, AppState>,
+    entries: Vec<ServerCreatedTime>,
+    expected_epoch: Option<u64>,
+) -> AppResult<usize> {
+    let (_, index) = require_vault_at(&state, expected_epoch)?;
+    let parsed: Vec<(String, i64)> = entries
+        .into_iter()
+        .filter_map(|entry| {
+            crate::note_times::parse_timestamp(&entry.created_at)
+                .filter(|ts| !ts.date_only)
+                .map(|ts| (entry.doc_id, ts.ms))
+        })
+        .collect();
+    let changed = index.lock().unwrap().record_server_created(&parsed);
+    changed
+}
+
 /// Read one bounded page from the derived task index.
 ///
 /// Read-only and epoch-checked like every other query: a page asked for by a
@@ -1761,6 +1814,42 @@ pub async fn get_note_meta(
     let (_, index) = require_vault_at(&state, expected_epoch)?;
     let guard = index.lock().unwrap();
     guard.get_note_meta(&path)
+}
+
+/// One folder's direct children as folder-gallery cards (`cards.rs`): the
+/// subfolders and `.md` notes, with each note's index-time excerpt and first
+/// image. `None` when the folder no longer exists. Epoch-pinned: a gallery
+/// left open across a vault switch must not list the next vault's folder.
+#[tauri::command]
+pub async fn list_folder_cards(
+    state: State<'_, AppState>,
+    folder: String,
+    expected_epoch: Option<u64>,
+) -> AppResult<Option<Vec<crate::cards::FolderCard>>> {
+    let (vault, index) = require_vault_at(&state, expected_epoch)?;
+    let guard = index.lock().unwrap();
+    crate::cards::list_folder_cards(&vault, &guard, &folder)
+}
+
+/// Card and column data for the notes a dashboard view matched (`cards.rs`
+/// `NoteCardRow`), in the order given, from the index alone — no note is read.
+/// At most `MAX_NOTE_CARDS` ids; unknown ids are skipped. Epoch-pinned like the
+/// folder gallery.
+#[tauri::command]
+pub async fn list_note_cards(
+    state: State<'_, AppState>,
+    doc_ids: Vec<String>,
+    expected_epoch: Option<u64>,
+) -> AppResult<Vec<crate::cards::NoteCardRow>> {
+    if doc_ids.len() > crate::cards::MAX_NOTE_CARDS {
+        return Err(AppError::new(format!(
+            "limit_exceeded: at most {} notes per call",
+            crate::cards::MAX_NOTE_CARDS
+        )));
+    }
+    let (_, index) = require_vault_at(&state, expected_epoch)?;
+    let guard = index.lock().unwrap();
+    guard.note_cards(&doc_ids)
 }
 
 #[tauri::command]

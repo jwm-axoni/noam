@@ -4,6 +4,8 @@
  * skipped while ordinary text, scalar lists, and block lists are indexed.
  */
 
+import { parseTimestamp } from "./system.js";
+
 export type IndexedValueType = "text" | "number" | "boolean" | "date" | "datetime";
 
 export interface IndexedPropertyValue {
@@ -29,6 +31,8 @@ export interface IndexedRelationship {
 
 export interface KnowledgeProjection {
   documentId: string | null;
+  /** Frontmatter `created:` as epoch ms when it parses (see `system.ts`). */
+  frontmatterCreatedMs: number | null;
   properties: IndexedPropertyValue[];
   labels: IndexedLabel[];
   relationships: IndexedRelationship[];
@@ -47,6 +51,28 @@ export interface KnowledgeCatalogProperty {
 export interface KnowledgeCatalog {
   properties: KnowledgeCatalogProperty[];
   labels: Array<{ id: string; name: string }>;
+}
+
+/** The frontmatter key that supplies the `created` system property. */
+export const CREATED_FRONTMATTER_KEY = "created";
+
+/**
+ * Built-in catalog entries (spec 06, "Seeded defaults"): a single-valued
+ * `type` label. They apply only where the vault's catalog note does not define
+ * the same id or key: the catalog note always wins and is never written. The
+ * `people` relationship default has no server-side effect (relationships index
+ * without a definition), so only `type` is seeded here. Mirrors the desktop's
+ * `effective_catalog` (Rust) and `withDefaultCatalogEntries` (TS).
+ */
+export function withDefaultKnowledgeCatalog(catalog: KnowledgeCatalog | null): KnowledgeCatalog {
+  const effective: KnowledgeCatalog = {
+    properties: [...(catalog?.properties ?? [])],
+    labels: [...(catalog?.labels ?? [])],
+  };
+  if (!effective.properties.some((property) => property.id === "type" || property.key === "type")) {
+    effective.properties.push({ id: "type", key: "type", type: { kind: "label", cardinality: "one" } });
+  }
+  return effective;
 }
 
 interface Scalar {
@@ -257,9 +283,9 @@ export function parseKnowledgeCatalog(markdown: string): KnowledgeCatalog | null
   return { properties, labels };
 }
 
-function entries(markdown: string): Array<{ key: string; values: string[] }> {
+function entries(markdown: string): Array<{ key: string; values: string[]; scalar?: boolean }> {
   const lines = frontmatterLines(markdown);
-  const out: Array<{ key: string; values: string[] }> = [];
+  const out: Array<{ key: string; values: string[]; scalar?: boolean }> = [];
   const seen = new Set<string>();
   for (let i = 0; i < lines.length; i++) {
     const line = lines[i]!;
@@ -276,7 +302,7 @@ function entries(markdown: string): Array<{ key: string; values: string[] }> {
       continue;
     }
     if (tail !== "") {
-      out.push({ key, values: [tail] });
+      out.push({ key, values: [tail], scalar: true });
       continue;
     }
     const block: string[] = [];
@@ -297,11 +323,18 @@ export function parseKnowledgeMarkdown(
 ): KnowledgeProjection {
   const projection: KnowledgeProjection = {
     documentId: null,
+    frontmatterCreatedMs: null,
     properties: [],
     labels: [],
     relationships: [],
   };
   for (const entry of entries(markdown)) {
+    if (entry.key === CREATED_FRONTMATTER_KEY && entry.scalar) {
+      // Also indexed below as an ordinary property; this is the parsed instant
+      // the `created` system property prefers over `notes.created_at`. Only a
+      // plain scalar counts (a list is not a date), exactly like the desktop.
+      projection.frontmatterCreatedMs = parseTimestamp(unquote(entry.values[0]!.trim()))?.ms ?? null;
+    }
     if (entry.key === "noam_document_id") {
       const value = unquote(entry.values[0] ?? "").trim();
       projection.documentId = DOCUMENT_ID.test(value) ? value : null;

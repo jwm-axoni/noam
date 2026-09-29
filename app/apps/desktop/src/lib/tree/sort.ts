@@ -3,7 +3,8 @@
 //
 // Two layers, and the order between them is the whole design:
 //
-//   sortTree()  →  the base order, from a preference (recent / A–Z)
+//   sortTree()  →  the base order, from a preference (name, modified or created,
+//                  either direction; a global default plus per-folder overrides)
 //   applyOrder() →  the user's manual per-folder arrangement, pinned on top
 //
 // Because `applyOrder` ranks the items a folder has been arranged with and
@@ -18,63 +19,191 @@
 
 import type { TreeNode } from "../ipc";
 
-/** How the sidebar arranges anything the user hasn't arranged themselves. */
-export type TreeSort = "recent" | "name";
+/**
+ * What a key function may read besides the node itself. `TreeNode` carries the
+ * mtime but not the created date — that lives in the knowledge index, and
+ * resolving it (frontmatter → server → birthtime, `lib/knowledge/noteTimes`)
+ * is a vault-wide read the caller does ONCE and hands in here, keyed by path.
+ * Injected rather than stamped onto the nodes so the sort stays pure and the
+ * tree the store holds is never rewritten for a view preference.
+ */
+export interface SortContext {
+  /** Vault-relative note path → created, epoch ms. A path that is absent is
+   *  "unknown" (not indexed yet, or no source had a date). */
+  created?: ReadonlyMap<string, number>;
+}
 
-export const TREE_SORTS: Array<{ id: TreeSort; label: string; hint: string }> = [
-  { id: "recent", label: "Recently modified", hint: "Newest notes first" },
-  { id: "name", label: "Name (A–Z)", hint: "Alphabetical" },
-];
+/** A time a sort can order files by. `undefined` means "unknown". */
+type TimeKey = (n: TreeNode, ctx: SortContext) => number | undefined;
+
+// The tree reports an unknown mtime as 0 or absent; normalise both here so the
+// comparator has one notion of "unknown" for every key.
+const modifiedKey: TimeKey = (n) => (n.modified && n.modified > 0 ? n.modified : undefined);
+const createdKey: TimeKey = (n, ctx) => ctx.created?.get(n.path);
+
+/**
+ * Every sort the sidebar offers, in menu order. `by` is `"name"` or the time
+ * key files sort on; `dir` is 1 ascending (A–Z, oldest first), -1 descending.
+ * `live` marks a key that moves under the user's feet while they work (the
+ * mtime: every save and every sync write bumps it) — the sidebar pins those
+ * while it is being used, see `isLiveSort`. A created date is not live: an edit
+ * never changes it. Adding a mode is one row here plus its key function (and,
+ * if the key isn't on `TreeNode`, a field on `SortContext`).
+ *
+ * The ids are persisted (the global default in prefs, per-folder overrides in
+ * `folderSorts`), so never rename one: `"recent"` and `"name"` predate the rest
+ * and are exactly what an existing install has saved.
+ */
+export const TREE_SORTS = [
+  { id: "name", label: "Name, A–Z", hint: "Alphabetical", by: "name", dir: 1, live: false },
+  { id: "name-desc", label: "Name, Z–A", hint: "Reverse alphabetical", by: "name", dir: -1, live: false },
+  { id: "recent", label: "Modified, newest first", hint: "Most recently edited first", by: modifiedKey, dir: -1, live: true },
+  { id: "modified-asc", label: "Modified, oldest first", hint: "Least recently edited first", by: modifiedKey, dir: 1, live: true },
+  { id: "created-desc", label: "Created, newest first", hint: "Newest notes first", by: createdKey, dir: -1, live: false },
+  { id: "created-asc", label: "Created, oldest first", hint: "Oldest notes first", by: createdKey, dir: 1, live: false },
+] as const satisfies ReadonlyArray<{
+  id: string;
+  label: string;
+  hint: string;
+  by: "name" | TimeKey;
+  dir: 1 | -1;
+  live: boolean;
+}>;
+
+/** How the sidebar arranges anything the user hasn't arranged themselves. */
+export type TreeSort = (typeof TREE_SORTS)[number]["id"];
+
+type SortSpec = (typeof TREE_SORTS)[number];
+
+const SPEC_BY_ID = new Map<string, SortSpec>(TREE_SORTS.map((s) => [s.id, s]));
+
+/** A fresh install's default — see `readTreeSort` for why. */
+export const DEFAULT_TREE_SORT: TreeSort = "recent";
+
+/** A persisted value, if it is still a sort we know; `null` otherwise. */
+export function parseTreeSort(v: unknown): TreeSort | null {
+  return typeof v === "string" && SPEC_BY_ID.has(v) ? (v as TreeSort) : null;
+}
+
+export function treeSortLabel(sort: TreeSort): string {
+  return SPEC_BY_ID.get(sort)?.label ?? sort;
+}
+
+/** Does this mode read a live key (an mtime)? Those are the modes a sync wave
+ *  can reshuffle, so the sidebar pins their keys while it is being used.
+ *  The Created modes are deliberately NOT live: a note's created date does not
+ *  move when it (or anything else) is saved, so there is nothing to pin. The
+ *  one way it can shift — a synced note's server `created_at` arriving and
+ *  outranking its file birthtime — happens once per note, on a pull. */
+export function isLiveSort(sort: TreeSort): boolean {
+  return SPEC_BY_ID.get(sort)?.live ?? false;
+}
+
+/** Does this mode order by the created date (and so need `SortContext.created`)? */
+export function isCreatedSort(sort: TreeSort): boolean {
+  return SPEC_BY_ID.get(sort)?.by === createdKey;
+}
+
+/** Does anything on screen sort by created — the default or ANY folder's
+ *  override? Only then is the vault-wide created-times read worth making. */
+export function usesCreatedSort(mode: TreeSort, overrides: FolderSorts): boolean {
+  return isCreatedSort(mode) || Object.values(overrides).some(isCreatedSort);
+}
+
+/**
+ * Per-folder overrides: folder path → the sort for THAT folder's direct
+ * children. Not inherited — a subfolder without its own entry uses the global
+ * default. Keyed by path, not id; `folderSorts.ts` says why and keeps the keys
+ * in step with renames, moves and deletes.
+ */
+export type FolderSorts = Record<string, TreeSort>;
 
 /** Sidebar rows are titles, so compare them the way a reader would: "note 10"
  *  after "note 9", case- and accent-insensitively. */
 const collator = new Intl.Collator(undefined, { numeric: true, sensitivity: "base" });
 
+/** Name order, made total: names the collator calls equal ("a.md" / "A.md")
+ *  fall back to the raw path, so the result never depends on input order. */
 function byName(a: TreeNode, b: TreeNode): number {
-  return collator.compare(a.name, b.name);
+  return collator.compare(a.name, b.name) || (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
+}
+
+function known(t: number | undefined): t is number {
+  return t !== undefined && Number.isFinite(t);
+}
+
+function fileComparator(spec: SortSpec, ctx: SortContext): (a: TreeNode, b: TreeNode) => number {
+  const { by, dir } = spec;
+  if (by === "name") return (a, b) => dir * byName(a, b);
+  return (a, b) => {
+    const ta = by(a, ctx);
+    const tb = by(b, ctx);
+    // An unknown time is not "oldest": it goes last in BOTH directions, so
+    // flipping to oldest-first never floods the top with undated rows.
+    if (known(ta) !== known(tb)) return known(ta) ? -1 : 1;
+    if (known(ta) && known(tb) && ta !== tb) return dir * (ta - tb);
+    return byName(a, b);
+  };
+}
+
+function folderComparator(spec: SortSpec): (a: TreeNode, b: TreeNode) => number {
+  // Folders follow a NAME sort's direction but never a time sort — see sortTree.
+  return spec.by === "name" ? (a, b) => spec.dir * byName(a, b) : byName;
 }
 
 /**
  * Sort a tree level (and, recursively, everything under it).
  *
- * Folders always come first and always sort A–Z, in BOTH modes. A folder's
- * mtime moves whenever anything inside it does, so sorting folders by recency
- * would shuffle the sidebar's skeleton every time a note is saved — the part of
- * the tree a user navigates by muscle memory. Recency is a property of the
- * notes, so that is where the mode applies. (This is also what "default to
- * recent for the files, mostly not the folders" asks for.)
+ * Folders always come first. In the name modes they follow the chosen
+ * direction; in the time modes they stay A–Z. A folder's mtime moves whenever
+ * anything inside it does, so sorting folders by recency would shuffle the
+ * sidebar's skeleton every time a note is saved — the part of the tree a user
+ * navigates by muscle memory. Recency is a property of the notes, so that is
+ * where a time mode applies. (This is also what "default to recent for the
+ * files, mostly not the folders" asks for.)
  *
- * Ties and missing mtimes (0/absent) fall back to name order, so the result is
- * total and stable rather than dependent on what `read_dir` happened to yield.
+ * `overrides` swaps the mode for ONE folder's direct children (keyed by that
+ * folder's path; the root would be `""`). Every other level — that folder's
+ * own subfolders included — uses `mode` unless it has an entry of its own.
+ *
+ * Ties fall back to name order, and a missing time (an mtime of 0/absent, a
+ * path `ctx.created` doesn't know) sorts last in both directions, A–Z among
+ * its kind — so the result is total and stable rather than dependent on what
+ * `read_dir` happened to yield. The Created modes read `ctx.created`; without
+ * it every file is "unknown" and they degrade to plain A–Z.
  */
-export function sortTree(nodes: TreeNode[], mode: TreeSort): TreeNode[] {
+export function sortTree(
+  nodes: TreeNode[],
+  mode: TreeSort,
+  overrides: FolderSorts = {},
+  ctx: SortContext = {},
+  parentPath = "",
+): TreeNode[] {
+  const spec =
+    SPEC_BY_ID.get(overrides[parentPath] ?? mode) ?? SPEC_BY_ID.get(DEFAULT_TREE_SORT)!;
   const dirs: TreeNode[] = [];
   const files: TreeNode[] = [];
   for (const n of nodes) (n.isDir ? dirs : files).push(n);
 
-  dirs.sort(byName);
-  files.sort(
-    mode === "name"
-      ? byName
-      : (a, b) => (b.modified ?? 0) - (a.modified ?? 0) || byName(a, b),
-  );
+  dirs.sort(folderComparator(spec));
+  files.sort(fileComparator(spec, ctx));
 
   return [...dirs, ...files].map((n) =>
-    n.children ? { ...n, children: sortTree(n.children, mode) } : n,
+    n.children ? { ...n, children: sortTree(n.children, mode, overrides, ctx, n.path) } : n,
   );
 }
 
 /**
  * Freeze the recency sort key of every file node we have already placed.
  *
- * `"recent"` sorts files by their `.md` file's mtime, and a sync run rewrites
- * files: a bulk wave in a 1,560-note vault moved 1,372 mtimes inside three
- * minutes (measured 2026-09-04). Every one of those writes re-sorted the folder
- * it was in, and arborist positions rows absolutely — so the row under the
- * pointer became a *different* row several times a second. That is the sidebar
- * "blinking on hover" and the clicks that "land on the wrong thing / feel
- * blocked" while something syncs: the highlight follows the cursor, but the
- * content beneath it keeps being replaced.
+ * The time modes sort files by their `.md` file's mtime, and a sync run
+ * rewrites files: a bulk wave in a 1,560-note vault moved 1,372 mtimes inside
+ * three minutes (measured 2026-09-04). Every one of those writes re-sorted the
+ * folder it was in, and arborist positions rows absolutely — so the row under
+ * the pointer became a *different* row several times a second. That is the
+ * sidebar "blinking on hover" and the clicks that "land on the wrong thing /
+ * feel blocked" while something syncs: the highlight follows the cursor, but
+ * the content beneath it keeps being replaced.
  *
  * So while the sidebar is being used (or while a wave is in flight), sort by the
  * mtime each row was FIRST seen with. `pins` is the caller's memory of that,
@@ -82,7 +211,8 @@ export function sortTree(nodes: TreeNode[], mode: TreeSort): TreeNode[] {
  * records its current one (so a note created mid-wave still appears at the top,
  * where it belongs). Clearing `pins` thaws it, and the next sort is the true one.
  *
- * Folders are untouched — they sort by name in both modes.
+ * Folders are untouched — no mode sorts them by time. Only the live (mtime)
+ * modes need this; see `isLiveSort`.
  */
 export function pinModified(nodes: TreeNode[], pins: Map<string, number>): TreeNode[] {
   let changed = false;

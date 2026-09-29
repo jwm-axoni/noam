@@ -1,0 +1,187 @@
+/* Dashboards: the views grid, each view's frame, and the table. Cards reuse the
+   gallery's card styles (gallery.css). Tokens only, so every theme applies. */
+
+.dashboard-host {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: auto;
+  padding: var(--sp-4) var(--sp-6) var(--sp-8);
+  background: var(--bg-app);
+  color: var(--text-primary);
+}
+
+.dashboard-empty {
+  padding: var(--sp-8) var(--sp-4);
+  color: var(--text-secondary);
+  font-size: var(--type-caption-size);
+  text-align: center;
+}
+
+/* Full views take a row; two consecutive half views share one. */
+.dashboard-views {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--sp-5);
+  align-items: flex-start;
+}
+
+.dashboard-view {
+  flex: 1 1 100%;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-3);
+}
+
+.dashboard-view.is-half {
+  flex: 1 1 calc(50% - var(--sp-5));
+  min-width: 280px;
+}
+
+.dashboard-view-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+}
+
+.dashboard-view-title {
+  margin: 0;
+  font-family: var(--font-display);
+  font-size: var(--type-section-size);
+  font-weight: 600;
+}
+
+.dashboard-issues {
+  margin: 0;
+  padding: var(--sp-2) var(--sp-3);
+  list-style: none;
+  font-size: var(--type-caption-size);
+  border-radius: var(--radius-sm);
+  background: var(--warning-soft, var(--bg-subtle));
+  border: 1px solid var(--border);
+}
+
+.dashboard-issue.is-error {
+  color: var(--danger, var(--text-primary));
+}
+
+.dashboard-issue.is-warning {
+  color: var(--text-secondary);
+}
+
+.dashboard-blocked,
+.dashboard-no-match,
+.dashboard-loading,
+.dashboard-error {
+  padding: var(--sp-4);
+  font-size: var(--type-caption-size);
+  color: var(--text-secondary);
+  border: 1px dashed var(--border);
+  border-radius: var(--radius-lg);
+  text-align: center;
+}
+
+.dashboard-error {
+  color: var(--danger, var(--text-primary));
+}
+
+.dashboard-view-foot {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-3);
+  font-size: var(--type-caption-size);
+  color: var(--text-tertiary);
+}
+
+.dashboard-more {
+  padding: 2px var(--sp-3);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  background: var(--bg-surface);
+  color: var(--text-primary);
+  font: inherit;
+  cursor: pointer;
+}
+
+.dashboard-more:hover {
+  background: var(--bg-hover);
+}
+
+/* The table scrolls inside its own frame so the header can stick. */
+.dashboard-table-wrap {
+  max-height: 60vh;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-surface);
+}
+
+.dashboard-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--type-caption-size);
+}
+
+.dashboard-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  padding: 0;
+  text-align: left;
+  background: var(--bg-subtle);
+  border-bottom: 1px solid var(--border);
+}
+
+.dashboard-th {
+  width: 100%;
+  padding: var(--sp-2) var(--sp-3);
+  border: 0;
+  background: none;
+  color: var(--text-secondary);
+  font: inherit;
+  font-weight: 600;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-th:hover {
+  color: var(--text-primary);
+}
+
+.dashboard-table td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+  vertical-align: top;
+  overflow-wrap: anywhere;
+}
+
+.dashboard-row:hover td {
+  background: var(--bg-hover);
+}
+
+.dashboard-link {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent, var(--text-primary));
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+}
+
+.dashboard-link:hover {
+  text-decoration: underline;
+}
+
+.dashboard-link:focus-visible,
+.dashboard-th:focus-visible,
+.dashboard-more:focus-visible {
+  outline: none;
+  box-shadow: var(--focus-ring);
+}
+
+.dashboard-missing {
+  color: var(--text-tertiary);
+  font-style: italic;
+}

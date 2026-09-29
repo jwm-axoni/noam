@@ -320,6 +320,16 @@ impl Index {
             );
             "#,
         )?;
+        // The earliest file birthtime this index has observed for a note: the
+        // last-resort source of the `created` system property (`note_times`).
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "btime_ms", "INTEGER")?;
+        // Folder-gallery card data (`cards.rs`): derived like every other
+        // `notes` column. An index that predates these columns has
+        // `card_version` NULL everywhere, which `rebuild` treats as stale, so
+        // the next open fills them once without waiting for each note to change.
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "excerpt", "TEXT")?;
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "first_image", "TEXT")?;
+        crate::knowledge::add_column_if_missing(&self.conn, "notes", "card_version", "INTEGER")?;
         crate::knowledge::migrate(&self.conn)?;
         crate::tasks::migrate(&self.conn)?;
         Ok(())
@@ -346,20 +356,27 @@ impl Index {
         let tx = self.conn.unchecked_transaction()?;
         let knowledge_generation = crate::knowledge::next_generation(&tx)?;
 
-        // Snapshot what's already indexed: path -> (id, mtime, rowid).
+        // Snapshot what's already indexed: path -> (id, mtime, rowid), plus
+        // the ids whose gallery card data predates `cards::CARD_VERSION`.
         let mut indexed: HashMap<String, (String, i64, i64)> = HashMap::new();
+        let mut cards_stale: HashSet<String> = HashSet::new();
         {
-            let mut stmt = tx.prepare("SELECT path, id, mtime, rowid FROM notes")?;
+            let mut stmt =
+                tx.prepare("SELECT path, id, mtime, rowid, card_version FROM notes")?;
             let rows = stmt.query_map([], |r| {
                 Ok((
                     r.get::<_, String>(0)?,
                     r.get::<_, String>(1)?,
                     r.get::<_, Option<i64>>(2)?.unwrap_or(0),
                     r.get::<_, i64>(3)?,
+                    r.get::<_, Option<i64>>(4)?,
                 ))
             })?;
             for row in rows {
-                let (path, id, mtime, rowid) = row?;
+                let (path, id, mtime, rowid, card_version) = row?;
+                if card_version != Some(crate::cards::CARD_VERSION) {
+                    cards_stale.insert(id.clone());
+                }
                 indexed.insert(path, (id, mtime, rowid));
             }
         }
@@ -464,6 +481,7 @@ impl Index {
                 Some((id, mtime, _))
                     if *mtime == disk_mtime
                         && knowledge_indexed.contains(id)
+                        && !cards_stale.contains(id)
                         && tasks_ready
                         && (rel != crate::knowledge::KNOWLEDGE_SCHEMA_PATH
                             || catalog_projection_ready) => {}
@@ -513,6 +531,11 @@ impl Index {
         }
         crate::knowledge::resolve_queued_relationships(&tx)?;
         crate::tasks::mark_projection_ready(&tx)?;
+        // Once per index: seed the `created` sources for notes indexed before
+        // they existed. A stat per note, no file reads.
+        if !crate::knowledge::system_properties_ready(&tx)? {
+            crate::knowledge::backfill_system_properties(&tx, vault)?;
+        }
         tx.commit()?;
         // Unconditional, unlike `log_batch`, which stays silent below
         // `BATCH_LOG_MIN` — a clean reopen (0 touched notes) is exactly the case
@@ -800,6 +823,7 @@ impl Index {
     fn index_oversized(
         &self,
         tx: &Connection,
+        abs: &Path,
         rel: &str,
         stem: &str,
         mtime: i64,
@@ -815,6 +839,7 @@ impl Index {
                 sha256=excluded.sha256, frontmatter=excluded.frontmatter",
             params![id, rel, stem, mtime],
         )?;
+        crate::knowledge::record_birthtime(tx, &id, crate::note_times::file_birthtime_ms(abs))?;
         let rowid: i64 =
             tx.query_row("SELECT rowid FROM notes WHERE id = ?1", params![id], |r| {
                 r.get(0)
@@ -827,6 +852,8 @@ impl Index {
         tx.execute("DELETE FROM note_tags WHERE note_id = ?1", params![id])?;
         tx.execute("DELETE FROM links WHERE src_note_id = ?1", params![id])?;
         crate::knowledge::mark_skipped(tx, &id, "skipped_oversized", knowledge_generation)?;
+        // Not parsed, so no card data: the gallery shows the name only.
+        Self::write_card(tx, &id, None, None)?;
         // An oversized note is listed but not parsed, so it contributes no tasks.
         crate::tasks::remove_note(tx, &id)?;
         Ok(id)
@@ -870,7 +897,7 @@ impl Index {
                 size as f64 / (1024.0 * 1024.0),
                 MAX_INDEX_BYTES / (1024 * 1024)
             );
-            return self.index_oversized(tx, &rel, stem, mtime, reuse_id, knowledge_generation);
+            return self.index_oversized(tx, abs, &rel, stem, mtime, reuse_id, knowledge_generation);
         }
 
         let content = std::fs::read_to_string(abs)?;
@@ -888,6 +915,7 @@ impl Index {
                 sha256=excluded.sha256, frontmatter=excluded.frontmatter",
             params![id, rel, parsed.title, mtime, sha, parsed.frontmatter_json],
         )?;
+        crate::knowledge::record_birthtime(tx, &id, crate::note_times::file_birthtime_ms(abs))?;
 
         let starts_frontmatter = content
             .strip_prefix('\u{feff}')
@@ -912,6 +940,11 @@ impl Index {
         // Tasks: derived from the same `content`, in the same transaction, so a
         // note's rows and its task rows can never disagree.
         crate::tasks::index_tasks(tx, &id, &content, knowledge_generation)?;
+
+        // Folder-gallery card data, from the same parse (see `cards.rs`).
+        let excerpt = crate::cards::derive_excerpt(&parsed.body);
+        let first_image = crate::cards::first_image(vault, &rel, &parsed.body);
+        Self::write_card(tx, &id, excerpt.as_deref(), first_image.as_deref())?;
 
         let rowid: i64 =
             tx.query_row("SELECT rowid FROM notes WHERE id = ?1", params![id], |r| {
@@ -955,6 +988,146 @@ impl Index {
         Ok(id)
     }
 
+    fn write_card(
+        tx: &Connection,
+        id: &str,
+        excerpt: Option<&str>,
+        first_image: Option<&str>,
+    ) -> AppResult<()> {
+        tx.execute(
+            "UPDATE notes SET excerpt = ?2, first_image = ?3, card_version = ?4 WHERE id = ?1",
+            params![id, excerpt, first_image, crate::cards::CARD_VERSION],
+        )?;
+        Ok(())
+    }
+
+    /// Card fields of the notes DIRECTLY inside `folder` ("" = vault root),
+    /// keyed by path. A range scan over the `path` UNIQUE index (`/` + 1 is `0`).
+    pub fn card_rows_in(&self, folder: &str) -> AppResult<HashMap<String, crate::cards::CardRow>> {
+        let map_row = |r: &rusqlite::Row<'_>| {
+            Ok((
+                r.get::<_, String>(0)?,
+                crate::cards::CardRow {
+                    id: r.get(1)?,
+                    excerpt: r.get(2)?,
+                    first_image: r.get(3)?,
+                },
+            ))
+        };
+        let rows = if folder.is_empty() {
+            let mut stmt = self.conn.prepare(
+                "SELECT path, id, excerpt, first_image FROM notes WHERE instr(path, '/') = 0",
+            )?;
+            let out = stmt.query_map([], map_row)?.collect::<Result<HashMap<_, _>, _>>()?;
+            out
+        } else {
+            let mut stmt = self.conn.prepare(
+                "SELECT path, id, excerpt, first_image FROM notes
+                 WHERE path >= ?1 || '/' AND path < ?1 || '0'
+                   AND instr(substr(path, length(?1) + 2), '/') = 0",
+            )?;
+            let out = stmt
+                .query_map(params![folder], map_row)?
+                .collect::<Result<HashMap<_, _>, _>>()?;
+            out
+        };
+        Ok(rows)
+    }
+
+    /// Card + column data for the given notes (dashboards), in the order asked,
+    /// read from the index only: the index-time excerpt/first image, the typed
+    /// property values and the named relationships. Unknown ids are skipped.
+    pub fn note_cards(&self, ids: &[String]) -> AppResult<Vec<crate::cards::NoteCardRow>> {
+        use crate::cards::{NoteCardProperty, NoteCardRelationship, NoteCardRow};
+        let mut note = self
+            .conn
+            .prepare("SELECT path, excerpt, first_image, sha256 FROM notes WHERE id = ?1")?;
+        let mut properties = self.conn.prepare(
+            "SELECT property_id, text_value, number_value, boolean_value
+               FROM knowledge_properties WHERE note_id = ?1
+              ORDER BY property_id, ordinal",
+        )?;
+        let mut relationships = self.conn.prepare(
+            "SELECT r.relationship_id, r.target_note_id, dst.path
+               FROM knowledge_relationships r
+               LEFT JOIN notes dst ON dst.id = r.target_note_id
+              WHERE r.source_note_id = ?1
+              ORDER BY r.relationship_id, r.ordinal",
+        )?;
+        let mut out = Vec::with_capacity(ids.len());
+        let mut seen = HashSet::new();
+        for id in ids {
+            if !seen.insert(id.as_str()) {
+                continue;
+            }
+            let row = note
+                .query_row(params![id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
+                })
+                .optional()?;
+            let Some((path, excerpt, first_image, sha)) = row else { continue };
+            let empty = sha.as_deref() == Some(crate::cards::EMPTY_SHA256);
+            let values = properties
+                .query_map(params![id], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<f64>>(2)?,
+                        r.get::<_, Option<i64>>(3)?,
+                    ))
+                })?
+                .collect::<Result<Vec<_>, _>>()?
+                .into_iter()
+                .filter_map(|(property_id, text, number, boolean)| {
+                    let text = text
+                        .or_else(|| number.map(crate::cards::format_number))
+                        .or_else(|| boolean.map(|b| (b != 0).to_string()))?;
+                    Some(NoteCardProperty { property_id, text })
+                })
+                .collect();
+            let edges = relationships
+                .query_map(params![id], |r| {
+                    Ok(NoteCardRelationship {
+                        relationship_id: r.get(0)?,
+                        target_note_id: r.get(1)?,
+                        target_path: r.get(2)?,
+                    })
+                })?
+                .collect::<Result<Vec<_>, _>>()?;
+            let file = path.rsplit('/').next().unwrap_or(&path);
+            let name = if file.to_ascii_lowercase().ends_with(".md") && file.len() > 3 {
+                file[..file.len() - 3].to_string()
+            } else {
+                file.to_string()
+            };
+            out.push(NoteCardRow {
+                doc_id: id.clone(),
+                name,
+                excerpt: if empty { None } else { excerpt },
+                first_image: if empty { None } else { first_image },
+                empty,
+                properties: values,
+                relationships: edges,
+                path,
+            });
+        }
+        Ok(out)
+    }
+
+    /// How many notes sit anywhere under `folder` (a range scan; `/` + 1 is `0`).
+    pub fn count_notes_under(&self, folder: &str) -> AppResult<i64> {
+        Ok(self.conn.query_row(
+            "SELECT COUNT(*) FROM notes WHERE path >= ?1 || '/' AND path < ?1 || '0'",
+            params![folder],
+            |r| r.get(0),
+        )?)
+    }
+
     /// Bounded, generation-bound reads over the normalized local knowledge index.
     pub fn query_knowledge(
         &self,
@@ -962,6 +1135,22 @@ impl Index {
         page: &KnowledgePageRequest,
     ) -> AppResult<KnowledgePage> {
         crate::knowledge::query(&self.conn, query, page)
+    }
+
+    /// Every note's `created`/`modified` system properties in one read — the
+    /// cheap bulk path for list views (the explorer's "Created" sorts), which
+    /// have no use for the paging and filtering of `query_knowledge`.
+    pub fn list_note_times(&self) -> AppResult<Vec<crate::knowledge::NoteTimes>> {
+        crate::knowledge::list_note_times(&self.conn)
+    }
+
+    /// Record the server's `notes.created_at` (epoch ms) for synced notes,
+    /// keyed by doc_id. Survives `rebuild`; returns how many rows changed.
+    pub fn record_server_created(&self, entries: &[(String, i64)]) -> AppResult<usize> {
+        let tx = self.conn.unchecked_transaction()?;
+        let changed = crate::knowledge::record_server_created(&tx, entries)?;
+        tx.commit()?;
+        Ok(changed)
     }
 
     /// Bounded reads over the derived task index.
@@ -1766,6 +1955,12 @@ impl Index {
         // between writes on.
         tx.execute(
             "DELETE FROM note_ui_state WHERE doc_id NOT IN (SELECT doc_id FROM _live_docs)",
+            [],
+        )?;
+        // The server's creation time for a note nobody can reach any more — the
+        // other doc_id-keyed table `rebuild` never touches.
+        tx.execute(
+            "DELETE FROM note_server_created WHERE doc_id NOT IN (SELECT doc_id FROM _live_docs)",
             [],
         )?;
         tx.execute_batch("DROP TABLE IF EXISTS _live_docs;")?;
@@ -2874,6 +3069,26 @@ mod tests {
             )
             .unwrap();
         assert_eq!(resolved, 1);
+    }
+
+    #[test]
+    fn card_data_backfills_on_rebuild_for_an_index_that_predates_it() {
+        let (_tmp, v) = seed_vault();
+        let idx = Index::open(&v).unwrap();
+        idx.rebuild(&v).unwrap();
+        let rows = idx.card_rows_in("sub").unwrap();
+        assert_eq!(rows["sub/Beta.md"].excerpt.as_deref(), Some("The quick brown fox. Back to Alpha."));
+        // Simulate an index written before the card columns existed: mtimes
+        // all match, so only the version marker can make `rebuild` look again.
+        idx.conn
+            .execute_batch("UPDATE notes SET excerpt = NULL, first_image = NULL, card_version = NULL")
+            .unwrap();
+        idx.rebuild(&v).unwrap();
+        let rows = idx.card_rows_in("").unwrap();
+        assert_eq!(rows["Alpha.md"].excerpt.as_deref(), Some("Links to Beta and #inline tag."));
+        assert_eq!(rows["Gamma.md"].excerpt.as_deref(), Some("Dangling Nonexistent link."));
+        assert!(!rows.contains_key("sub/Beta.md"), "root listing is direct children only");
+        assert_eq!(idx.count_notes_under("sub").unwrap(), 1);
     }
 
     #[test]

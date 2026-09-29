@@ -129,6 +129,12 @@ n/a = synchronous or sub-100ms by construction.
 | Export… | disk copy outside the vault | 0.2s–30s | ✅ toast (nothing in-app changes otherwise) |
 | Share… | opens the dialog | instant | n/a |
 | Set colour, reorder, drag-move | local + registry | fast | n/a |
+| Sort (header button) — Name A–Z / Z–A, Modified newest / oldest | local only | instant | n/a; applies to every folder without its own sort; dragged items keep their place |
+| Right-click folder → "Sort this folder" | local only (per device) | instant | n/a; direct contents only; follows the folder through in-app renames and moves |
+| Sort by Created, newest / oldest | one read of created dates for the vault | fast | n/a; undated notes go last |
+| Right-click folder → "Show as gallery" / "Show as list" | local only (per device) | instant | ✅ gallery tab opens in the center |
+| Click a gallery-mode folder | index read (no note bodies) | fast | ✅ expands in the tree and opens or retargets the Gallery tab |
+| Pointer in the tree or a sync running, under a Modified sort | none | n/a | rows hold still and re-sort once both clear |
 
 ### Shared icon picker — `components/IconPicker.tsx`
 
@@ -136,6 +142,18 @@ n/a = synchronous or sub-100ms by construction.
 | --- | --- | --- | --- |
 | Choose or reset a note, file, or folder icon | local presentation write + reindex | 0.1–1s | ✅ picker closes after a successful write and returns focus to its opener; a failed write keeps the picker open |
 | Close the picker (Close button / Escape / outside press) | local UI | instant | n/a; Close and Escape return focus to the opener |
+
+### Dashboards — `components/dashboard/`, `lib/dashboard/` ([[DASHBOARDS]])
+
+| Action | Work | Latency | Feedback |
+| --- | --- | --- | --- |
+| New dashboard (file tree menu) | create-only write + open | fast | ✅ opens on the Dashboard surface |
+| Dashboard / Text toggle | local (per note path) | instant | n/a |
+| A view running | index query per view | fast | ✅ "Loading…" on the first run only; rows stay on screen during refreshes |
+| Show more | next cursor page | fast | ✅ rows append; starts over if the cursor expired |
+| Table header click | in-memory re-sort | instant | n/a; the note is not rewritten |
+| Card / row click or Enter | open note | as note open | ✅ |
+| A view fails | none | n/a | ✅ error inside that view only; the others keep working |
 
 ### Editor & main — `components/Editor.tsx`, `App.tsx`
 
@@ -146,6 +164,18 @@ n/a = synchronous or sub-100ms by construction.
 | Push-to-talk | mic + relay | instant | ✅ existing talk states |
 | Search | local FTS5 | fast | n/a |
 | Graph view | in-memory sim | fast | n/a |
+| Gallery: arrows / Home / End, Enter or click | local | instant | ✅ focus moves card to card; opens the note or enters the subfolder; breadcrumbs go back up |
+| Properties panel "Load more" | next page of relationships or backlinks | fast | ✅ rows stay loaded when an edit refreshes the panel |
+| Find in note (⌘F / Ctrl+F in the editor) | in-memory search | instant | ✅ floating bubble top-right, live "3 of 12"; prefilled from a one-line selection |
+| Find and replace (⌘⌥F on macOS, Ctrl+H elsewhere) | in-memory, one transaction per Replace All | instant | ✅ replace row; Replace All is one undo step |
+| Vault search (⌘F outside a note, ⌘⇧F anywhere) | local FTS5 | fast | ✅ Search panel opens focused |
+| Open terminal (Ctrl+` / activity button) | spawn login shell in vault root | 0.1–1s | ✅ opens in the bottom panel, focused; the prompt is the feedback. A restored tab shows "Session ended" + Restart, never a silent respawn |
+| Hide / show the bottom panel (Ctrl+` from its terminal, header chevron) | layout only | instant | n/a; the shell keeps running and focus returns to the note |
+| Resize the bottom panel (drag its top edge) | layout only | instant | ✅ live preview; the note keeps at least 200 px |
+| Add AGENTS.md (terminal banner) | create-only write of AGENTS.md (+ CLAUDE.md if missing) | fast | ✅ banner leaves every terminal; toast names what was added, or says an existing CLAUDE.md needs the `@AGENTS.md` line |
+| Drag a terminal tab to the bottom (empty panel) | layout only | instant | ✅ a "Drop to dock at the bottom" strip appears mid-drag for tabs allowed there |
+| New terminal (Ctrl+Shift+`) | same, new tab (max 4) | 0.1–1s | ✅ tab opens focused; at the limit nothing opens |
+| Shell exits | pty EOF + wait | instant | ✅ "Shell exited with code N" + Restart under the output |
 | Ping a peer | awareness field | instant | ✅ existing ping toast |
 | New tab (`+` / ⌘N) | create + open + reveal | fast | ✅ row pulses in the sidebar, highlight slides to the new tab, cursor waits in the note's title |
 | Switch tab (click / Ctrl-Tab) | same as note open | 0.05–2s | ✅ tab dims while opening, then the highlight slides to it |

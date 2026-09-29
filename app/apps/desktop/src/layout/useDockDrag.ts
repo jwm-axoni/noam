@@ -9,7 +9,7 @@ import {
   type DockDropTarget,
 } from "./dragSession";
 import { useLayoutStore } from "./store";
-import { canSplitZone, type ZoneId } from "./types";
+import { canSplitZone, isZoneId, PANEL_ALLOWED_ZONES, type ZoneId } from "./types";
 
 const DRAG_THRESHOLD = 6;
 
@@ -22,7 +22,17 @@ interface Probe {
 }
 
 function zoneId(value: string | undefined): ZoneId | null {
-  return value === "left" || value === "center" || value === "right" ? value : null;
+  return isZoneId(value) ? value : null;
+}
+
+/** Can the dragged tab land in `zone` at all? Notes live only in the center. */
+function sourceAllows(source: DockDragSource, zone: ZoneId): boolean {
+  const layout = useLayoutStore.getState().layout;
+  const tab = layout.groups[source.groupId]?.tabs.find((candidate) => candidate.id === source.tabId);
+  if (!tab) return false;
+  if (tab.kind === "note") return zone === "center";
+  const panel = layout.panels[tab.panelId];
+  return panel != null && PANEL_ALLOWED_ZONES[panel.type].includes(zone);
 }
 
 function targetAt(clientX: number, clientY: number, source: DockDragSource): DockDropTarget | null {
@@ -32,6 +42,11 @@ function targetAt(clientX: number, clientY: number, source: DockDragSource): Doc
   if (emptyZone === "left" || emptyZone === "right") {
     return { kind: "zone", zone: emptyZone };
   }
+  // The empty bottom dock is only a strip that appears mid-drag, and only for
+  // a tab allowed there (see `BottomDropStrip`).
+  if (emptyZone === "bottom") {
+    return sourceAllows(source, "bottom") ? { kind: "zone", zone: "bottom" } : null;
+  }
 
   const host = hit?.closest<HTMLElement>("[data-dock-group-id]");
   const groupId = host?.dataset.dockGroupId;
@@ -40,6 +55,9 @@ function targetAt(clientX: number, clientY: number, source: DockDragSource): Doc
 
   const layout = useLayoutStore.getState().layout;
   const sourceTab = layout.groups[source.groupId]?.tabs.find((tab) => tab.id === source.tabId);
+  // Nothing but an allowed panel may drop into the bottom dock; offering a
+  // marker there for a note or a dock-only tool would promise a no-op.
+  if (zone === "bottom" && !sourceAllows(source, "bottom")) return null;
   const rect = host.getBoundingClientRect();
   if (rect.width <= 0 || rect.height <= 0) return null;
   const edgeX = Math.min(44, rect.width * 0.22);

@@ -25,6 +25,7 @@ import {
   ACCESS_CHECK_MAX,
   ApiClient,
   ApiError,
+  noteCreatedAt,
   noteCreatedBy,
   noteDocId,
   noteLastEdited,
@@ -36,6 +37,7 @@ import {
 } from "../api";
 import * as ipc from "../ipc";
 import type { TreeNode } from "../ipc";
+import { createServerCreatedRecorder } from "../knowledge/noteTimes";
 import * as perf from "../perf";
 import { seedWelcomeContent } from "../vault/seed";
 import { Checkpointer, checkpointBatchFor } from "./checkpoint";
@@ -385,6 +387,9 @@ export class VaultRegistry {
   /** Whose authorship {@link authoredDocs} describes. Null until a session with
    *  a user id has learned or adopted one. */
   private authoredBy: string | null = null;
+  /** Hands each listing's `created_at`s to the local index (the `created`
+   *  system property's server source). Deduped, best effort, never awaited. */
+  private recordServerCreated = createServerCreatedRecorder();
   /**
    * The collection `baselineDocs` describes. A baseline recorded against ANOTHER
    * collection must never decide that a file moved or died, so a mismatch
@@ -1805,6 +1810,14 @@ export class VaultRegistry {
     // captured while the row is still LISTED — once access to it is taken away
     // the listing omits it, which is precisely the moment the answer is needed.
     this.learnAuthorship(serverNotes);
+    // Same listing, same reason to read it here: the server's creation time is
+    // not re-derivable from the file, so the index stores it by doc_id. Fire
+    // and forget — the write queues on the index lock (#84), and a failure
+    // only costs `created` its server source until the next pull.
+    void this.recordServerCreated(
+      serverNotes.map((n) => ({ docId: noteDocId(n), createdAt: noteCreatedAt(n) })),
+      this.epoch(),
+    );
 
     // 1. Inbound: apply the server's structural changes to disk. Runs first so the
     //    outbound steps below see a tree that already agrees about paths.

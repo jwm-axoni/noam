@@ -172,6 +172,10 @@ export interface RegisteredNote {
    *  revoked, instead of being removed outright. */
   createdBy?: string | null;
   created_by?: string | null;
+  /** When the server first registered the note (ISO). The `created` system
+   *  property's second source, after frontmatter `created:` (spec 06). */
+  createdAt?: string | null;
+  created_at?: string | null;
 }
 
 /** The normalized "last edited by" fact for one note (see {@link noteLastEdited}). */
@@ -1946,6 +1950,10 @@ export function noteRelPath(n: RegisteredNote): string | undefined {
 /** Who created the note, or null when the server didn't say. */
 export function noteCreatedBy(n: RegisteredNote): string | null {
   return n.createdBy ?? n.created_by ?? null;
+}
+/** When the server first registered the note (ISO), or null if it didn't say. */
+export function noteCreatedAt(n: RegisteredNote): string | null {
+  return n.createdAt ?? n.created_at ?? null;
 }
 /**
  * The note's last-edit stamp, or null when it has never been edited (or the

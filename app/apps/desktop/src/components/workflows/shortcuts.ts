@@ -46,7 +46,10 @@ export const RESERVED_SHORTCUTS: ReadonlySet<string> = new Set([
   "mod+w", // close tab
   "mod+s", // flush pending writes
   "mod+g", // graph
-  "mod+f", // search
+  "mod+f", // in-note find (editor focused) / vault search
+  "mod+shift+f", // vault search, always
+  "mod+alt+f", // in-note replace (macOS)
+  "mod+h", // in-note replace (Ctrl+H, Windows/Linux); ⌘H is Hide on macOS
   "mod+r", // reload
   "mod+e", // cycle view mode
   "mod+shift+p", // the action picker itself

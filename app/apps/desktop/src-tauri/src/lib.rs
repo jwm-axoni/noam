@@ -3,6 +3,7 @@
 //! registered here and reacts to `files-changed` / `vault-opened` events.
 
 pub mod attachments;
+pub mod cards;
 mod commands;
 mod error;
 mod identity;
@@ -10,11 +11,13 @@ pub mod import_export;
 pub mod index;
 pub mod keychain;
 pub mod knowledge;
+pub mod note_times;
 pub mod notefile;
 pub mod oauth;
 pub mod parse;
 mod state;
 pub mod tasks;
+mod terminal;
 pub mod tree;
 pub mod vault;
 mod watcher;
@@ -127,6 +130,7 @@ pub fn run() {
             Ok(())
         })
         .manage(AppState::default())
+        .manage(terminal::TerminalManager::default())
         .invoke_handler(tauri::generate_handler![
             commands::pick_vault,
             commands::open_vault,
@@ -159,10 +163,14 @@ pub fn run() {
             commands::search_notes,
             commands::get_backlinks,
             commands::query_knowledge,
+            commands::list_note_times,
+            commands::record_server_created_times,
             commands::query_tasks,
             commands::graph_edges,
             commands::graph_edges_for,
             commands::get_note_meta,
+            commands::list_folder_cards,
+            commands::list_note_cards,
             commands::resolve_wikilink,
             commands::list_note_titles,
             commands::list_graph_nodes,
@@ -209,9 +217,23 @@ pub fn run() {
             keychain::keychain_delete,
             oauth::google_oauth_listen,
             oauth::google_oauth_await,
+            terminal::terminal_status,
+            terminal::terminal_open,
+            terminal::terminal_attach,
+            terminal::terminal_detach,
+            terminal::terminal_write,
+            terminal::terminal_resize,
+            terminal::terminal_kill,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application")
+        .run(|app, event| {
+            // Quitting takes every shell with it: a terminal is part of this
+            // window, not a background service that outlives the app.
+            if let tauri::RunEvent::Exit = event {
+                app.state::<terminal::TerminalManager>().kill_all();
+            }
+        });
 }
 
 #[cfg(test)]

@@ -16,6 +16,7 @@ import {
   GRAPH_GROUP_MIN,
   GROUP_HEIGHT_MIN,
   TOOL_GROUP_MIN,
+  clampPreferredBottomHeight,
   clampPreferredDockWidth,
   clampSplitRatio,
   stackGroupSizes,
@@ -39,7 +40,7 @@ export type LayoutOperation =
   | { type: "clear-note-tabs" }
   | { type: "reorder-tab"; groupId: string; tabId: string; toIndex: number }
   | { type: "move-tab"; tabId: string; fromGroupId: string; toGroupId: string; toIndex?: number }
-  | { type: "move-tab-to-zone"; tabId: string; fromGroupId: string; zone: "left" | "right" }
+  | { type: "move-tab-to-zone"; tabId: string; fromGroupId: string; zone: "left" | "right" | "bottom" }
   | {
       type: "split-tab";
       zone: ZoneId;
@@ -61,8 +62,9 @@ export type LayoutOperation =
     }
   | { type: "join-zone"; zone: ZoneId; targetGroupId?: string }
   | { type: "swap-zone-groups"; zone: ZoneId }
-  | { type: "set-zone-collapsed"; zone: "left" | "right"; collapsed: boolean }
+  | { type: "set-zone-collapsed"; zone: "left" | "right" | "bottom"; collapsed: boolean }
   | { type: "resize-zone"; zone: "left" | "right"; width: number }
+  | { type: "resize-bottom"; height: number }
   | { type: "set-split-ratio"; zone: ZoneId; ratio: number; availableSize: number }
   | { type: "resize-stack-pair"; zone: "right"; index: number; size: number; availableSize: number }
   | { type: "focus-group"; groupId: string }
@@ -76,6 +78,7 @@ function copyLayout(layout: LayoutV1): LayoutV1 {
       left: { ...layout.zones.left, groupIds: [...layout.zones.left.groupIds] },
       center: { ...layout.zones.center, groupIds: [...layout.zones.center.groupIds] },
       right: { ...layout.zones.right, groupIds: [...layout.zones.right.groupIds], groupSizes: layout.zones.right.groupSizes ? { ...layout.zones.right.groupSizes } : undefined },
+      bottom: { ...layout.zones.bottom, groupIds: [...layout.zones.bottom.groupIds] },
     },
     groups: Object.fromEntries(
       Object.entries(layout.groups).map(([id, group]) => [
@@ -92,10 +95,11 @@ function copyLayout(layout: LayoutV1): LayoutV1 {
   };
 }
 
-function zoneForGroup(layout: LayoutV1, groupId: string): ZoneId | null {
+export function zoneForGroup(layout: LayoutV1, groupId: string): ZoneId | null {
   if (layout.zones.left.groupIds.includes(groupId)) return "left";
   if (layout.zones.center.groupIds.includes(groupId)) return "center";
   if (layout.zones.right.groupIds.includes(groupId)) return "right";
+  if (layout.zones.bottom.groupIds.includes(groupId)) return "bottom";
   return null;
 }
 
@@ -409,7 +413,7 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
         const toIndex = Math.max(0, Math.min(to.tabs.length, operation.toIndex ?? to.tabs.length));
         to.tabs.splice(toIndex, 0, tab);
         to.activeTabId = tab.id;
-        if (toZone === "left" || toZone === "right") next.zones[toZone].userCollapsed = false;
+        if (toZone !== "center") next.zones[toZone].userCollapsed = false;
         if (from.activeTabId === tab.id) from.activeTabId = from.tabs[index]?.id ?? from.tabs[index - 1]?.id ?? null;
         removeEmptyGroup(next, from);
         next.focusedGroupId = to.id;
@@ -511,6 +515,10 @@ export function applyLayoutOperation(layout: LayoutV1, operation: LayoutOperatio
         next.zones[operation.zone].userCollapsed = operation.collapsed;
         changed = true;
       }
+      break;
+    case "resize-bottom":
+      next.zones.bottom.preferredHeight = clampPreferredBottomHeight(operation.height);
+      changed = next.zones.bottom.preferredHeight !== layout.zones.bottom.preferredHeight;
       break;
     case "resize-zone":
       next.zones[operation.zone].preferredWidth = clampPreferredDockWidth(

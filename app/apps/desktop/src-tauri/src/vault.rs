@@ -23,13 +23,16 @@ pub const DENIED_DIRS: &[&str] = &["node_modules", "dist", "build", "target", "v
 struct FileTypeContract {
     extensions: Vec<String>,
     import_rule: String,
+    preview: String,
+}
+
+fn file_type_contract() -> Vec<FileTypeContract> {
+    serde_json::from_str(include_str!("../../file-types.json")).expect("file-types.json must be valid")
 }
 
 /// Parsed from the same declarative contract the TypeScript viewer imports.
 static FILE_TYPES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
-    let definitions: Vec<FileTypeContract> = serde_json::from_str(include_str!("../../file-types.json"))
-        .expect("file-types.json must be valid");
-    definitions
+    file_type_contract()
         .into_iter()
         .flat_map(|definition| {
             definition
@@ -39,6 +42,27 @@ static FILE_TYPES: LazyLock<HashMap<String, String>> = LazyLock::new(|| {
         })
         .collect()
 });
+
+/// Extensions the viewer previews as an image (`preview: "image"`), from the
+/// same contract — so a gallery thumbnail is exactly what a note can inline.
+static IMAGE_EXTS: LazyLock<Vec<String>> = LazyLock::new(|| {
+    file_type_contract()
+        .into_iter()
+        .filter(|definition| definition.preview == "image")
+        .flat_map(|definition| definition.extensions)
+        .collect()
+});
+
+/// True when the file-type contract previews this name as an image.
+pub fn is_image_file(name: &str) -> bool {
+    match name.rsplit_once('.') {
+        Some((stem, ext)) if !stem.is_empty() && !ext.is_empty() => {
+            let ext = ext.to_ascii_lowercase();
+            IMAGE_EXTS.iter().any(|known| *known == ext)
+        }
+        _ => false,
+    }
+}
 
 /// True if a directory/file name should be skipped by the tree walk & watcher.
 pub fn is_ignored_name(name: &str) -> bool {

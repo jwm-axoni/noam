@@ -6,7 +6,6 @@ import { autocompletion, closeBrackets, closeBracketsKeymap } from "@codemirror/
 import { defaultKeymap, history, historyKeymap } from "@codemirror/commands";
 import { markdown, markdownLanguage } from "@codemirror/lang-markdown";
 import { foldKeymap, indentOnInput, indentUnit } from "@codemirror/language";
-import { searchKeymap } from "@codemirror/search";
 import { Compartment, EditorState, type Extension, Prec, Text } from "@codemirror/state";
 import {
   drawSelection,
@@ -24,6 +23,7 @@ import { codeLanguages } from "./codeLanguages";
 import { coloredHighlights } from "./coloredHighlight";
 import { folding, preserveFoldsAcrossModes } from "./folding";
 import { formattingKeymap } from "./formatting";
+import { findKeymap, findReplace } from "./find";
 import { frontmatterDecorations } from "./frontmatter";
 import { indentGuides } from "./indentGuides";
 import { listKeymap } from "./lists";
@@ -185,7 +185,9 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     // CRDT notes use the Yjs UndoManager keymap (added via extraExtensions);
     // the local CM6 history keymap would fight it, so drop it in collab mode.
     ...(collab ? [] : historyKeymap),
-    ...searchKeymap,
+    // The floating find/replace bubble (find.ts): Mod-f, Mod-Alt-f on macOS /
+    // Ctrl-h elsewhere, plus what we keep of `searchKeymap`.
+    ...findKeymap,
   ];
 
   return [
@@ -208,6 +210,9 @@ export function baseExtensions(opts: CreateEditorOptions): Extension[] {
     indentUnit.of("  "),
     EditorView.lineWrapping,
     closeBrackets(),
+    // In-note find & replace, as a floating bubble instead of the default
+    // bottom panel. Replace All is one transaction → one undo step.
+    findReplace(),
     // Markdown-aware editing keys, ahead of the base keymap so they win:
     //   Mod-b/i/k/…    inline formatting toggles (⌘E cycles view mode)
     //   Mod-Alt-1…6    heading level      Shift-Enter  hard break
